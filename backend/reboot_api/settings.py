@@ -11,17 +11,12 @@ load_dotenv(os.path.join(BASE_DIR, '.env'))
 # Database Setting for MariaDB
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
+        'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'reboot_db',
-        'USER': 'root',       # 사용자 환경에 맞게 수정 필요 시 말씀해주세요
-        'PASSWORD': '1q2w3e4r',
-        'HOST': '127.0.0.1',
-        'PORT': '3306',
-        'OPTIONS': {
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
-            'charset': 'utf8mb4',
-            'charset': 'utf8mb4',
-        },
+        'USER': 'slyeee',
+        'PASSWORD': '',
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }
 
@@ -49,6 +44,7 @@ INSTALLED_APPS = [
     'learning',
     'analytics',
     'career',
+    'pgvector',
 ]
 
 ROOT_URLCONF = 'reboot_api.urls'

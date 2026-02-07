@@ -4,10 +4,13 @@ from .views import LearningSessionViewSet, EnrollLectureView, PublicLectureListV
 from .views_assessment import AssessmentViewSet
 from .professor_views import LectureViewSet
 
+from .rag_views import RAGViewSet
+
 router = DefaultRouter()
 router.register(r'sessions', LearningSessionViewSet, basename='session')
 router.register(r'assessment', AssessmentViewSet, basename='assessment')
 router.register(r'lectures', LectureViewSet, basename='lecture')
+router.register(r'rag', RAGViewSet, basename='rag')
 
 urlpatterns = [
     path('enroll/', EnrollLectureView.as_view(), name='enroll-lecture'),
