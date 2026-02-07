@@ -59,3 +59,21 @@ class RAGViewSet(viewsets.ViewSet):
             return Response(data, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'], url_path='ask')
+    def ask(self, request):
+        """
+        [고도화된 RAG 질문]
+        Body: { "q": "질문", "session_id": 123 (선택), "lecture_id": 4 (선택) }
+        """
+        query = request.data.get('q')
+        session_id = request.data.get('session_id')
+        lecture_id = request.data.get('lecture_id')
+        
+        if not query:
+             return Response({'error': 'Query is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        rag_service = RAGService()
+        answer = rag_service.generate_answer(query, session_id=session_id, lecture_id=lecture_id)
+        
+        return Response({'answer': answer}, status=status.HTTP_200_OK)

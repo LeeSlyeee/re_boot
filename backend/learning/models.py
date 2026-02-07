@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 from courses.models import CourseSection
 from pgvector.django import VectorField
 import random
@@ -68,6 +69,10 @@ class LearningSession(models.Model):
     end_time = models.DateTimeField(null=True, blank=True)
     is_completed = models.BooleanField(default=False)
     youtube_url = models.URLField(max_length=500, blank=True, null=True, help_text="유튜브 학습 시 영상 URL")
+    
+    # [New] 대화 압축 (Conversation Compression)
+    context_summary = models.TextField(blank=True, null=True, help_text="현재까지의 대화/자막 압축 요약본")
+    last_compressed_at = models.DateTimeField(default=timezone.now, help_text="마지막 압축 시점")
 
     def __str__(self):
         title = self.section.title if self.section else "자율학습"

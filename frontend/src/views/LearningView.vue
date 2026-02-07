@@ -58,6 +58,53 @@ const quizAnswers = ref({});
 const quizResult = ref(null);
 const isGeneratingQuiz = ref(false);
 
+// --- RAG Chat State ---
+const isChatOpen = ref(false);
+const chatMessages = ref([
+    { role: 'ai', text: '안녕하세요! 수업 중 궁금한 점이 있으면 언제든 물어보세요. 😊' }
+]);
+const chatInput = ref('');
+const isChatLoading = ref(false);
+const chatScrollRef = ref(null);
+
+const toggleChat = () => {
+    isChatOpen.value = !isChatOpen.value;
+    if (isChatOpen.value) scrollToChatBottom();
+};
+
+const scrollToChatBottom = async () => {
+    await nextTick();
+    if (chatScrollRef.value) {
+        chatScrollRef.value.scrollTop = chatScrollRef.value.scrollHeight;
+    }
+};
+
+const sendChatMessage = async () => {
+    if (!chatInput.value.trim() || isChatLoading.value) return;
+
+    const userText = chatInput.value;
+    chatMessages.value.push({ role: 'user', text: userText });
+    chatInput.value = '';
+    scrollToChatBottom();
+
+    isChatLoading.value = true;
+    try {
+        const res = await api.post('/learning/rag/ask/', {
+            q: userText,
+            session_id: sessionId.value, // 현재 세션 문맥 포함
+            lecture_id: currentLectureId.value // 현재 강의 범위 포함
+        });
+
+        chatMessages.value.push({ role: 'ai', text: res.data.answer });
+    } catch (e) {
+        console.error("Chat Error:", e);
+        chatMessages.value.push({ role: 'ai', text: " 죄송합니다. 답변을 가져오는 중 오류가 발생했습니다." });
+    } finally {
+        isChatLoading.value = false;
+        scrollToChatBottom();
+    }
+};
+
 // --- Join Class Logic ---
 const showJoinModal = ref(false);
 const joinCode = ref('');
@@ -84,16 +131,29 @@ const closeJoinModal = () => {
     showJoinModal.value = false;
 };
 
-const selectLecture = (lecture) => {
-    // [TEST MODE] 모든 클래스 즉시 입장 허용 (강사 부재 상황 가정)
-    // 원래는 lecture.is_enrolled 확인해야 함
-    if (confirm(`'${lecture.title}' 수업을 임시로 수강하시겠습니까?`)) {
+const selectLecture = async (lecture) => {
+    // [UX Improvement] Remove native confirm() to prevent flaky behavior.
+    // Directly proceed with selection.
+    
+    try {
         currentClassTitle.value = lecture.title;
-        showJoinModal.value = false;
-        
         currentLectureId.value = lecture.id;
-        fetchLectureSessions(lecture.id);
-        mode.value = 'lecture'; 
+        
+        // Fetch sessions first
+        await fetchLectureSessions(lecture.id);
+        
+        // Only close modal and switch mode upon success
+        showJoinModal.value = false;
+        mode.value = 'lecture';
+        
+    } catch (e) {
+        console.error("Lecture Selection Failed:", e);
+        if (e.response && e.response.status === 401) {
+            alert("로그인이 필요한 기능입니다.");
+            router.push('/login');
+        } else {
+            alert("수업을 불러오는데 실패했습니다. (서버 오류)");
+        }
     }
 };
 
@@ -309,16 +369,13 @@ const youtubeEmbedUrl = computed(() => {
 });
 
 const selectMode = (selectedMode) => {
-    // [CHANGE] 새 모드 선택 시 기존 대기 세션 정보 파기
+    // [CHANGE] 새 모드 선택 시 기존 대기 세션 정보 파기 (Confirm 제거)
     if (pendingSessionId.value) {
-        if(confirm("이전 학습 기록을 무시하고 새로 시작하시겠습니까?")) {
-            localStorage.removeItem('currentSessionId');
-            localStorage.removeItem('currentYoutubeUrl');
-            localStorage.removeItem('restoredMode');
-            pendingSessionId.value = null;
-        } else {
-            return;
-        }
+        // User explicitly chose a new mode, so we discard the pending/restorable session.
+        localStorage.removeItem('currentSessionId');
+        localStorage.removeItem('currentYoutubeUrl');
+        localStorage.removeItem('restoredMode');
+        pendingSessionId.value = null;
     }
     mode.value = selectedMode;
 };
@@ -383,7 +440,12 @@ const startRecording = async () => {
             console.log("🆕 Session Created:", sessionId.value);
         } catch (e) {
             console.error("Session Create Error:", e);
-            alert("세션 생성 실패. 로그인을 확인해주세요.");
+            if (e.response && e.response.status === 401) {
+                alert("세션을 시작하려면 로그인이 필요합니다.");
+                router.push('/login');
+            } else {
+                alert("세션 생성 실패. 다시 시도해주세요.");
+            }
             return;
         }
     }
@@ -443,27 +505,27 @@ const scrollToBottom = async () => {
 };
 
 const startNewSession = () => {
-    if (confirm('현재 학습을 종료하고, 새로운 학습을 시작하시겠습니까?')) {
-        if (isRecording.value) stopRecording();
-        
-        // Reset State
-        mode.value = null;
-        sessionId.value = null;
-        pendingSessionId.value = null;
-        sttLogs.value = [];
-        youtubeUrl.value = '';
-        currentLectureId.value = null;
-        currentClassTitle.value = null;
-        
-        isCompletedSession.value = false;
-        isUrlSubmitted.value = false;
-        sessionSummary.value = '';
-        
-        // Clear Storage
-        localStorage.removeItem('currentSessionId');
-        localStorage.removeItem('currentYoutubeUrl');
-        localStorage.removeItem('restoredMode');
-    }
+    // [UX Improvement] Remove confirm dialog. 
+    // If user clicks "New Learning", they intend to reset.
+    if (isRecording.value) stopRecording();
+    
+    // Reset State
+    mode.value = null;
+    sessionId.value = null;
+    pendingSessionId.value = null;
+    sttLogs.value = [];
+    youtubeUrl.value = '';
+    currentLectureId.value = null;
+    currentClassTitle.value = null;
+    
+    isCompletedSession.value = false;
+    isUrlSubmitted.value = false;
+    sessionSummary.value = '';
+    
+    // Clear Storage
+    localStorage.removeItem('currentSessionId');
+    localStorage.removeItem('currentYoutubeUrl');
+    localStorage.removeItem('restoredMode');
 };
 
 const endSession = async () => {
@@ -815,6 +877,44 @@ const submitQuiz = async () => {
             </div>
         </div>
     </div>
+    
+    <!-- [NEW] RAG Chat Floating Button & Window -->
+    <div v-if="mode" class="chat-wrapper">
+        <!-- Floating Button -->
+        <div class="chat-floating-btn" @click="toggleChat">
+            <Bot size="32" v-if="!isChatOpen" />
+            <span v-else style="font-size:24px; font-weight:bold;">×</span>
+        </div>
+        
+        <!-- Chat Window -->
+        <div v-if="isChatOpen" class="chat-window glass-panel">
+            <div class="chat-header">
+                <h3><Bot size="18" /> AI 튜터</h3>
+                <span class="status-dot green"></span>
+            </div>
+            
+            <div class="chat-body" ref="chatScrollRef">
+                <div v-for="(msg, idx) in chatMessages" :key="idx" 
+                     class="chat-bubble" :class="msg.role">
+                    {{ msg.text }}
+                </div>
+                <!-- Loading Indicator -->
+                <div v-if="isChatLoading" class="chat-bubble ai">
+                    <span class="typing-dots">...생각 중...</span>
+                </div>
+            </div>
+            
+            <div class="chat-footer">
+                <input type="text" v-model="chatInput" 
+                       placeholder="궁금한 내용을 물어보세요..." 
+                       @keyup.enter="sendChatMessage" 
+                       :disabled="isChatLoading" />
+                <button @click="sendChatMessage" :disabled="isChatLoading || !chatInput.trim()">
+                    전송
+                </button>
+            </div>
+        </div>
+    </div>
 
     </template> <!-- END MAIN CONTENT -->
   </div>
@@ -856,8 +956,11 @@ const submitQuiz = async () => {
     iframe { width: 100%; height: 100%; border: none; }
 }
 .note-area {
-    background: rgba(28,28,30,0.95); display: flex; flex-direction: column; padding: 24px;
+    background: rgba(28,28,30,0.75); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px;
+    display: flex; flex-direction: column; padding: 24px;
     min-height: 600px; height: auto; /* Increased height > 500px */
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
 }
 .stt-container { flex: 1; min-height: 550px; /* overflow-y aligned with parent */ padding-right: 10px; }
 .stt-bubble { margin-bottom: 16px; p { line-height:1.5; } .time { font-size:11px; color:#666; } }
@@ -938,7 +1041,7 @@ const submitQuiz = async () => {
     .info { flex: 1; text-align: left; h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; } p { font-size: 13px; color: #ccc; } }
     .arrow { color: #4facfe; font-weight: bold; }
 }
-.input-group { display: flex; gap: 12px; margin-top: 24px; input { flex: 1; padding: 12px; background: #222; border: 1px solid #444; color: white; border-radius: 8px;} }
+.input-group { display: flex; gap: 12px; margin-top: 24px; input { flex: 1; padding: 12px; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 8px;} }
 .back-link { cursor: pointer; color: #888; text-align: left; margin-bottom: 10px; &:hover { color: white; } }
 
 /* Quiz */
@@ -946,7 +1049,12 @@ const submitQuiz = async () => {
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
     background: rgba(0,0,0,0.9); z-index: 4000; display: flex; align-items: center; justify-content: center;
 }
-.quiz-card { width: 600px; max-height: 90vh; overflow-y: auto; background: #1c1c1e; padding: 0; }
+.quiz-card { 
+    width: 600px; max-height: 90vh; overflow-y: auto; 
+    background: rgba(28, 28, 30, 0.75); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px);
+    border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px;
+    padding: 0; 
+}
 .quiz-header { text-align: center; padding: 20px; }
 .questions-list { padding: 20px; display: flex; flex-direction: column; gap: 30px; }
 .question-item { .q-title { font-weight: bold; margin-bottom: 10px; } }
@@ -968,9 +1076,11 @@ const submitQuiz = async () => {
     display: flex; align-items: center; justify-content: center;
 }
 .modal-card.wide-modal {
-    background: #1c1c1e; padding: 32px; border-radius: 16px; 
+    background: rgba(28, 28, 30, 0.75); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+    padding: 32px; border-radius: 24px; 
     width: 800px; max-width: 95vw;
-    text-align: center; border: 1px solid #333;
+    text-align: center; border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.4);
     z-index: 5001; /* Ensure content is on top */
 }
 .modal-body-split {
@@ -1021,12 +1131,15 @@ const submitQuiz = async () => {
 .spin-anim { animation: spin 1s linear infinite; }
 .btn-accent:disabled { opacity: 0.7; cursor: not-allowed; }
 .lecture-item {
-    background: #2c2c2e; padding: 16px; border-radius: 8px; cursor: pointer;
+    background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    padding: 16px; border-radius: 12px; cursor: pointer;
     display: flex; justify-content: space-between; align-items: center;
     transition: all 0.2s;
-    border: 1px solid transparent;
-    &:hover { background: #3a3a3c; }
-    &.selected { border-color: var(--color-accent); background: rgba(79, 172, 254, 0.1); }
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    
+    &:hover { background: rgba(255, 255, 255, 0.08); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.2); }
+    &.selected { border-color: var(--color-accent); background: rgba(79, 172, 254, 0.15); }
 }
 .lec-info { display: flex; flex-direction: column; gap: 4px; }
 .lec-title { color: white; font-weight: bold; font-size: 15px; }
@@ -1052,10 +1165,17 @@ const submitQuiz = async () => {
 .session-list-wrapper { display: flex; flex-direction: column; gap: 15px; }
 .session-card-row {
     display: flex; justify-content: space-between; align-items: center;
-    background: #2c2c2e; padding: 20px; border-radius: 12px; cursor: pointer; transition: all 0.2s;
-    border: 1px solid transparent;
+    background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    padding: 20px; border-radius: 16px; cursor: pointer; transition: all 0.2s;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 
-    &:hover { background: #3a3a3c; transform: translateY(-2px); border-color: var(--color-accent); }
+    &:hover { 
+        background: rgba(255, 255, 255, 0.08); 
+        transform: translateY(-2px); 
+        border-color: var(--color-accent); 
+        box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    }
 }
 .card-left { display: flex; align-items: center; gap: 15px; }
 .status-badge {
@@ -1079,7 +1199,9 @@ const submitQuiz = async () => {
     flex: 0 0 auto;
     display: flex; justify-content: space-between; align-items: center;
     padding: 16px 24px;
-    background: #1c1c1e; border: 1px solid #333; border-radius: 12px;
+    background: rgba(28, 28, 30, 0.65); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
 }
 .header-left { display: flex; align-items: center; gap: 16px; }
 .session-id-text { color: var(--color-accent); font-size: 13px; }
@@ -1093,7 +1215,8 @@ const submitQuiz = async () => {
     border-radius: 12px;
     overflow: hidden;
     position: relative;
-    border: 1px solid #333;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
 }
 .video-section iframe { width: 100%; height: 100%; border:none; }
 
@@ -1116,4 +1239,110 @@ const submitQuiz = async () => {
 .session-card-row:hover .btn-text.highlight {
     background: var(--color-accent); color: white;
 }
+
+/* Chat CSS - Premium Glassmorphism */
+.chat-floating-btn {
+    position: fixed; bottom: 30px; right: 30px;
+    width: 64px; height: 64px; border-radius: 50%;
+    background: linear-gradient(135deg, #00C6FF, #0072FF);
+    box-shadow: 0 8px 32px rgba(0, 114, 255, 0.4);
+    display: flex; justify-content: center; align-items: center;
+    cursor: pointer; z-index: 1000;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    color: white; border: 2px solid rgba(255,255,255,0.1);
+}
+.chat-floating-btn:hover { 
+    transform: scale(1.1) rotate(5deg); 
+    box-shadow: 0 12px 40px rgba(0, 114, 255, 0.6);
+}
+
+.chat-window {
+    position: fixed; bottom: 110px; right: 30px;
+    width: 380px; height: 600px;
+    background: rgba(28, 28, 30, 0.65); /* More transparent */
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    display: flex; flex-direction: column;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    z-index: 1000; overflow: hidden;
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.chat-header {
+    background: rgba(255, 255, 255, 0.05); 
+    padding: 18px 20px; 
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex; justify-content: space-between; align-items: center;
+}
+.chat-header h3 { 
+    margin: 0; font-size: 16px; font-weight: 600; 
+    color: white; display: flex; align-items: center; gap: 10px; 
+    letter-spacing: -0.5px;
+}
+.status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #4CAF50; box-shadow: 0 0 10px #4CAF50;
+}
+
+.chat-body { 
+    flex: 1; padding: 20px; 
+    overflow-y: auto; 
+    display: flex; flex-direction: column; gap: 14px; 
+    background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.2) 100%);
+}
+
+.chat-bubble {
+    max-width: 85%; padding: 12px 16px; border-radius: 16px; 
+    font-size: 14px; line-height: 1.5; color: rgba(255,255,255,0.9);
+    word-break: break-word; white-space: pre-wrap;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+.chat-bubble.ai { 
+    background: rgba(50, 50, 50, 0.8); 
+    align-self: flex-start; 
+    border-bottom-left-radius: 4px; 
+    border: 1px solid rgba(255,255,255,0.05);
+}
+.chat-bubble.user { 
+    background: linear-gradient(135deg, #0072FF, #00C6FF); 
+    align-self: flex-end; 
+    border-bottom-right-radius: 4px; 
+    color: white; font-weight: 500;
+}
+
+.chat-footer { 
+    padding: 16px; 
+    border-top: 1px solid rgba(255, 255, 255, 0.05); 
+    display: flex; gap: 10px; 
+    background: rgba(30, 30, 32, 0.95);
+}
+.chat-footer input {
+    flex: 1; 
+    background: rgba(0,0,0,0.3); 
+    border: 1px solid rgba(255,255,255,0.1); 
+    color: white; padding: 12px 16px; border-radius: 12px; 
+    outline: none; transition: all 0.2s; font-size: 14px;
+}
+.chat-footer input:focus {
+    background: rgba(0,0,0,0.5); border-color: #0072FF;
+}
+
+.chat-footer button {
+    background: #0072FF; color: white; border: none; padding: 0 20px;
+    border-radius: 12px; cursor: pointer; font-weight: 600; font-size: 14px;
+    transition: all 0.2s;
+}
+.chat-footer button:hover:not(:disabled) { background: #0088FF; transform: translateY(-1px); }
+.chat-footer button:disabled { opacity: 0.5; cursor: not-allowed; background: #333; }
 </style>

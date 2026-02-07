@@ -41,31 +41,12 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
     """
     queryset = LearningSession.objects.all()
     serializer_class = LearningSessionSerializer
-    # Debugging: AllowAny temporarily to see if headers are coming
-    permission_classes = [AllowAny]
+    # Require authentication for learning sessions
+    permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        # Debugging Logs
-        print(f"DEBUG: Headers: {self.request.headers}")
-        print(f"DEBUG: Auth Header: {self.request.headers.get('Authorization')}")
-        print(f"DEBUG: User: {self.request.user}")
-        print(f"DEBUG: Validated Data keys: {serializer.validated_data.keys()}")
-        if 'lecture' in serializer.validated_data:
-            print(f"DEBUG: Lecture provided: {serializer.validated_data['lecture']}")
-        else:
-            print("DEBUG: No lecture provided in validated data")
-        
-        # If user is anonymous (auth failed or no token), use a fallback or error
-        if self.request.user.is_anonymous:
-             # 임시 조치: 토큰 없이도 생성되게 하거나, 첫 번째 유저를 강제 할당 (테스트용)
-             from django.contrib.auth import get_user_model
-             User = get_user_model()
-             # 테스트 유저 강제 할당 (토큰 문제 해결될 때까지)
-             test_user = User.objects.first()
-             serializer.save(student=test_user) # Assuming 'student' is the field name
-             print(f"DEBUG: Assigned fallback user: {test_user}")
-        else:
-             serializer.save(student=self.request.user) # Assuming 'student' is the field name
+        # Strictly associate with the authenticated user
+        serializer.save(student=self.request.user)
 
     @action(detail=True, methods=['post'], url_path='chunk')
     def upload_chunk(self, request, pk=None):
@@ -159,6 +140,18 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                 text_chunk=stt_text
             )
             
+            # [New] 대화 압축 트리거 (ContextManager)
+            # 10의 배수 번호 로그가 저장될 때마다 압축 시도 (너무 자주는 말고)
+            if sequence_order % 10 == 0:
+                from .context import ContextManager
+                import threading
+                # 비동기(Thread)로 압축 실행하여 API 응답 지연 방지
+                def run_compression():
+                    cm = ContextManager()
+                    cm.compress_session_if_needed(session.id)
+                    
+                threading.Thread(target=run_compression).start()
+
             return Response({
                 'status': 'processed', 
                 'text': stt_text, 
@@ -341,10 +334,16 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='history')
     def get_history(self, request):
         """
+
         최근 학습 기록 5개 반환 (대시보드용)
+        [Change] 진행 중인 세션도 포함하여 최근 활동 내역 표시
         """
         user = request.user
-        recent_sessions = LearningSession.objects.filter(student=user, is_completed=True).order_by('-start_time')[:5]
+        
+        user = request.user
+
+        # completed filter removed to show all recent activity
+        recent_sessions = LearningSession.objects.filter(student=user).order_by('-start_time')[:5]
         
         history_data = []
         for session in recent_sessions:
@@ -407,13 +406,7 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             })
         return Response({'info': info, 'sessions': data}, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=['get'], url_path='lectures/(?P<lecture_id>[^/.]+)')
-    def get_lecture_sessions(self, request, lecture_id=None):
-        """
-        특정 클래스(Lecture)의 내 수강 기록(Session List) 반환
-        [Self-Healing] 만약 기록이 없으면, 최근 24시간 내의 '강의 미지정' 세션을 찾아 자동으로 연결함.
-        """
-        user = request.user
+
         
     @action(detail=False, methods=['get'], url_path='debug-lectures')
     def debug_lectures(self, request):
@@ -425,34 +418,16 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
     def get_lecture_sessions(self, request, lecture_id=None):
         """
         특정 클래스(Lecture)의 내 수강 기록(Session List) 반환
-        [FINAL FIX] testuser 강제 타겟팅 + 고아(Orphan) 세션 포함 조회
         """
-        print(f"DEBUG: FINAL ATTEMPT get_lecture_sessions ID={lecture_id}")
+        user = request.user
         
-        from django.contrib.auth import get_user_model
-        from django.db.models import Q
-        User = get_user_model()
-        
-        # 1. Target User: 'testuser' (시스템상 데이터가 쌓이는 곳)
-        target_user = User.objects.filter(username='testuser').first()
-        if not target_user:
-             target_user = User.objects.first()
-             print("DEBUG: testuser not found, using first user.")
-
-        if not target_user:
-            print("DEBUG: No users found in DB.")
-            return Response([], status=status.HTTP_200_OK)
-
-        # 2. Fetch Linked sessions OR Orphans
-        # 조건: (지정된 강의 ID) 또는 (강의가 없는 미아 세션)
-        # 이렇게 하면 연결이 끊긴 세션도 무조건 보임.
+        # Fetch sessions for this lecture & this user
         sessions = LearningSession.objects.filter(
-            student=target_user
-        ).filter(
-            Q(lecture_id=lecture_id) | Q(lecture__isnull=True)
+            student=user,
+            lecture_id=lecture_id
         ).order_by('-start_time')
 
-        print(f"DEBUG: Found {sessions.count()} sessions for {target_user}")
+        print(f"DEBUG: Found {sessions.count()} sessions for {user}")
         
         data = []
         for s in sessions:
@@ -506,9 +481,6 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
         return Response(notes, status=status.HTTP_200_OK)
 
     def _call_openai_summary(self, text):
-        """
-        ChatGPT에게 요약 요청하는 내부 메서드 Helper
-        """
         from openai import OpenAI
         from django.conf import settings
         
@@ -516,36 +488,33 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
         client = OpenAI(api_key=settings.OPENAI_API_KEY, timeout=180.0)
         
         try:
+            # System prompt defined as a variable to avoid indentation issues
+            system_prompt = (
+                "너는 IT 부트캠프의 '수석 정리 노트 작성자'야.\n"
+                "학생들이 수업 내용을 나중에 다시 보고 완벽하게 복습할 수 있도록, \n"
+                "제공된 [STT 스크립트]를 바탕으로 **구조화된 학습 자료(Lecture Note)**를 만들어줘.\n\n"
+                "반드시 아래 **Markdown 포맷**을 따라 작성해줘.\n\n"
+                "# [강의 제목: 핵심 주제]\n\n"
+                "## 1. 3줄 요약\n"
+                "- (핵심 요약 1)\n"
+                "- (핵심 요약 2)\n"
+                "- (핵심 요약 3)\n\n"
+                "## 2. 주요 학습 개념\n"
+                "- **(개념 1)**: (설명)\n"
+                "- **(개념 2)**: (설명)\n\n"
+                "## 3. 상세 강의 노트\n"
+                "(강의 흐름에 따라 중요 내용을 불렛 포인트로 정리, 코드 예시가 있다면 ```code``` 블럭으로 포함)\n\n"
+                "## 4. 핵심 암기 사항\n"
+                "- (시험이나 실무에서 중요한 팁)"
+            )
+
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": """
-                    너는 IT 부트캠프의 '수석 정리 노트 작성자'야.
-                    학생들이 수업 내용을 나중에 다시 보고 완벽하게 복습할 수 있도록, 
-                    제공된 [STT 스크립트]를 바탕으로 **구조화된 학습 자료(Lecture Note)**를 만들어줘.
-                    
-                    반드시 아래 **Markdown 포맷**을 따라 작성해줘.
-                    
-                    # [강의 제목: 핵심 주제]
-                    
-                    ## 1. 3줄 요약
-                    - (핵심 요약 1)
-                    - (핵심 요약 2)
-                    - (핵심 요약 3)
-                    
-                    ## 2. 주요 학습 개념
-                    - **(개념 1)**: (설명)
-                    - **(개념 2)**: (설명)
-                    
-                    ## 3. 상세 강의 노트
-                    (강의 흐름에 따라 중요 내용을 불렛 포인트로 정리, 코드 예시가 있다면 ```code``` 블럭으로 포함)
-                    
-                    ## 4. 핵심 암기 사항
-                    - (시험이나 실무에서 중요한 팁)
-                    """},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"다음 수업 내용을 학습 자료로 정리해줘:\n\n{text}"}
                 ],
-                max_tokens=1500  # Reasonable limit
+                max_tokens=1500
             )
             return response.choices[0].message.content
         except Exception as e:
