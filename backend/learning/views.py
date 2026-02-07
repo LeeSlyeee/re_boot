@@ -226,6 +226,15 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             raw_stt_link="Processed by OpenAI"
         )
         
+        # [NEW] 4. RAG Indexing Trigger
+        try:
+            from .rag import RAGService
+            rag = RAGService()
+            rag.index_session(session.id)
+            print(f"✅ RAG Indexed Session {session.id}")
+        except Exception as e:
+            print(f"⚠️ RAG Indexing Failed: {e}")
+        
         return Response(SessionSummarySerializer(summary).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'], url_path='end')
@@ -445,6 +454,63 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
              })
              
         return Response(data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='lectures/(?P<lecture_id>[^/.]+)/missed')
+    def get_missed_lectures(self, request, lecture_id=None):
+        """
+        [보충 학습 기능]
+        내가 참여하지 않았지만, 다른 학생들이 수강한 날짜 목록 반환
+        """
+        user = request.user
+        
+        # 1. 해당 강의의 모든 세션 (다른 학생들 포함)
+        all_sessions = LearningSession.objects.filter(
+            lecture_id=lecture_id,
+            is_completed=True
+        ).exclude(student=user) # 내 세션은 제외 (이미 들은 건 논외)
+
+        # 2. 날짜별 그룹화 (Django ORM Group By Date)
+        from django.db.models import Count
+        from django.db.models.functions import TruncDate
+        
+        # 날짜별 세션 수 카운트
+        missed_dates = all_sessions.annotate(
+            date=TruncDate('start_time')
+        ).values('date').annotate(
+            peer_count=Count('id')
+        ).order_by('-date')
+
+        # 3. 내가 이미 수강한 날짜 확인
+        my_dates = LearningSession.objects.filter(
+            student=user,
+            lecture_id=lecture_id
+        ).annotate(
+            date=TruncDate('start_time')
+        ).values_list('date', flat=True)
+        
+        my_dates_set = set(my_dates)
+
+        results = []
+        for item in missed_dates:
+            d = item['date']
+            if d not in my_dates_set:
+                # 4. 해당 날짜의 대표 세션 ID 찾기 (가장 긴 요약본음 가진 세션 등)
+                # 여기서는 간단히 첫 번째 세션 ID 반환
+                rep_session = LearningSession.objects.filter(
+                    lecture_id=lecture_id,
+                    start_time__date=d,
+                    is_completed=True
+                ).exclude(student=user).first()
+                
+                if rep_session:
+                    results.append({
+                        "date": d,
+                        "title": f"[보충] {d.strftime('%Y-%m-%d')} 수업",
+                        "peer_count": item['peer_count'],
+                        "representative_session_id": rep_session.id
+                    })
+
+        return Response(results, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='lectures/(?P<lecture_id>[^/.]+)/shared-notes')
     def get_shared_notes(self, request, lecture_id=None):

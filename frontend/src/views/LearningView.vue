@@ -19,17 +19,60 @@ const isCompletedSession = ref(false);
 
 // --- Lecture Mode State ---
 const currentLectureId = ref(null);
-const lectureSessions = ref([]);
-const showLectureSidebar = ref(false);
+const sessions = ref([]); // Renamed from lectureSessions
+const missedSessions = ref([]); // [New] Missed classes by others
+const showLectureSidebar = ref(false); // This might become obsolete with the new UI, but keeping for now
 
 const fetchLectureSessions = async (lectureId) => {
     try {
-        // [FIX] Correct Endpoint: sessions/lectures/{id}
-        const res = await api.get(`/learning/sessions/lectures/${lectureId}/`);
-        lectureSessions.value = res.data;
-        showLectureSidebar.value = true;
+        const res = await api.get(`/learning/lectures/${lectureId}/`);
+        sessions.value = res.data;
     } catch (e) {
-        console.error("Failed to fetch lecture sessions", e);
+        if (e.response?.status === 401) {
+            alert("로그인이 필요합니다.");
+            router.push('/login');
+            // Stop further execution to prevent cascading errors
+            throw e; 
+        }
+        console.error("Failed to load sessions", e);
+    }
+};
+
+const fetchMissedSessions = async (lectureId) => {
+    try {
+        const res = await api.get(`/learning/lectures/${lectureId}/missed/`);
+        missedSessions.value = res.data;
+    } catch (e) {
+        console.error("Failed to fetch missed sessions", e);
+    }
+};
+
+const openSharedSession = async (missed) => {
+    if (!missed.representative_session_id) return;
+    
+    // Load shared session details
+    // We can reuse fetchSessionDetails but need to handle "Shared" state
+    try {
+        isLoadingSession.value = true;
+        const res = await api.get(`/learning/sessions/${missed.representative_session_id}/`);
+        const sessionData = res.data;
+        
+        // Set Shared View State
+        sessionId.value = sessionData.id; // For RAG to work
+        sttLogs.value = sessionData.logs || [];
+        sessionSummary.value = sessionData.latest_summary || "# [공유된 학습 노트]\n\n아직 요약이 생성되지 않았습니다."; // Changed summaryText to sessionSummary
+        youtubeUrl.value = sessionData.youtube_url || '';
+        
+        isSharedView.value = true;
+        currentClassTitle.value = `[보충] ${new Date(missed.date).toLocaleDateString()} 수업 (공유됨)`; // Using Date object for formatting
+        
+        // Switch to Review Mode
+        mode.value = 'review';
+        
+    } catch (e) {
+        alert("공유 데이터를 불러오는데 실패했습니다.");
+    } finally {
+        isLoadingSession.value = false;
     }
 };
 
@@ -111,6 +154,7 @@ const joinCode = ref('');
 const availableLectures = ref([]);
 const selectedLectureId = ref(null);
 const currentClassTitle = ref(null); 
+const isSharedView = ref(false); // [New] Is viewing shared content?
 
 const fetchAvailableLectures = async () => {
     try {
@@ -141,6 +185,9 @@ const selectLecture = async (lecture) => {
         
         // Fetch sessions first
         await fetchLectureSessions(lecture.id);
+        
+        // [New] Fetch missed sessions
+        await fetchMissedSessions(lecture.id);
         
         // Only close modal and switch mode upon success
         showJoinModal.value = false;
@@ -191,6 +238,7 @@ onMounted(async () => {
              console.log(`ℹ️ Opening Lecture Mode: ${queryLectureId}`);
              currentLectureId.value = queryLectureId;
              await fetchLectureSessions(queryLectureId);
+             await fetchMissedSessions(queryLectureId); // Fetch missed sessions when entering lecture mode
              mode.value = 'lecture';
              // Don't auto-resume session unless user picks one
         } else if (savedSessionId) {
@@ -521,6 +569,7 @@ const startNewSession = () => {
     isCompletedSession.value = false;
     isUrlSubmitted.value = false;
     sessionSummary.value = '';
+    isSharedView.value = false; // Reset shared view flag
     
     // Clear Storage
     localStorage.removeItem('currentSessionId');
@@ -593,6 +642,15 @@ const submitQuiz = async () => {
         });
         quizResult.value = data;
     } catch (e) { alert("제출 실패"); }
+};
+
+const formatTime = (isoString) => {
+    const date = new Date(isoString);
+    return date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+};
+
+const openSessionReview = (id) => {
+    resumeSessionById(id);
 };
 </script>
 
@@ -679,24 +737,45 @@ const submitQuiz = async () => {
             </div>
             
             <div class="session-list-wrapper">
-                <div v-if="lectureSessions.length === 0" class="empty-state-large">
-                    <p>등록된 수업 기록이 없습니다.</p>
+                <!-- Missed Sessions Section -->
+                <div v-if="missedSessions.length > 0" class="missed-section">
+                    <h3 style="color: #ff9f0a; font-size: 16px; margin-bottom: 10px;">🚨 놓친 수업 (보충 학습)</h3>
+                    <div v-for="missed in missedSessions" :key="missed.date" 
+                         class="session-card-row glass-panel missed-card"
+                         @click="openSharedSession(missed)">
+                        <div class="card-left">
+                            <div class="status-badge missed">MISSING</div>
+                            <div class="card-text">
+                                <h3>{{ missed.title }}</h3>
+                                <span class="date">{{ missed.peer_count }}명의 동료가 수강함</span>
+                            </div>
+                        </div>
+                         <div class="card-right">
+                            <span class="action-text">따라잡기 →</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Regular Sessions -->
+                <div v-if="sessions.length === 0 && missedSessions.length === 0" class="empty-state-large">
+                    아직 수강한 기록이 없습니다.<br>
+                    '새 수업 시작' 버튼을 눌러보세요!
                 </div>
                 
-                <div v-for="sess in lectureSessions" :key="sess.id" class="session-card-row" @click="loadSessionFromSidebar(sess)">
+                <div v-for="session in sessions" :key="session.id" 
+                     class="session-card-row"
+                     @click="openSessionReview(session.id)">
                     <div class="card-left">
-                        <div class="status-badge" :class="{done: sess.is_completed}">
-                            {{ sess.is_completed ? '완료' : '진행중' }}
+                        <div class="status-badge" :class="{done: session.is_completed}">
+                            {{ session.is_completed ? 'COMPLETED' : 'ONGOING' }}
                         </div>
                         <div class="card-text">
-                            <h3>{{ sess.title }}</h3>
-                            <span class="date">{{ sess.session_date }}</span>
+                            <h3>{{ session.title }}</h3>
+                            <span class="date">{{ formatTime(session.created_at) }}</span>
                         </div>
                     </div>
                     <div class="card-right">
-                        <span class="btn-text highlight">
-                            {{ sess.is_completed ? '📝 복습하기' : '▶ 이어하기' }}
-                        </span>
+                        <span class="action-text">복습하기 →</span>
                     </div>
                 </div>
             </div>
@@ -1181,6 +1260,11 @@ const submitQuiz = async () => {
 .status-badge {
     padding: 4px 10px; border-radius: 20px; font-size: 12px; background: #444; color: #aaa;
     &.done { background: rgba(79, 172, 254, 0.2); color: var(--color-accent); border: 1px solid var(--color-accent); }
+    &.missed { background: rgba(255, 159, 10, 0.2); color: #ff9f0a; border: 1px solid #ff9f0a; }
+}
+.missed-card {
+    border: 1px dashed rgba(255, 159, 10, 0.5);
+    &:hover { border-color: #ff9f0a; background: rgba(255, 159, 10, 0.1); }
 }
 .card-text h3 { margin: 0; font-size: 18px; color: white; }
 .card-text .date { font-size: 13px; color: #888; }
