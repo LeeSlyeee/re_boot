@@ -1,0 +1,522 @@
+<script setup>
+import { ref, onMounted, computed } from 'vue';
+import { useRouter } from 'vue-router';
+import { BookOpen, Trophy, Clock, PlayCircle, BarChart2, Trash2, Youtube as YoutubeIcon, MonitorPlay, Users } from 'lucide-vue-next'; // Users added
+import api from '../api/axios';
+
+const router = useRouter();
+const userName = ref('학습자'); 
+const recentSessions = ref([]);
+const watchHistory = ref([]);
+const stats = ref({
+    totalHours: 0,
+    finishedSessions: 0,
+    quizScore: 0,
+    todayHours: 0 
+});
+
+// --- Join Class State ---
+const showJoinModal = ref(false);
+const joinCode = ref('');
+const availableLectures = ref([]);
+const selectedLectureId = ref(null);
+
+const dailyProgress = computed(() => {
+    const goal = 6.33; 
+    const current = stats.value.todayHours || 0;
+    const pct = (current / goal) * 100;
+    return Math.min(Math.round(pct), 100); 
+});
+
+const uniqueHistory = computed(() => {
+    const seenIds = new Set();
+    return watchHistory.value.filter(item => {
+        // [FIX] URL이 없어도(오프라인 수업) 표시해야 함!
+        // 중복 제거: Session ID가 있으면 그걸로, 없으면 URL로
+        const id = item.sessionId || item.url;
+        if (!id) return false;
+
+        if (seenIds.has(id)) return false;
+        seenIds.add(id);
+        return true;
+    });
+});
+
+const fetchAvailableLectures = async () => {
+    try {
+        const res = await api.get('/learning/lectures/public/');
+        availableLectures.value = res.data;
+    } catch (e) { console.error("Failed to fetch lectures", e); }
+};
+
+const openJoinModal = () => {
+    showJoinModal.value = true;
+    joinCode.value = '';
+    selectedLectureId.value = null;
+    fetchAvailableLectures();
+};
+
+const closeJoinModal = () => {
+    showJoinModal.value = false;
+};
+
+const joinClass = async () => {
+    if (!joinCode.value || joinCode.value.length < 6) return;
+    try {
+        const res = await api.post('/learning/enroll/', { access_code: joinCode.value });
+        alert(`'${res.data.title}' 클래스 입장 완료!`);
+        closeJoinModal();
+        // 바로 학습하러 가기
+        startLearning();
+    } catch (e) {
+        alert(e.response?.data?.error || "코드가 올바르지 않거나 이미 가입된 클래스입니다.");
+    }
+};
+
+const selectLecture = (lecture) => {
+    // 대시보드에서는 클릭 시 바로 입장하지 않고 코드 입력을 유도하거나,
+    // 이미 등록된 경우 바로가기를 제공해야 함.
+    if (lecture.is_enrolled) {
+        // 이미 등록됨 -> LearningView로 이동 (세션 시작은 LearningView에서)
+        // [FIX] lectureId를 전달하여 해당 클래스의 수업 목록을 로드하도록 유도
+        router.push({ path: '/learning', query: { lectureId: lecture.id } });
+    } else {
+        // 코드 입력창에 포커스?
+        alert("입장 코드를 입력하여 수강 신청해주세요.");
+    }
+};
+
+onMounted(async () => {
+    // 1. Get User Info
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (user.username) userName.value = user.username;
+
+    // 2. Fetch History
+    try {
+        const { data } = await api.get('/learning/sessions/history/');
+        if (data && Array.isArray(data)) {
+            watchHistory.value = data; 
+            localStorage.setItem('watchHistory', JSON.stringify(data)); 
+        }
+    } catch (e) { console.error("Failed to load history:", e); }
+    
+    // 3. Fetch Stats
+    try {
+        const { data } = await api.get('/learning/sessions/stats/');
+        if (data)  stats.value = data;
+    } catch (e) { console.error("Failed to load stats:", e); }
+});
+
+const startLearning = () => {
+    router.push('/learning');
+};
+
+const getThumbnail = (url) => {
+    if (!url) return null;
+    let videoId = null;
+    try {
+        if (url.includes('v=')) videoId = url.split('v=')[1].split('&')[0];
+        else if (url.includes('youtu.be/')) videoId = url.split('youtu.be/')[1].split('?')[0];
+        else if (url.includes('embed/')) videoId = url.split('embed/')[1].split('?')[0];
+    } catch (e) {}
+    return videoId ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg` : null;
+};
+
+const deleteHistory = async (sessionId) => {
+    if (!sessionId) return;
+    if (!confirm('이 학습 기록을 삭제하시겠습니까?')) return;
+    try {
+        await api.delete(`/learning/sessions/${sessionId}/`);
+        watchHistory.value = watchHistory.value.filter(item => item.sessionId !== sessionId);
+    } catch (e) {}
+};
+
+const goToLearning = (item) => {
+    // 1. Session ID (Backend Item)
+    if (item.sessionId) {
+        const videoUrl = item.url || null; // null if offline
+        const isUrl = videoUrl && videoUrl.startsWith('http');
+        
+        localStorage.setItem('currentSessionId', item.sessionId);
+        localStorage.setItem('currentYoutubeUrl', videoUrl || '');
+        localStorage.setItem('restoredMode', isUrl ? 'youtube' : 'offline'); // Default to offline if no URL
+
+    } 
+    // 2. Legacy String URL
+    else if (typeof item === 'string') {
+        localStorage.setItem('currentYoutubeUrl', item);
+        localStorage.removeItem('restoredMode'); 
+    }
+    
+    router.push('/learning');
+};
+
+const continueLearning = () => {
+    if (uniqueHistory.value && uniqueHistory.value.length > 0) {
+        goToLearning(uniqueHistory.value[0]);
+    } else {
+        startLearning();
+    }
+};
+</script>
+
+<template>
+    <div class="dashboard-view">
+        <div class="container">
+            <!-- Header -->
+            <header class="dashboard-header">
+                <h1 class="text-headline">안녕하세요, <span class="highlight">{{ userName }}</span>님! 👋</h1>
+                <p class="subtitle">오늘도 새로운 지식을 쌓아볼까요?</p>
+            </header>
+
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card glass-panel">
+                    <div class="icon-box blue"><Clock /></div>
+                    <div class="stat-info">
+                        <h3>총 학습 시간</h3>
+                        <p class="value">
+                            <span v-if="stats.totalHoursInt > 0">{{ stats.totalHoursInt }}시간 </span>
+                            <span>{{ stats.totalMinutesInt || 0 }}분</span>
+                        </p>
+                    </div>
+                </div>
+                <div class="stat-card glass-panel">
+                    <div class="icon-box purple"><BookOpen /></div>
+                    <div class="stat-info">
+                        <h3>완료한 수업</h3>
+                        <p class="value">{{ stats.finishedSessions }}개</p>
+                    </div>
+                </div>
+                <div class="stat-card glass-panel">
+                    <div class="icon-box green"><Trophy /></div>
+                    <div class="stat-info">
+                        <h3>최근 퀴즈 점수</h3>
+                        <p class="value">{{ stats.quizScore }}점</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content Stack -->
+            <div class="dashboard-main">
+                
+                <!-- 1. Today's Goal -->
+                <section class="task-section glass-panel">
+                    <div class="section-header">
+                        <h2>오늘의 목표</h2>
+                    </div>
+                <div class="task-grid">
+                    <div class="daily-task-card">
+                        <div class="progress-ring" :style="{ background: `conic-gradient(var(--color-accent) ${dailyProgress}%, #333 ${dailyProgress}% 100%)` }">
+                            <span class="percentage">{{ dailyProgress }}%</span>
+                        </div>
+                        <div class="task-info">
+                            <h3>일일 퀘스트 진행중</h3>
+                            <p>{{ stats.todayHours }}시간 / 6.3시간 (목표)</p>
+                        </div>
+                        <button class="btn btn-accent value-btn" @click="continueLearning">이어서 하기</button>
+                    </div>
+                        
+                    <div class="analysis-card clickable" @click="openJoinModal">
+                        <h3>🏫 클래스 참여하기</h3>
+                        <p class="desc">강사님께 전달받은 입장 코드를 입력하여<br>새로운 클래스에 참여하세요.</p>
+                    </div>
+                </div>
+                </section>
+
+                <!-- 2. Recent Activity -->
+                <section class="history-section glass-panel mt-section">
+                    <div class="section-header">
+                        <h2>최근 수강 목록</h2>
+                        <button class="btn-text">전체보기</button>
+                    </div>
+                    
+                    <div v-if="uniqueHistory.length > 0" class="history-list">
+                        <div v-for="(item, idx) in uniqueHistory" :key="idx" class="history-item" @click="goToLearning(item)">
+                            
+                            <!-- Thumbnail: URL vs Type Icon -->
+                            <div class="thumbnail-placeholder" :class="{'has-image': getThumbnail(item.url)}">
+                                <img v-if="getThumbnail(item.url)" :src="getThumbnail(item.url)" alt="Thumbnail" class="thumb-img" />
+                                <template v-else>
+                                    <YoutubeIcon v-if="item.url" />
+                                    <MonitorPlay v-else />
+                                </template>
+                            </div>
+
+                            <div class="info">
+                                <p class="url-text">{{ item.title || item }}</p>
+                                <span class="date">{{ item.url ? '온라인 학습' : '오프라인/강의실 수업' }}</span>
+                            </div>
+                            
+                            <button class="btn-icon delete-btn" @click.stop="deleteHistory(item.sessionId)">
+                                <Trash2 size="16" />
+                            </button>
+                        </div>
+                    </div>
+                    <div v-else class="empty-state">
+                        <p>아직 학습 기록이 없습니다.</p>
+                        <button class="btn btn-primary" @click="startLearning">학습 시작하기</button>
+                    </div>
+                </section>
+            </div>
+        </div>
+        
+    <!-- Join Class Modal -->
+    <div v-if="showJoinModal" class="modal-overlay" @click.self="closeJoinModal">
+        <div class="modal-card wide-modal">
+            <h2>클래스 참여</h2>
+            
+            <div class="modal-body-split">
+                <!-- Left: Verification Code -->
+                <div class="input-section">
+                    <p class="sub-text">강사님에게 전달받은<br>6자리 코드를 입력해주세요.</p>
+                    <input type="text" v-model="joinCode" maxlength="6" class="code-input" placeholder="CODE" @keyup.enter="joinClass" />
+                    <button class="btn btn-primary full-width" @click="joinClass">코드 입력하여 입장</button>
+                    <button class="btn btn-text full-width" @click="closeJoinModal" style="margin-top:10px">취소</button>
+                </div>
+
+                <!-- Right Separator -->
+                <div class="list-section">
+                    <h3>현재 개설된 클래스</h3>
+                    <div class="lecture-list">
+                        <div v-for="lec in availableLectures" :key="lec.id" class="lecture-item" :class="{'selected': selectedLectureId === lec.id}" @click="selectLecture(lec)">
+                            <div class="lec-info">
+                                <span class="lec-title">{{ lec.title }}</span>
+                                <span class="lec-instructor">{{ lec.instructor_name }} 강사님</span>
+                            </div>
+                            <div v-if="lec.is_enrolled" class="badge-enrolled">수강 중 →</div>
+                            <span v-else class="action-arrow">→</span>
+                        </div>
+                        <div v-if="availableLectures.length === 0" class="empty-list">
+                            진행 중인 클래스가 없습니다.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+        
+    </div>
+</template>
+
+<style scoped lang="scss">
+/* ... existing styles ... */
+
+/* Modal Styles */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0,0,0,0.8); z-index: 2000;
+    display: flex; align-items: center; justify-content: center;
+}
+.modal-card.wide-modal {
+    background: #1c1c1e; padding: 32px; border-radius: 16px; 
+    width: 800px; /* Wider for split view */
+    max-width: 95vw;
+    text-align: center; border: 1px solid #333;
+}
+.modal-body-split {
+    display: flex; gap: 30px; margin-top: 30px; text-align: left;
+}
+.input-section { flex: 1; padding-right: 20px; display: flex; flex-direction: column; justify-content: center; }
+.list-section { flex: 1.2; border-left: 1px solid #333; padding-left: 30px; max-height: 400px; overflow-y: auto; }
+
+h2 { margin: 0; font-size: 24px; color: white; margin-bottom: 0px; text-align: center; width: 100%; }
+h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
+
+.sub-text { color: #888; margin-bottom: 24px; font-size: 14px; text-align: center; }
+.code-input {
+    width: 100%; padding: 16px; font-size: 24px; letter-spacing: 4px; text-align: center;
+    background: #000; border: 1px solid #444; border-radius: 8px; color: var(--color-accent);
+    margin-bottom: 24px; text-transform: uppercase;
+    &:focus { border-color: var(--color-accent); outline: none; }
+}
+.full-width { width: 100%; }
+
+/* Lecture List */
+.lecture-list { display: flex; flex-direction: column; gap: 10px; }
+.lecture-item {
+    background: #2c2c2e; padding: 16px; border-radius: 8px; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+    &:hover { background: #3a3a3c; }
+    &.selected { border-color: var(--color-accent); background: rgba(79, 172, 254, 0.1); }
+}
+.lec-info { display: flex; flex-direction: column; gap: 4px; }
+.lec-title { color: white; font-weight: bold; font-size: 15px; }
+.lec-instructor { color: #888; font-size: 13px; }
+.action-arrow { color: var(--color-accent); font-size: 18px; opacity: 0; transition: opacity 0.2s; }
+.lecture-item:hover .action-arrow { opacity: 1; }
+.empty-list { color: #666; text-align: center; padding: 20px; font-size: 14px; }
+
+@media (max-width: 768px) {
+    .modal-card.wide-modal { width: 90vw; }
+    .modal-body-split { flex-direction: column; }
+    .list-section { border-left: none; border-top: 1px solid #333; padding-left: 0; padding-top: 20px; }
+    .input-section { padding-right: 0; }
+}
+
+.clickable { cursor: pointer; transition: transform 0.2s; &:hover { transform: scale(1.02); border-color: var(--color-accent); } }
+/* Thumbnail Styles */
+.thumbnail-placeholder {
+    width: 60px; height: 40px; background: #333; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    
+    &.has-image { background: transparent; }
+    
+    .thumb-img {
+        width: 100%; height: 100%; object-fit: cover;
+    }
+}
+
+.dashboard-view {
+    padding-top: var(--header-height);
+    min-height: 100vh;
+    background: #000;
+    color: white;
+    padding-bottom: 40px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px;
+}
+
+.dashboard-header {
+    margin: 40px 0;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    .header-text {
+        h1 { font-size: 32px; font-weight: 700; }
+        .subtitle { color: #888; margin-top: 8px; font-size: 16px; }
+    }
+    .highlight { color: var(--color-primary); }
+    .large-btn { padding: 12px 24px; font-size: 16px; border-radius: 12px; }
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-bottom: 40px;
+}
+
+.stat-card {
+    display: flex; align-items: center; gap: 20px;
+    padding: 24px;
+    
+    .icon-box {
+        width: 50px; height: 50px;
+        border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(255,255,255,0.1);
+        
+        &.blue { color: #4facfe; background: rgba(79, 172, 254, 0.1); }
+        &.purple { color: #a18cd1; background: rgba(161, 140, 209, 0.1); }
+        &.green { color: #00f260; background: rgba(0, 242, 96, 0.1); }
+    }
+    
+    .stat-info {
+        h3 { font-size: 14px; color: #888; margin-bottom: 4px; }
+        .value { font-size: 24px; font-weight: 700; }
+    }
+}
+
+/* Main Layout Stack */
+.dashboard-main {
+    display: flex; flex-direction: column;
+}
+
+.mt-section { margin-top: 24px; }
+
+/* Task Grid (Horizontal) */
+.task-grid {
+    display: flex; gap: 24px;
+}
+
+.daily-task-card {
+    flex: 1; margin-bottom: 0; /* reset */
+    display: flex; align-items: center; gap: 16px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+    padding: 20px; border-radius: 12px;
+}
+
+.analysis-card {
+    flex: 1;
+    background: rgba(79, 172, 254, 0.1);
+    border: 1px solid rgba(79, 172, 254, 0.2);
+    padding: 20px; border-radius: 12px;
+    h3 { color: #4facfe; font-size: 15px; margin-bottom: 8px; }
+    p { font-size: 13px; line-height: 1.5; color: #ccc; }
+}
+
+.section-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 20px;
+    h2 { font-size: 20px; font-weight: 600; }
+}
+
+.glass-panel {
+    background: #1c1c1e;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 24px;
+}
+
+.history-list {
+    display: flex; flex-direction: column; gap: 16px;
+}
+
+.history-item {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+    cursor: pointer;
+    transition: background 0.2s;
+    
+    &:hover { background: rgba(255,255,255,0.08); }
+    
+    .info {
+        flex: 1; overflow: hidden;
+        .url-text { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .date { font-size: 12px; color: #666; }
+    }
+    
+    .delete-btn { opacity: 0; color: #666; transition: all 0.2s; 
+        &:hover { color: #ef4444; } 
+    }
+    &:hover .delete-btn { opacity: 1; }
+}
+
+.empty-state {
+    text-align: center; padding: 40px 0; color: #666;
+    button { margin-top: 16px; }
+}
+
+.progress-ring {
+    width: 50px; height: 50px; border-radius: 50%;
+    /* border removal */
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: bold; color: var(--color-accent);
+    position: relative; /* For pseudo-element */
+}
+
+/* Create the 'hole' to make it a ring */
+.progress-ring::before {
+    content: "";
+    position: absolute;
+    inset: 5px; /* Ring thickness */
+    background: #2c2c2e; /* Match card bg somewhat */
+    border-radius: 50%;
+    z-index: 1;
+}
+
+.percentage {
+    position: relative;
+    z-index: 2;
+}
+
+.task-info { flex: 1; h3 { font-size: 16px; font-weight: 600; } p { font-size: 13px; color: #888; } }
+</style>

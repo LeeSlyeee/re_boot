@@ -1,0 +1,12 @@
+
+> frontend@0.0.0 dev
+> vite
+
+
+  VITE v4.5.14  ready in 159 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+  ➜  press h to show help
+1:18:26 PM [vite] hmr update /src/views/LearningView.vue, /src/views/DashboardView.vue, /src/views/AuthView.vue
+1:21:46 PM [vite] hmr update /src/views/LearningView.vue

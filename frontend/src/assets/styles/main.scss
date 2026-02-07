@@ -1,0 +1,132 @@
+/* Apple-style Design System Variables */
+:root {
+  --color-background: #000000;
+  --color-text: #f5f5f7;
+  --color-text-secondary: #86868b;
+  --color-accent: #0071e3;
+  --color-accent-hover: #0077ed;
+  --color-primary: #0071e3;
+  --color-success: #34c759;
+  --color-warning: #ff9f0a;
+  --color-danger: #ff453a;
+
+  /* Glassmorphism */
+  --glass-bg: rgba(28, 28, 30, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-blur: 20px;
+
+  /* Spacing */
+  --container-width: 980px;
+  --header-height: 48px;
+
+  /* Typography */
+  --font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+/* Reset & Base */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font-family: var(--font-family);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+  transition: color 0.2s ease;
+}
+
+ul {
+  list-style: none;
+}
+
+/* Utilities */
+.container {
+  max-width: var(--container-width);
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border-radius: 980px; /* Pill shape */
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0, 0, 0.5, 1);
+  border: none;
+
+  &.btn-primary {
+    background-color: var(--color-accent);
+    color: white;
+
+    &:hover {
+      background-color: var(--color-accent-hover);
+      transform: scale(1.02);
+    }
+  }
+
+  &.btn-secondary {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--color-text);
+
+    &:hover {
+      background-color: rgba(255, 255, 255, 0.15);
+    }
+  }
+}
+
+/* Typography Utilities */
+.text-headline {
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  line-height: 1.1;
+}
+
+.text-subhead {
+  font-size: 21px;
+  color: var(--color-text-secondary);
+  font-weight: 400;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-enter-active {
+  animation: fadeIn 0.8s ease forwards;
+}
