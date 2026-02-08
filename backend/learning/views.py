@@ -95,112 +95,186 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
         Request Files: { "audio_file": <blob> }
         Request Data: { "sequence_order": 1 }
         """
+        print(f"--- [Audio Upload Start] Session: {pk} ---")
         session = self.get_object()
         audio_file = request.FILES.get('audio_file')
         sequence_order = request.data.get('sequence_order', 1)
 
         if not audio_file:
+            print("❌ Error: No audio file provided.")
             return Response({'error': 'No audio file provided'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             # Check API Key
             if not settings.OPENAI_API_KEY:
-                print("CRITICAL: OPENAI_API_KEY is missing in settings!")
+                print("❌ CRITICAL: OPENAI_API_KEY is missing!")
                 return Response({'error': 'Server configuration error: No API Key'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            print(f"DEBUG: API Key Loaded: {settings.OPENAI_API_KEY[:5]}***")
-
-            # 1. Initialize Client (Handles v1.x)
+            # 1. Initialize Client
             from openai import OpenAI
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
-            # 2. Call Whisper API
-            print(f"DEBUG: Sending audio to Whisper... (Size: {audio_file.size} bytes)")
+            # [DEBUG LOGGING]
+            with open("debug_stt.log", "a") as f:
+                f.write(f"[{sequence_order}] Size: {audio_file.size}, Type: {audio_file.content_type}\n")
+
+            # [CONTEXT IMPROVEMENT] Use last 3 logs as prompt to guide Whisper
+            # This significantly reduces "silence hallucinations" by providing context.
+            previous_context = ""
+            # Must evaluate QuerySet to list because reversed() on sliced QuerySet is not supported by DB
+            recent_logs = list(STTLog.objects.filter(session=session).order_by('-sequence_order')[:3])
             
-            # OpenAI v1.x requires tuple (filename, content) for InMemoryUploadedFile
-            audio_data = (audio_file.name, audio_file.read())
+            if recent_logs:
+                # Reverse to get chronological order: Oldest -> Newest
+                # recent_logs is now a list, so reversed() is safe
+                previous_context = " ".join([log.text_chunk for log in reversed(recent_logs)])
             
+            # Limit prompt length (OpenAI limit is ~224 tokens, keep it safe)
+            # Python slice handles chars, safe for unicode
+            if len(previous_context) > 200:
+                previous_context = previous_context[-200:]
+
+            # 2. Prepare Audio for Whisper
+            file_name = audio_file.name or "chunk.webm"
+            audio_data = (file_name, audio_file.read(), audio_file.content_type or "audio/webm")
+
             transcript = client.audio.transcriptions.create(
                 model="whisper-1", 
                 file=audio_data, 
-                language="ko" # Force Korean
+                language="ko",
+                response_format="verbose_json", # [CRITICAL] Request Metadata
+                prompt=f"이것은 강의 자막입니다. 이전 내용: {previous_context}", 
             )
             
+            # verbose_json returns an object with 'text' and 'segments'
             stt_text = transcript.text
-            print(f"DEBUG: Whisper Response: {stt_text[:50]}...") # Log 50 chars
+            segments = getattr(transcript, 'segments', [])
             
-            # [FIX] Whisper Hallucination Filter
-            # 묵음 구간에서 자주 발생하는 환각 멘트 필터링
+            # [SILENCE DETECTION] Use Whisper's internal confidence
+            if segments:
+                # Use the first segment's probability (since we send small chunks)
+                first_seg = segments[0]
+                no_speech_prob = getattr(first_seg, 'no_speech_prob', 0)
+                avg_logprob = getattr(first_seg, 'avg_logprob', 0)
+                
+                with open("debug_stt.log", "a") as f:
+                    f.write(f"[{sequence_order}] PROBS: NoSpeech={no_speech_prob:.4f}, LogProb={avg_logprob:.4f}\n")
+
+                # If Whisper is 50% sure it's silence, trust it.
+                if no_speech_prob > 0.5:
+                     with open("debug_stt.log", "a") as f:
+                         f.write(f"⚠️ Filtered by NoSpeechProb: {no_speech_prob}\n")
+                     return Response({'status': 'silence_skipped', 'text': '', 'reason': 'High No Speech Prob'}, status=status.HTTP_200_OK)
+
+            with open("debug_stt.log", "a") as f:
+                f.write(f"[{sequence_order}] RAW WHISPER: {stt_text}\n")
+            
+            print(f"📝 Whisper Raw Output: [{stt_text}]")
+            
+            # [CRITICAL FIX] Hallucination & Valid Content Filter
+            # 1. Hallucination List (Updated from user logs)
             HALLUCINATIONS = [
                 "시청해주셔서 감사합니다", "시청해 주셔서 감사합니다",
-                "구독과 좋아요", "좋아요와 구독",
-                "MBC 뉴스", "SBS 뉴스", "KBS 뉴스",
-                "Thanks for watching", "Thank you for watching"
+                "구독과 좋아요", "좋아요와 구독", "구독&좋아요", "♥", 
+                "MBC 뉴스", "SBS 뉴스", "KBS 뉴스", "YTN 뉴스",
+                "Thanks for watching", "Thank you for watching",
+                "Subtitles by", "자막 제작", "제작:", "한글자막", "by neD",
+                "스크립트의 내용을 받아적은 스크립트입니다",
+                "자막 제공 및 광고는", "KickSubs.com",
+                "UpTitle", "uptitle.co.kr", 
+                "영상편집 및 자막이 필요하면", 
+                "댓글에 링크를 적어줘", 
+                "뷔 뷔 뷔 뷔", "ㅋㅋㅋㅋ",
+                "매주 일요일 업로드됩니다", 
+                "에이에이에이에이", "Paloalto",
+                "오늘도 봐주셔서 감사합니다", "유료광고", "투모로우바이투게더"
             ]
             
             cleaned_text = stt_text.strip()
             is_hallucination = False
-            
-            # 1. 완전 일치 또는 포함 여부 검사
-            for phrase in HALLUCINATIONS:
-                if phrase in cleaned_text:
-                    # 문장의 80% 이상이 환각 멘트면 스킵 (유의미한 내용이 섞여있을 수 있으므로)
-                    if len(phrase) / len(cleaned_text) > 0.8:
+            skip_reason = ""
+
+            # 2. Empty Check
+            if not cleaned_text:
+                return Response({'status': 'silence_skipped', 'text': '', 'reason': 'Empty'}, status=status.HTTP_200_OK)
+
+            # [NEW] Prompt Echo Check (Prevent looping previous context)
+            # If current text is just a subset of previous context, it's a loop.
+            if len(cleaned_text) > 5 and cleaned_text in previous_context:
+                 is_hallucination = True
+                 skip_reason = "Prompt Echo Loop"
+
+            # [NEW] Internal Repetition Check (e.g., "Hello Hello")
+            # Simple check: if first half equals second half
+            mid = len(cleaned_text) // 2
+            if len(cleaned_text) > 10 and cleaned_text[:mid].strip() == cleaned_text[mid:].strip():
+                 is_hallucination = True
+                 skip_reason = "Internal Repetition"
+
+            # 3. Phrase Matching (Keyword Ban)
+            if not is_hallucination:
+                for phrase in HALLUCINATIONS:
+                    # Remove spaces for robust checking
+                    if phrase.replace(" ", "").lower() in cleaned_text.replace(" ", "").lower():
                         is_hallucination = True
+                        skip_reason = f"Banned Phrase: {phrase}"
                         break
             
-            # 2. "감사합니다."만 덩그러니 있는 경우도 스킵
-            if cleaned_text.replace('.', '') == "감사합니다":
-                is_hallucination = True
+            # 4. Strict Repetition Filter (Prevent Looping)
+            if not is_hallucination:
+                # Check last 3 logs
+                recent_logs = STTLog.objects.filter(session=session).order_by('-sequence_order')[:3]
+                
+                for log in recent_logs:
+                    prev = log.text_chunk.strip()
+                    curr = cleaned_text
+                    
+                    # A. Exact Match
+                    if prev == curr:
+                        is_hallucination = True
+                        skip_reason = "Exact Duplicate"
+                        break
+                    
+                    # B. Jaccard Similarity for longer text
+                    set_prev = set(prev.split())
+                    set_curr = set(curr.split())
+                    if len(set_curr) > 0:
+                        overlap = len(set_prev & set_curr) / len(set_curr)
+                        if overlap > 0.9: # 90% word overlap (Stricter)
+                            is_hallucination = True
+                            skip_reason = "High Word Overlap"
+                            break
 
-            if not cleaned_text or is_hallucination:
-                print(f"DEBUG: Hallucination/Silence Skipped ({cleaned_text})")
-                return Response({'status': 'silence_skipped', 'text': ''}, status=status.HTTP_200_OK)
+                    # C. Substring Inclusion (Short Phrase Echo)
+                    # If current (short) is contained in previous (long), it's likely an echo
+                    if len(curr) < 20 and len(curr) < len(prev) and curr in prev:
+                        is_hallucination = True
+                        skip_reason = "Short Substring Echo"
+                        break
 
-            # 3. Save STT Log
+            if is_hallucination:
+                with open("debug_stt.log", "a") as f:
+                    f.write(f"⚠️ Filtered: '{cleaned_text}' | Reason: {skip_reason}\n")
+                print(f"⚠️ Filtered: '{cleaned_text}' | Reason: {skip_reason}")
+                return Response({'status': 'silence_skipped', 'text': '', 'reason': skip_reason}, status=status.HTTP_200_OK)
+
+            # 5. Save STT Log
             log = STTLog.objects.create(
                 session=session,
                 sequence_order=sequence_order,
-                text_chunk=stt_text
+                text_chunk=stt_text 
             )
             
-            # [New] 대화 압축 트리거 (ContextManager)
-            # 10의 배수 번호 로그가 저장될 때마다 압축 시도 (너무 자주는 말고)
-            if sequence_order % 10 == 0:
-                from .context import ContextManager
-                import threading
-                # 비동기(Thread)로 압축 실행하여 API 응답 지연 방지
-                def run_compression():
-                    cm = ContextManager()
-                    cm.compress_session_if_needed(session.id)
-                    
-                threading.Thread(target=run_compression).start()
-
             return Response({
                 'status': 'processed', 
                 'text': stt_text, 
                 'id': log.id
             }, status=status.HTTP_201_CREATED)
 
-        except ImportError:
-            # Fallback for older openai versions (<1.0)
-            try:
-                print("DEBUG: Using legacy OpenAI method")
-                transcript = openai.Audio.transcribe(
-                    model="whisper-1", 
-                    file=audio_file,
-                    language="ko"
-                )
-                stt_text = transcript.get('text', '')
-                # ... same saving logic ...
-                log = STTLog.objects.create(session=session, sequence_order=sequence_order, text_chunk=stt_text)
-                return Response({'status': 'processed', 'text': stt_text, 'id': log.id}, status=status.HTTP_201_CREATED)
-            except Exception as legacy_e:
-                print(f"LEGACY STT Error: {legacy_e}")
-                return Response({'error': f"Legacy Error: {str(legacy_e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
         except Exception as e:
-            print(f"CRITICAL STT Error: {e}")
+            with open("debug_stt.log", "a") as f:
+                f.write(f"ERROR: {str(e)}\n")
+            print(f"❌ CRITICAL STT Error: {e}")
             import traceback
             traceback.print_exc()
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

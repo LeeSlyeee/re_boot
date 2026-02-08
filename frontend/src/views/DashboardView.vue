@@ -560,10 +560,9 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
         .date { font-size: 12px; color: #666; }
     }
     
-    .delete-btn { opacity: 0; color: #666; transition: all 0.2s; 
-        &:hover { color: #ef4444; } 
+    .delete-btn { color: #666; transition: all 0.2s; 
+        &:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); border-radius: 4px; } 
     }
-    &:hover .delete-btn { opacity: 1; }
 }
 
 .empty-state {

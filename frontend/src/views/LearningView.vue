@@ -1,6 +1,11 @@
 <script setup>
 import { ref, nextTick, computed, watch, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router'; // useRoute added
+
+// Debug Refs
+const debugLastChunkSize = ref(0);
+const debugLastStatus = ref('Init');
+const debugLastResponse = ref('-');
 import { Mic, Square, Pause, FileText, MonitorPlay, Users, Youtube, RefreshCw, Bot, Play, List, Plus, Lock } from 'lucide-vue-next'; // Play, List added, Lock added
 import { AudioRecorder } from '../api/audioRecorder';
 import api from '../api/axios';
@@ -109,6 +114,7 @@ const sttLogs = ref([]);
 const recorder = ref(null);
 const logsContainer = ref(null);
 const sessionId = ref(null);
+const nextSequenceOrder = ref(1); // [FIX] Top-level ref for sequence tracking
 
 // Quiz State
 const quizData = ref(null);
@@ -526,7 +532,7 @@ const startRecording = async () => {
             const response = await api.post('/learning/sessions/', { 
                 section: null, 
                 session_order: 1,
-                lecture: currentLectureId.value || null, // [FIX] Link to current lecture if valid
+                lecture: currentLectureId.value || null, // Link to current lecture if valid
                 youtube_url: (youtubeUrl.value && !youtubeUrl.value.startsWith('http')) 
                              ? 'https://' + youtubeUrl.value 
                              : (youtubeUrl.value || null)
@@ -547,56 +553,96 @@ const startRecording = async () => {
     }
 
     isRecording.value = true;
+    nextSequenceOrder.value = sttLogs.value.length + 1; // Sync with current logs
     recorder.value = new AudioRecorder(handleAudioData);
     
     try {
         // [FIX] 영상 강의(하이브리드) 모드면 무조건 시스템 오디오(탭 오디오) 녹음
-        // 오프라인 모드 & 영상 없음 -> 마이크 사용
         if (mode.value === 'offline' && !youtubeEmbedUrl.value) {
-             await recorder.value.startMic(5000);
+             await recorder.value.startMic(3000);
         } else {
              // 그 외 (유튜브 모드, 유니버설 모드, 오프라인+영상 모드) -> 시스템 오디오 사용
-             alert("📢 [중요] 팝업에서 '현재 탭(Chrome 탭)'을 선택하고, \n반드시 '오디오 공유'를 체크해주세요!");
-             await recorder.value.startSystemAudio(5000);
+             await recorder.value.startSystemAudio(3000);
         }
     } catch (err) {
         console.error("Rec Error:", err);
         isRecording.value = false;
-        alert("녹음 시작 실패: 마이크/시스템 오디오 권한을 확인해주세요.");
     }
 };
 
 const stopRecording = () => {
     isRecording.value = false;
-    if (recorder.value) recorder.value.stop();
+    if (recorder.value) {
+        recorder.value.stop();
+        recorder.value = null;
+    }
 };
 
+const processingCount = ref(0);
+const isProcessingAudio = computed(() => processingCount.value > 0);
+
 const handleAudioData = async (audioBlob) => {
+    if (audioBlob.size < 1000) {
+        return;
+    }
+
+    // [FIX] Detect correct file extension relative to MimeType
+    let ext = 'webm';
+    if (audioBlob.type.includes('mp4')) ext = 'mp4';
+    else if (audioBlob.type.includes('ogg')) ext = 'ogg';
+    else if (audioBlob.type.includes('wav')) ext = 'wav';
+    
+    // Capture and Increment Sequence
+    const currentSeq = nextSequenceOrder.value;
+    nextSequenceOrder.value++;
+
+    // Debug Update
+    debugLastChunkSize.value = audioBlob.size;
+    debugLastStatus.value = `Sending #${currentSeq}...`;
+
+    console.log(`🎤 Uploading chunk #${currentSeq}: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
+    processingCount.value++; 
+    scrollToBottom(); 
+
     const formData = new FormData();
-    formData.append('audio_file', audioBlob, 'chunk.webm');
-    formData.append('sequence_order', sttLogs.value.length + 1);
+    formData.append('audio_file', audioBlob, `chunk.${ext}`);
+    formData.append('sequence_order', currentSeq);
 
     try {
         const { data } = await api.post(`/learning/sessions/${sessionId.value}/audio/`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' }
         });
+        
+        console.log(`✅ Chunk #${currentSeq} Response:`, data);
+        debugLastStatus.value = `Success #${currentSeq}`;
+        debugLastResponse.value = data.text ? data.text.substring(0, 10) + '...' : 'No Text';
+
         if (data.text) {
              const newLog = {
                 id: data.id || Date.now(),
-                sequence_order: sttLogs.value.length + 1,
+                sequence_order: currentSeq, // Use local tracked sequence
                 text_chunk: data.text,
                 timestamp: new Date().toLocaleTimeString()
             };
             sttLogs.value.push(newLog);
             scrollToBottom();
+        } else if (data.status === 'silence_skipped') {
+            console.log(`Silence skipped for #${currentSeq} (Reason: ${data.reason})`);
+            debugLastResponse.value = `Skipped: ${data.reason}`;
         }
-    } catch (e) { console.error("STT Error:", e); }
+    } catch (e) { 
+        console.error(`STT Error for #${currentSeq}:`, e);
+        debugLastStatus.value = `Error #${currentSeq}`;
+        debugLastResponse.value = e.message;
+    } finally {
+        processingCount.value--; // Decrement counter
+    }
 };
 
 const scrollToBottom = async () => {
     await nextTick();
     if (logsContainer.value) {
-        logsContainer.value.scrollTo({ top: logsContainer.value.scrollHeight, behavior: 'smooth' });
+        logsContainer.value.scrollTop = logsContainer.value.scrollHeight;
     }
 };
 
@@ -837,19 +883,39 @@ const openSessionReview = (id) => {
         <!-- 2. Actual Learning Interface -->
         <div v-if="mode" class="container" :class="{'layout-vertical': mode === 'youtube', 'layout-split': mode === 'offline' || mode === 'universal'}">
             
-            <!-- [NEW] Review Header (Only in Youtube Mode) -->
+            <!-- [FIX] Review Header (Youtube Mode) - 상태별 분기 추가 -->
             <header v-if="mode === 'youtube'" class="review-header glass-panel">
                  <div class="header-left">
-                     <div class="status-badge header-badge">✅ 학습 완료 (복습 모드)</div>
+                     <div class="status-badge header-badge" :class="{done: isCompletedSession, active: isRecording}">
+                        {{ isCompletedSession ? '✅ 학습 완료 (복습 모드)' : (isRecording ? '🔴 AI 기록 중' : 'Ready (학습 준비)') }}
+                     </div>
                      <span class="session-id-text">🔄 세션 연결됨 (ID: {{sessionId}})</span>
                  </div>
-                 <button class="btn btn-primary" style="height:36px; font-size:13px; margin-right:8px;" @click="loadQuiz">
-                     ✍️ 퀴즈 풀기
-                 </button>
-                 <button class="btn btn-control secondary" style="height:36px; font-size:13px; margin-right:8px;" @click="startNewSession">
-                     <Plus size="14" style="margin-right:4px;" /> 새 학습
-                 </button>
-                 <button class="btn btn-control secondary" style="height:36px; font-size:13px;" @click="router.push('/dashboard')">나가기</button>
+                 
+                 <div class="header-actions" style="display:flex; gap:8px;">
+                     <!-- 1. 학습 진행 중 (녹음 제어) -->
+                     <template v-if="!isCompletedSession">
+                         <button class="btn btn-control" :class="{'btn-danger': isRecording}" style="height:36px; font-size:13px;" @click="isRecording ? stopRecording() : startRecording()">
+                             <component :is="isRecording ? Square : Mic" size="14" style="margin-right:4px;" /> 
+                             {{ isRecording ? '기록 중지' : '학습 시작' }}
+                         </button>
+                         <button class="btn btn-control secondary" style="height:36px; font-size:13px;" @click="endSession">
+                             학습 완료
+                         </button>
+                     </template>
+
+                     <!-- 2. 학습 완료 (복습/퀴즈) -->
+                     <template v-else>
+                         <button class="btn btn-primary" style="height:36px; font-size:13px;" @click="loadQuiz">
+                             ✍️ 퀴즈 풀기
+                         </button>
+                         <button class="btn btn-control secondary" style="height:36px; font-size:13px;" @click="startNewSession">
+                             <Plus size="14" style="margin-right:4px;" /> 새 학습
+                         </button>
+                     </template>
+                     
+                     <button class="btn btn-control secondary" style="height:36px; font-size:13px;" @click="router.push('/dashboard')">나가기</button>
+                 </div>
             </header>
 
             <!-- A. Youtube Player (New Vertical Layout) -->
@@ -920,6 +986,10 @@ const openSessionReview = (id) => {
                     <div v-for="log in sttLogs" :key="log.id" class="stt-bubble">
                         <span class="time">{{ log.timestamp }}</span>
                         <p>{{ log.text_chunk }}</p>
+                    </div>
+                    <!-- Processing Indicator -->
+                    <div v-if="isProcessingAudio" class="stt-bubble processing">
+                        <span class="typing-dots">AI가 내용을 듣고 있습니다...</span>
                     </div>
                 </div>
 
@@ -1054,6 +1124,16 @@ const openSessionReview = (id) => {
     </div>
 
     </template> <!-- END MAIN CONTENT -->
+
+    <!-- [DEBUG PANEL] -->
+    <div v-if="mode" class="debug-panel">
+        <div><strong>STT Debugger</strong></div>
+        <div>Last Chunk: {{ debugLastChunkSize }} bytes</div>
+        <div>Last Status: {{ debugLastStatus }}</div>
+        <div>Last Response: {{ debugLastResponse }}</div>
+        <div>Recorder State: {{ isRecording ? 'ON' : 'OFF' }}</div>
+    </div>
+
   </div>
 </template>
 
@@ -1099,8 +1179,31 @@ const openSessionReview = (id) => {
     min-height: 600px; height: auto; /* Increased height > 500px */
     box-shadow: 0 8px 32px rgba(0,0,0,0.2);
 }
-.stt-container { flex: 1; min-height: 550px; /* overflow-y aligned with parent */ padding-right: 10px; }
-.stt-bubble { margin-bottom: 16px; p { line-height:1.5; } .time { font-size:11px; color:#666; } }
+    .logs-container {
+        flex: 1; min-height: 0; 
+        overflow-y: auto; padding: 10px;
+        background: #000; border-radius: 8px;
+        scroll-behavior: smooth;
+        margin-bottom: 20px; /* 공간 확보 */
+        display: flex; flex-direction: column;
+        
+        /* 스크롤바 커스터마이징 */
+        &::-webkit-scrollbar { width: 8px; }
+        &::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        &::-webkit-scrollbar-track { background: #222; }
+    }
+    
+    .stt-log {
+        margin-bottom: 12px; font-size: 15px; line-height: 1.6; color: rgba(255,255,255,0.9);
+        padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 8px;
+        border-left: 3px solid var(--color-accent);
+        animation: fadeIn 0.3s ease-out;
+    }
+    .stt-log:last-child {
+        margin-bottom: 20px; /* 마지막 아이템 여백 */
+        border-color: #4CAF50; /* 최신 로그 강조 */
+        background: rgba(76, 175, 80, 0.1);
+    }
 
 .embedded-video-area {
     flex: 0 0 400px; /* Fixed height for video */
@@ -1371,6 +1474,15 @@ const openSessionReview = (id) => {
 .status-badge.header-badge {
     font-size: 15px; padding: 6px 12px;
     background: rgba(76, 175, 80, 0.15); color: #4CAF50; border: 1px solid rgba(76, 175, 80, 0.3);
+    
+    &.active {
+        background: rgba(255, 59, 48, 0.15); color: #ff3b30; border-color: rgba(255, 59, 48, 0.3);
+        animation: pulse 1.5s infinite;
+    }
+}
+
+.btn-danger {
+    background: rgba(255, 59, 48, 0.2) !important; color: #ff3b30 !important; border: 1px solid rgba(255, 59, 48, 0.5) !important;
 }
 
 .btn-text.highlight {
@@ -1487,4 +1599,37 @@ const openSessionReview = (id) => {
 }
 .chat-footer button:hover:not(:disabled) { background: #0088FF; transform: translateY(-1px); }
 .chat-footer button:disabled { opacity: 0.5; cursor: not-allowed; background: #333; }
+
+/* Processing Indicator Styles */
+.stt-bubble.processing {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px dashed rgba(255, 255, 255, 0.2);
+    color: #888;
+    align-self: center; /* Center if container is flex col */
+    width: 100%;
+    text-align: center;
+}
+
+.typing-dots::after {
+    content: ' .';
+    animation: dots 1.5s steps(5, end) infinite;
+}
+
+@keyframes dots {
+    0%, 20% { content: ' .'; }
+    40% { content: ' ..'; }
+    60% { content: ' ...'; }
+    80%, 100% { content: ''; }
+}
+</style>
+
+<!-- Add debug panel styles -->
+<style scoped> 
+.debug-panel {
+    position: fixed; bottom: 10px; left: 10px;
+    background: rgba(0,0,0,0.8); color: lime;
+    padding: 10px; border-radius: 8px; font-size: 11px;
+    font-family: monospace; z-index: 9999;
+    max-width: 400px;
+}
 </style>

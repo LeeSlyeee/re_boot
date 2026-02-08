@@ -42,6 +42,9 @@ const handleLogin = async () => {
                 <div v-if="errorMsg" class="error">{{ errorMsg }}</div>
                 <button type="submit">Login</button>
             </form>
+            <div class="footer-link">
+                <router-link to="/signup">강사 계정 만들기 (회원가입)</router-link>
+            </div>
         </div>
     </div>
 </template>
@@ -63,5 +66,9 @@ button {
     border: none; border-radius: 4px; cursor: pointer; font-size: 16px;
 }
 button:hover { background: #0056b3; }
+button:hover { background: #0056b3; }
 .error { color: red; margin-bottom: 15px; font-size: 14px; }
+.footer-link { text-align: center; margin-top: 20px; font-size: 14px; }
+.footer-link a { color: #007bff; text-decoration: none; }
+.footer-link a:hover { text-decoration: underline; }
 </style>

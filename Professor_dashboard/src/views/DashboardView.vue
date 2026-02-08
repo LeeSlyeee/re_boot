@@ -80,13 +80,22 @@ const goToDetail = (id) => {
     router.push(`/lecture/${id}`);
 };
 
+const handleLogout = () => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    router.push('/login');
+};
+
 onMounted(fetchLectures);
 </script>
 
 <template>
     <div class="dashboard">
         <header>
-            <h1>My Classrooms</h1>
+            <div class="header-left">
+                <h1>My Classrooms</h1>
+                <button class="logout-btn" @click="handleLogout">로그아웃</button>
+            </div>
             <button @click="openModal">+ New Class</button>
         </header>
         
@@ -128,8 +137,13 @@ onMounted(fetchLectures);
 </template>
 
 <style scoped>
+
 .dashboard { padding: 40px; max-width: 1200px; margin: 0 auto; }
 header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
+.header-left { display: flex; align-items: center; gap: 20px; } /* 헤더 왼쪽 정렬용 */
+.logout-btn { background: #6c757d; font-size: 14px; padding: 8px 16px; margin-left: 10px; }
+.logout-btn:hover { background: #5a6268; }
+
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px; }
 
 .card {
