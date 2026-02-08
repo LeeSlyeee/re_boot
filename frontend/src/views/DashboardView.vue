@@ -8,6 +8,7 @@ const router = useRouter();
 const userName = ref('학습자'); 
 const recentSessions = ref([]);
 const watchHistory = ref([]);
+const myLectures = ref([]); // [New] My Enrolled Lectures
 const stats = ref({
     totalHours: 0,
     finishedSessions: 0,
@@ -49,6 +50,13 @@ const fetchAvailableLectures = async () => {
     } catch (e) { console.error("Failed to fetch lectures", e); }
 };
 
+const fetchMyLectures = async () => {
+    try {
+        const res = await api.get('/learning/lectures/my/');
+        myLectures.value = res.data;
+    } catch (e) { console.error("Failed to fetch my lectures", e); }
+};
+
 const openJoinModal = () => {
     showJoinModal.value = true;
     joinCode.value = '';
@@ -66,8 +74,8 @@ const joinClass = async () => {
         const res = await api.post('/learning/enroll/', { access_code: joinCode.value });
         alert(`'${res.data.title}' 클래스 입장 완료!`);
         closeJoinModal();
-        // 바로 학습하러 가기
-        startLearning();
+        // [FIX] 바로 해당 강의실로 이동
+        router.push({ path: '/learning', query: { lectureId: res.data.lecture_id } });
     } catch (e) {
         alert(e.response?.data?.error || "코드가 올바르지 않거나 이미 가입된 클래스입니다.");
     }
@@ -105,6 +113,9 @@ onMounted(async () => {
         const { data } = await api.get('/learning/sessions/stats/');
         if (data)  stats.value = data;
     } catch (e) { console.error("Failed to load stats:", e); }
+    
+    // 4. Fetch My Lectures
+    fetchMyLectures();
 });
 
 const startLearning = () => {
@@ -222,6 +233,23 @@ const continueLearning = () => {
                         <p class="desc">강사님께 전달받은 입장 코드를 입력하여<br>새로운 클래스에 참여하세요.</p>
                     </div>
                 </div>
+                </section>
+
+                <!-- 1.5 My Courses -->
+                <section v-if="myLectures.length > 0" class="lectures-section glass-panel mt-section">
+                    <div class="section-header">
+                        <h2>수강 중인 클래스</h2>
+                    </div>
+                    <div class="lecture-list-dash">
+                        <div v-for="lec in myLectures" :key="lec.id" class="lecture-card" @click="selectLecture(lec)">
+                            <div class="lec-icon">📚</div>
+                            <div class="lec-info">
+                                <h3>{{ lec.title }}</h3>
+                                <p>{{ lec.instructor_name }} 강사님</p>
+                            </div>
+                            <div class="lec-arrow">→</div>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- 2. Recent Activity -->
@@ -450,6 +478,54 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
     h3 { color: #4facfe; font-size: 15px; margin-bottom: 8px; }
     p { font-size: 13px; line-height: 1.5; color: #ccc; }
 }
+
+/* My Lectures Section */
+.lecture-list-dash {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.lecture-card {
+    background: #2c2c2e;
+    padding: 16px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+
+    &:hover {
+        background: #3a3a3c;
+        transform: translateY(-2px);
+        border-color: var(--color-accent);
+    }
+}
+
+.lec-icon {
+    font-size: 24px;
+    width: 40px; height: 40px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+}
+
+.lec-info {
+    flex: 1;
+    h3 { font-size: 15px; font-weight: 600; color: white; margin-bottom: 4px; }
+    p { font-size: 13px; color: #888; }
+}
+
+.lec-arrow {
+    color: var(--color-accent);
+    font-size: 18px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.lecture-card:hover .lec-arrow { opacity: 1; }
 
 .section-header {
     display: flex; justify-content: space-between; align-items: center;

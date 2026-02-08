@@ -6,6 +6,7 @@ from .models import LearningSession, STTLog, SessionSummary, DailyQuiz, QuizQues
 from .serializers import LearningSessionSerializer, STTLogSerializer, SessionSummarySerializer, DailyQuizSerializer, QuizAttemptSerializer
 from django.utils import timezone
 from django.db import transaction
+from django.db.models import Q # Added Q
 import openai
 import os
 import json
@@ -31,10 +32,14 @@ class AssessmentViewSet(viewsets.ViewSet):
         
         if requested_session_id:
             try:
-                target_session = LearningSession.objects.get(id=requested_session_id, student=user)
+                # [Fix] Allow shared sessions (completed + same lecture enrollment)
+                target_session = LearningSession.objects.filter(
+                    Q(student=user) | 
+                    Q(lecture__students=user, is_completed=True)
+                ).get(id=requested_session_id)
                 print(f"DEBUG: Using requested session ID: {target_session.id}")
             except LearningSession.DoesNotExist:
-                return Response({"error": "요청한 세션을 찾을 수 없습니다."}, status=status.HTTP_404_NOT_FOUND)
+                return Response({"error": "요청한 세션을 찾을 수 없거나 권한이 없습니다."}, status=status.HTTP_404_NOT_FOUND)
         else:
             # 1. 이미 오늘 퀴즈가 있는지 확인 (세션 지정이 없을 때만 체크 - 세션 지정 시에는 재생성 의도로 간주 가능하지만, 일단 유지)
             # if DailyQuiz.objects.filter(student=user, quiz_date=today).exists(): ... 

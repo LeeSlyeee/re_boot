@@ -1,7 +1,7 @@
 <script setup>
 import { ref, nextTick, computed, watch, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router'; // useRoute added
-import { Mic, Square, Pause, FileText, MonitorPlay, Users, Youtube, RefreshCw, Bot, Play, List, Plus } from 'lucide-vue-next'; // Play, List added
+import { Mic, Square, Pause, FileText, MonitorPlay, Users, Youtube, RefreshCw, Bot, Play, List, Plus, Lock } from 'lucide-vue-next'; // Play, List added, Lock added
 import { AudioRecorder } from '../api/audioRecorder';
 import api from '../api/axios';
 
@@ -25,7 +25,7 @@ const showLectureSidebar = ref(false); // This might become obsolete with the ne
 
 const fetchLectureSessions = async (lectureId) => {
     try {
-        const res = await api.get(`/learning/lectures/${lectureId}/`);
+        const res = await api.get(`/learning/sessions/lectures/${lectureId}/`);
         sessions.value = res.data;
     } catch (e) {
         if (e.response?.status === 401) {
@@ -40,7 +40,7 @@ const fetchLectureSessions = async (lectureId) => {
 
 const fetchMissedSessions = async (lectureId) => {
     try {
-        const res = await api.get(`/learning/lectures/${lectureId}/missed/`);
+        const res = await api.get(`/learning/sessions/lectures/${lectureId}/missed/`);
         missedSessions.value = res.data;
     } catch (e) {
         console.error("Failed to fetch missed sessions", e);
@@ -59,15 +59,31 @@ const openSharedSession = async (missed) => {
         
         // Set Shared View State
         sessionId.value = sessionData.id; // For RAG to work
-        sttLogs.value = sessionData.logs || [];
-        sessionSummary.value = sessionData.latest_summary || "# [공유된 학습 노트]\n\n아직 요약이 생성되지 않았습니다."; // Changed summaryText to sessionSummary
+        
+        // Fetch logs separately
+        try {
+            const logRes = await api.get(`/learning/sessions/${sessionId.value}/logs/`);
+            sttLogs.value = logRes.data || [];
+        } catch (logErr) {
+            console.error("Failed to fetch logs for shared session", logErr);
+            sttLogs.value = [];
+        }
+
+        sessionSummary.value = sessionData.latest_summary || "# [공유된 학습 노트]\n\n아직 요약이 생성되지 않았습니다.";
         youtubeUrl.value = sessionData.youtube_url || '';
         
         isSharedView.value = true;
-        currentClassTitle.value = `[보충] ${new Date(missed.date).toLocaleDateString()} 수업 (공유됨)`; // Using Date object for formatting
+        isCompletedSession.value = true; // [FIX] Treat as completed/read-only
+        currentClassTitle.value = `[보충] ${new Date(missed.date).toLocaleDateString()} 수업 (공유됨)`; 
         
-        // Switch to Review Mode
-        mode.value = 'review';
+        // Switch to appropriate Mode
+        if (sessionData.youtube_url) {
+             mode.value = 'youtube';
+             isUrlSubmitted.value = true; // [FIX] Prevent URL input overlay
+        } else {
+             mode.value = 'offline';
+             isUrlSubmitted.value = true; // Treat as submitted for consistency
+        }
         
     } catch (e) {
         alert("공유 데이터를 불러오는데 실패했습니다.");
@@ -156,7 +172,19 @@ const selectedLectureId = ref(null);
 const currentClassTitle = ref(null); 
 const isSharedView = ref(false); // [New] Is viewing shared content?
 
+const myLectures = ref([]); // [New] My Enrolled Lectures
+
+const fetchMyLectures = async () => {
+    try {
+        const res = await api.get('/learning/lectures/my/');
+        myLectures.value = res.data;
+    } catch (e) {
+        console.error("Failed to fetch my lectures", e);
+    }
+};
+
 const fetchAvailableLectures = async () => {
+    // Legacy: Unused now
     try {
         const res = await api.get('/learning/lectures/public/');
         availableLectures.value = res.data;
@@ -169,13 +197,21 @@ const openJoinModal = () => {
     showJoinModal.value = true;
     joinCode.value = '';
     selectedLectureId.value = null;
-    fetchAvailableLectures();
+    fetchMyLectures(); // [FIX] Show my enrolled lectures
 };
 const closeJoinModal = () => {
     showJoinModal.value = false;
 };
 
 const selectLecture = async (lecture) => {
+    // [Security Fix] Prevent accessing unenrolled lectures
+    if (!lecture.is_enrolled) {
+        alert("이 클래스를 수강하려면 [입장 코드]를 입력해야 합니다.\n상단의 '클래스 참여하기' 버튼을 이용해주세요.");
+        selectedLectureId.value = lecture.id;
+        // Optionally pre-fill or focus join input
+        return;
+    }
+    
     // [UX Improvement] Remove native confirm() to prevent flaky behavior.
     // Directly proceed with selection.
     
@@ -375,9 +411,21 @@ const resumeSession = async (isAutoRestore = false) => {
         
     } catch(e) {
         console.error("Resume Failed", e);
-        // 복구 실패 시 조용히 실패 처리 (삭제)
-        localStorage.removeItem('currentSessionId');
-        pendingSessionId.value = null;
+        
+        // [FIX] 보안 강화: 내 세션이 아니거나(403), 없는 세션(404)이면 즉시 격리
+        if (e.response && (e.response.status === 403 || e.response.status === 404)) {
+            console.warn("⚠️ Unauthorized or Invalid Session detected. Clearing storage.");
+            localStorage.removeItem('currentSessionId');
+            localStorage.removeItem('currentYoutubeUrl');
+            localStorage.removeItem('restoredMode');
+            mode.value = null;
+            sessionId.value = null;
+            pendingSessionId.value = null;
+        } else {
+            // 그 외 오류(네트워크 등)는 조용히 실패 처리
+            localStorage.removeItem('currentSessionId');
+            pendingSessionId.value = null;
+        }
     } finally {
         isLoadingSession.value = false;
     }
@@ -577,6 +625,21 @@ const startNewSession = () => {
     localStorage.removeItem('restoredMode');
 };
 
+const loadQuiz = async () => {
+    isGeneratingQuiz.value = true;
+    try {
+        const { data } = await api.post('/learning/assessment/generate-daily-quiz/', {
+            session_id: sessionId.value 
+        });
+        quizData.value = data; 
+        showQuiz.value = true;
+    } catch (e) {
+        alert("퀴즈 생성 실패: " + (e.response?.data?.error || "알 수 없는 오류"));
+    } finally {
+        isGeneratingQuiz.value = false;
+    }
+};
+
 const endSession = async () => {
     if (!confirm('수업을 완료하시겠습니까? (AI 요약 및 퀴즈 생성)')) return;
     stopRecording();
@@ -601,17 +664,7 @@ const endSession = async () => {
     }
 
     // 3. 퀴즈 생성 요청
-    try {
-        const { data } = await api.post('/learning/assessment/generate-daily-quiz/', {
-            session_id: sessionId.value 
-        });
-        quizData.value = data; 
-        showQuiz.value = true;
-    } catch (e) {
-        alert("퀴즈 생성 실패: " + (e.response?.data?.error || "알 수 없는 오류"));
-    } finally {
-        isGeneratingQuiz.value = false;
-    }
+    await loadQuiz();
 };
 
 const startVideoLecture = async () => {
@@ -790,6 +843,9 @@ const openSessionReview = (id) => {
                      <div class="status-badge header-badge">✅ 학습 완료 (복습 모드)</div>
                      <span class="session-id-text">🔄 세션 연결됨 (ID: {{sessionId}})</span>
                  </div>
+                 <button class="btn btn-primary" style="height:36px; font-size:13px; margin-right:8px;" @click="loadQuiz">
+                     ✍️ 퀴즈 풀기
+                 </button>
                  <button class="btn btn-control secondary" style="height:36px; font-size:13px; margin-right:8px;" @click="startNewSession">
                      <Plus size="14" style="margin-right:4px;" /> 새 학습
                  </button>
@@ -832,6 +888,9 @@ const openSessionReview = (id) => {
                             </button>
                         </template>
                         <template v-else>
+                            <button class="btn btn-primary" @click="loadQuiz" style="margin-right: 8px;">
+                                ✍️ 퀴즈 풀기
+                            </button>
                             <button class="btn btn-control secondary" @click="startNewSession" style="margin-right: 8px;">
                                 <Plus size="18" style="margin-right:4px;"/> 새 학습
                             </button>
@@ -938,18 +997,17 @@ const openSessionReview = (id) => {
 
                 <!-- Right Separator -->
                 <div class="list-section">
-                    <h3>현재 개설된 클래스</h3>
+                    <h3>내 수강 목록 (My Courses)</h3>
                     <div class="lecture-list">
-                        <div v-for="lec in availableLectures" :key="lec.id" class="lecture-item" :class="{'selected': selectedLectureId === lec.id}" @click="selectLecture(lec)">
+                        <div v-for="lec in myLectures" :key="lec.id" class="lecture-item" :class="{'selected': selectedLectureId === lec.id}" @click="selectLecture(lec)">
                             <div class="lec-info">
                                 <span class="lec-title">{{ lec.title }}</span>
                                 <span class="lec-instructor">{{ lec.instructor_name }} 강사님</span>
                             </div>
-                            <div v-if="lec.is_enrolled" class="badge-enrolled">바로 입장 →</div>
-                            <span v-else class="action-arrow">→</span>
+                            <div class="badge-enrolled">학습 하기 →</div>
                         </div>
-                        <div v-if="availableLectures.length === 0" class="empty-list">
-                            진행 중인 클래스가 없습니다.
+                        <div v-if="myLectures.length === 0" class="empty-list">
+                            아직 수강 중인 클래스가 없습니다.
                         </div>
                     </div>
                 </div>

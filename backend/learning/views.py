@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.utils import timezone
+from django.db.models import Q # Added Q
 from .models import LearningSession, STTLog, SessionSummary
 from .serializers import LearningSessionSerializer, STTLogSerializer, SessionSummarySerializer, PublicLectureSerializer
 import openai
@@ -22,6 +23,13 @@ class PublicLectureListView(generics.ListAPIView):
     serializer_class = PublicLectureSerializer
     # [Change] Allow browsing without strict auth for debugging, or ensure frontend token is valid
     permission_classes = [AllowAny]
+
+class MyLectureListView(generics.ListAPIView):
+    serializer_class = PublicLectureSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return self.request.user.enrolled_lectures.all().order_by('-created_at')
 
 class EnrollLectureView(APIView):
     permission_classes = [IsAuthenticated]
@@ -43,6 +51,22 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
     serializer_class = LearningSessionSerializer
     # Require authentication for learning sessions
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        # print(f"DEBUG: get_queryset user={user} action={self.action} method={self.request.method}")
+        
+        # [Security]
+        # 상세 조회(retrieve) 및 로그 조회(get_logs) 시에는 
+        # '같은 강의 수강생의 완료된 세션'을 열어줌. (보충 학습용)
+        # 수정/삭제/목록조회 등은 오직 '내 세션'만 가능.
+        if self.action in ['retrieve', 'get_logs', 'logs']: # 'logs' added just in case
+            return LearningSession.objects.filter(
+                Q(student=user) | 
+                Q(lecture__students=user, is_completed=True)
+            ).distinct()
+            
+        return LearningSession.objects.filter(student=user)
 
     def perform_create(self, serializer):
         # Strictly associate with the authenticated user
@@ -462,6 +486,11 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
         내가 참여하지 않았지만, 다른 학생들이 수강한 날짜 목록 반환
         """
         user = request.user
+        
+        # [Security] Enrollment Check
+        lecture = get_object_or_404(Lecture, id=lecture_id)
+        if not lecture.students.filter(id=user.id).exists():
+             return Response({'error': 'You are not enrolled in this lecture.'}, status=status.HTTP_403_FORBIDDEN)
         
         # 1. 해당 강의의 모든 세션 (다른 학생들 포함)
         all_sessions = LearningSession.objects.filter(
