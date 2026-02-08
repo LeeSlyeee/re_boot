@@ -1,4 +1,4 @@
-# 📅 2026년 2월 7일 개발 작업 로그
+# 개발 작업 로그
 
 ## 1. 🔒 보안 및 인증 강화 (Authentication Enforcement)
 
@@ -46,3 +46,18 @@
   - `testuser` 계정의 비밀번호를 `testpass123`으로 초기화하여 테스트 접근성 확보.
 - **Git 관리**:
   - `.gitignore` 파일을 생성하여 `.env`, `venv/`, `__pycache__` 등 불필요한 파일이 커밋되지 않도록 설정.
+
+## 5. �� 실시간 STT 반응성 및 정확도 개선 (Final Polish)
+
+- **Frontend (`api/audioRecorder.js`)**:
+  - **AudioContext Silence Detection**: 기존 3초 강제 커팅 방식을 폐기하고, 아날라이저를 통해 **침묵(Silence < -50dB) 감지 시 커팅**하는 스마트 로직 도입.
+  - **No Overlap (Gapless Seq)**: 말 자르기 방지 기술(Smart Cut) 덕분에 중복 녹음(Overlap)이 불필요해져 메아리/반복 현상 원천 차단.
+
+- **Backend (`learning/views.py`)**:
+  - **Whisper `verbose_json`**: `NoSpeechProb` 확률을 직접 조회하여, 침묵 확률이 50% 이상일 경우 자막 생성 스킵 (환각 원천 차단).
+  - **Hallucination Blacklist**: 사용자 제보 환각 패턴("가죽팬티", "금메달" 제외, 기계적 안내문구 추가) 차단.
+  - **Repeition/Echo Filter**: 내부 반복("안녕하세요 안녕하세요") 및 프롬프트 에코(이전 문맥 반복) 필터 추가.
+  - **Prompt Context Repair**: `reversed()` 쿼리셋 오류 수정 및 문맥 유지(Prompting) 로직 안정화.
+
+- **Frontend (`LearningView.vue`)**:
+  - **UI/UX**: 실시간 처리 상태 인디케이터(`isProcessingAudio`) 및 **STT Debugger** 패널 추가로 투명성 확보.
