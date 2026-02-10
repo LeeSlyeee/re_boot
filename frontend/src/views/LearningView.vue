@@ -9,6 +9,7 @@ const debugLastResponse = ref('-');
 import { Mic, Square, Pause, FileText, MonitorPlay, Users, Youtube, RefreshCw, Bot, Play, List, Plus, Lock } from 'lucide-vue-next'; // Play, List added, Lock added
 import { AudioRecorder } from '../api/audioRecorder';
 import api from '../api/axios';
+import ChecklistPanel from '../components/ChecklistPanel.vue';
 
 const router = useRouter();
 const route = useRoute(); // Route access
@@ -32,6 +33,10 @@ const fetchLectureSessions = async (lectureId) => {
     try {
         const res = await api.get(`/learning/sessions/lectures/${lectureId}/`);
         sessions.value = res.data;
+        
+        // [New] Dynamic Re-routing Analysis
+        analyzeChecklist(lectureId);
+        
     } catch (e) {
         if (e.response?.status === 401) {
             alert("로그인이 필요합니다.");
@@ -40,6 +45,49 @@ const fetchLectureSessions = async (lectureId) => {
             throw e; 
         }
         console.error("Failed to load sessions", e);
+    }
+};
+
+// [New] Dynamic Re-routing State
+const recoveryStatus = ref(null);
+const recoveryRecommendation = ref(null);
+const showRecoveryModal = ref(false);
+const isGeneratingRecovery = ref(false);
+const recoveryPlanContent = ref('');
+
+const analyzeChecklist = async (lectureId) => {
+    try {
+        console.log(`🔍 Analyzing Checklist for Lecture: ${lectureId}`);
+        const res = await api.get(`/learning/checklist/analyze/?lecture_id=${lectureId}`);
+        
+        recoveryStatus.value = res.data.status;
+        recoveryRecommendation.value = res.data.recommendation;
+        
+        if (recoveryStatus.value === 'critical' || recoveryStatus.value === 'warning') {
+            console.log("🚨 Re-routing Suggested:", recoveryRecommendation.value);
+        }
+    } catch (e) {
+        console.error("Analysis Failed", e);
+    }
+};
+
+const executeRecoveryPlan = async () => {
+    // Phase 2: Open Compressed Course
+    if (!currentLectureId.value) return;
+    
+    isGeneratingRecovery.value = true;
+    showRecoveryModal.value = true; // Open modal first (showing loading state)
+    
+    try {
+        const res = await api.post(`/learning/checklist/recovery_plan/`, {
+             lecture_id: currentLectureId.value
+        });
+        recoveryPlanContent.value = res.data.recovery_plan;
+    } catch (e) {
+        alert("복구 플랜 생성에 실패했습니다.");
+        showRecoveryModal.value = false;
+    } finally {
+        isGeneratingRecovery.value = false;
     }
 };
 
@@ -274,6 +322,7 @@ onMounted(async () => {
         
         // [NEW] Check for Lecture Mode (from Dashboard)
         const queryLectureId = route.query.lectureId;
+        const querySessionId = route.query.sessionId;
         const savedSessionId = localStorage.getItem('currentSessionId');
 
         if (queryLectureId) {
@@ -281,8 +330,17 @@ onMounted(async () => {
              currentLectureId.value = queryLectureId;
              await fetchLectureSessions(queryLectureId);
              await fetchMissedSessions(queryLectureId); // Fetch missed sessions when entering lecture mode
+             
+             // [FIX] Ensure analysis runs on entry
+             analyzeChecklist(queryLectureId);
+             
              mode.value = 'lecture';
              // Don't auto-resume session unless user picks one
+        } else if (querySessionId) {
+             console.log(`ℹ️ Resuming Session from Query: ${querySessionId}`);
+             await resumeSessionById(querySessionId);
+             // [TODO] If resuming session, we might want to analyze its parent lecture too
+             // But for now, analysis is main feature of Lecture List View
         } else if (savedSessionId) {
             // [CHANGE] 자동 복구 시도 (isAutoRestore=true)
             await resumeSession(true); 
@@ -824,8 +882,9 @@ const openSessionReview = (id) => {
         </div>
 
         <!-- [NEW] Lecture List View -->
-        <div v-if="mode === 'lecture'" class="lecture-view-container glass-panel">
-             <div class="lecture-info-header">
+        <div v-if="mode === 'lecture'" class="lecture-mode-grid">
+             <div class="glass-panel session-list-panel">
+                <div class="lecture-info-header">
                 <h2>🏫 {{ currentClassTitle || '수업 목록' }}</h2>
                 <div class="header-actions" style="display:flex; gap:10px;">
                     <button class="btn btn-primary small" @click="startNewClassSession">
@@ -836,6 +895,17 @@ const openSessionReview = (id) => {
             </div>
             
             <div class="session-list-wrapper">
+                <!-- [NEW] Dynamic Re-routing Alert -->
+                <div v-if="recoveryStatus === 'critical' || recoveryStatus === 'warning'" class="recovery-banner" :class="recoveryStatus">
+                    <div class="banner-content">
+                        <h3>{{ recoveryRecommendation?.title }}</h3>
+                        <p>{{ recoveryRecommendation?.message }}</p>
+                    </div>
+                    <button class="btn-recovery" @click="executeRecoveryPlan">
+                        {{ recoveryRecommendation?.action }} →
+                    </button>
+                </div>
+
                 <!-- Missed Sessions Section -->
                 <div v-if="missedSessions.length > 0" class="missed-section">
                     <h3 style="color: #ff9f0a; font-size: 16px; margin-bottom: 10px;">🚨 놓친 수업 (보충 학습)</h3>
@@ -878,7 +948,12 @@ const openSessionReview = (id) => {
                     </div>
                 </div>
             </div>
-        </div>
+            </div> <!-- End session-list-panel -->
+
+            <div class="checklist-column">
+                 <ChecklistPanel :lectureId="currentLectureId" />
+            </div>
+        </div> <!-- End lecture-mode-grid -->
 
         <!-- 2. Actual Learning Interface -->
         <div v-if="mode" class="container" :class="{'layout-vertical': mode === 'youtube', 'layout-split': mode === 'offline' || mode === 'universal'}">
@@ -1050,6 +1125,29 @@ const openSessionReview = (id) => {
                 </div>
              </div>
         </div>
+
+    <!-- [NEW] Recovery Plan Modal -->
+    <div v-if="showRecoveryModal" class="modal-overlay" @click.self="showRecoveryModal = false">
+        <div class="modal-card wide-modal">
+            <h2>🚀 {{ recoveryRecommendation?.title || '압축 복구 플랜' }}</h2>
+            
+            <div class="modal-body-split" style="text-align:left; display:block;">
+                <div v-if="isGeneratingRecovery" class="loading-state" style="padding:40px;">
+                    <div class="spinner"></div>
+                    <p style="margin-top:20px; color:#aaa;">AI가 놓친 핵심 개념을 요약하고 있습니다...</p>
+                </div>
+                
+                <div v-else class="markdown-text" style="max-height: 500px; overflow-y:auto; padding-right:10px;">
+                    {{ recoveryPlanContent }}
+                </div>
+            </div>
+            
+            <div class="modal-footer" style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn btn-primary" @click="showRecoveryModal = false">확인 (학습 완료)</button>
+                <button class="btn btn-text" @click="showRecoveryModal = false">닫기</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Join Class Modal (Copied from Dashboard) -->
     <div v-if="showJoinModal" class="modal-overlay" @click.self="closeJoinModal">
@@ -1395,14 +1493,68 @@ const openSessionReview = (id) => {
     border: 1px solid rgba(79, 172, 254, 0.3);
 }
 /* Lecture Mode Styles */
-.lecture-view-container {
+.lecture-mode-grid {
+    display: grid; grid-template-columns: 2fr 1fr; gap: 24px;
+    max-width: 1200px; margin: 40px auto; padding: 0 30px;
+    align-items: start;
+}
+.session-list-panel {
+    padding: 30px; min-height: 500px; border-radius: 16px;
+}
+.checklist-column {
+    position: sticky; top: 100px; /* Sticky sidebar */
+}
+
+@media (max-width: 900px) {
+    .lecture-mode-grid { grid-template-columns: 1fr; }
+    .checklist-column { position: static; order: -1; margin-bottom: 20px; }
+}
+
+/* Legacy container removed */
+.lecture-view-container-legacy {
     max-width: 800px; margin: 40px auto; padding: 30px; min-height: 500px;
 }
 .lecture-info-header {
     display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 1px solid #333; padding-bottom: 15px;
     h2 { font-size: 24px; color: var(--color-primary); }
 }
+/* Session Wrapper */
 .session-list-wrapper { display: flex; flex-direction: column; gap: 15px; }
+
+/* Dynamic Re-routing Banner */
+.recovery-banner {
+    padding: 20px; border-radius: 12px;
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 20px;
+    animation: slideDown 0.5s ease;
+}
+.recovery-banner.critical {
+    background: rgba(255, 59, 48, 0.15);
+    border: 1px solid rgba(255, 59, 48, 0.4);
+}
+.recovery-banner.warning {
+    background: rgba(255, 149, 0, 0.15);
+    border: 1px solid rgba(255, 149, 0, 0.4);
+}
+
+.banner-content h3 { margin: 0 0 5px 0; font-size: 16px; font-weight: bold; }
+.banner-content p { margin: 0; font-size: 14px; opacity: 0.8; }
+.recovery-banner.critical h3 { color: #ff3b30; }
+.recovery-banner.critical p { color: #ffcccc; }
+.recovery-banner.warning h3 { color: #ff9f0a; }
+.recovery-banner.warning p { color: #ffe0b2; }
+
+.btn-recovery {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white; padding: 10px 20px; border-radius: 8px;
+    cursor: pointer; transition: all 0.2s; font-weight: bold;
+}
+.recovery-banner.critical .btn-recovery:hover { background: #ff3b30; border-color: #ff3b30; }
+.recovery-banner.warning .btn-recovery:hover { background: #ff9f0a; border-color: #ff9f0a; }
+
+@keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
 .session-card-row {
     display: flex; justify-content: space-between; align-items: center;
     background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);

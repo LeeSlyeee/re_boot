@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import api from '../api/axios';
 
 export const useAuthStore = defineStore('auth', () => {
     const token = ref(localStorage.getItem('token') || null);
@@ -11,7 +12,7 @@ export const useAuthStore = defineStore('auth', () => {
         token.value = accessToken;
         user.value = userData;
         localStorage.setItem('token', accessToken);
-        // localStorage.setItem('user', JSON.stringify(userData)); // Store user info if available
+        localStorage.setItem('user', JSON.stringify(userData)); // Store user info if available
     };
 
     const logout = () => {

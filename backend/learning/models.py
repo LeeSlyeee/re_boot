@@ -57,6 +57,39 @@ class Lecture(models.Model):
     def __str__(self):
         return f"[{self.access_code}] {self.title}"
 
+class Syllabus(models.Model):
+    lecture = models.ForeignKey(Lecture, on_delete=models.CASCADE, related_name='syllabi')
+    week_number = models.IntegerField(help_text="주차 (1, 2, ...)")
+    title = models.CharField(max_length=200, help_text="주차별 주제")
+    description = models.TextField(blank=True, help_text="주차 설명")
+    
+    class Meta:
+        ordering = ['week_number']
+        unique_together = ['lecture', 'week_number']
+
+    def __str__(self):
+        return f"{self.lecture.title} - Week {self.week_number}: {self.title}"
+
+class LearningObjective(models.Model):
+    syllabus = models.ForeignKey(Syllabus, on_delete=models.CASCADE, related_name='objectives')
+    content = models.CharField(max_length=300, help_text="학습 목표/체크리스트 항목")
+    order = models.IntegerField(default=0, help_text="정렬 순서")
+    
+    class Meta:
+        ordering = ['order']
+
+    def __str__(self):
+        return f"[{self.syllabus.week_number}주차] {self.content}"
+
+class StudentChecklist(models.Model):
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='checklists')
+    objective = models.ForeignKey(LearningObjective, on_delete=models.CASCADE, related_name='student_checks')
+    is_checked = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['student', 'objective']
+
 class LearningSession(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='learning_sessions')
     lecture = models.ForeignKey(Lecture, on_delete=models.SET_NULL, null=True, blank=True, related_name='sessions')

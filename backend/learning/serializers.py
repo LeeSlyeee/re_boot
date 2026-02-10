@@ -1,12 +1,34 @@
 from rest_framework import serializers
-from .models import LearningSession, STTLog, SessionSummary, DailyQuiz, QuizQuestion, QuizAttempt, Lecture
+from .models import LearningSession, STTLog, SessionSummary, DailyQuiz, QuizQuestion, QuizAttempt, Lecture, Syllabus, LearningObjective, StudentChecklist
+
+class LearningObjectiveSerializer(serializers.ModelSerializer):
+    is_checked = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LearningObjective
+        fields = ['id', 'content', 'order', 'is_checked']
+
+    def get_is_checked(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            # Check if StudentChecklist entry exists and is_checked is True
+            return StudentChecklist.objects.filter(student=request.user, objective=obj, is_checked=True).exists()
+        return False
+
+class SyllabusSerializer(serializers.ModelSerializer):
+    objectives = LearningObjectiveSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Syllabus
+        fields = ['id', 'week_number', 'title', 'description', 'objectives']
 
 class LectureSerializer(serializers.ModelSerializer):
     student_count = serializers.SerializerMethodField()
+    syllabi = SyllabusSerializer(many=True, read_only=True)
 
     class Meta:
         model = Lecture
-        fields = ['id', 'title', 'instructor', 'access_code', 'student_count', 'created_at']
+        fields = ['id', 'title', 'instructor', 'access_code', 'student_count', 'created_at', 'syllabi']
         read_only_fields = ['instructor', 'access_code', 'created_at']
 
     def get_student_count(self, obj):

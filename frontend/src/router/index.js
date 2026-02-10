@@ -28,7 +28,19 @@ const router = createRouter({
       path: '/portfolio',
       name: 'portfolio',
       component: () => import('../views/PortfolioView.vue')
-    }
+    },
+    {
+      path: '/interview/setup',
+      name: 'interview-setup',
+      component: () => import('../views/InterviewSetupView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/interview/:id',
+      name: 'interview-chat',
+      component: () => import('../views/InterviewChatView.vue'),
+      meta: { requiresAuth: true }
+    },
   ],
 });
 

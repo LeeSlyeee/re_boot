@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-z=c+s6_z0@)q3%5=1$5^x-!7^_5#&^!@^+!^=8+x^!@^=8+x'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['*']
 
 AUTH_USER_MODEL = 'users.User'
 
@@ -97,3 +97,9 @@ SIMPLE_JWT = {
 
 # OpenAI API Key
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+
+# Internationalization
+LANGUAGE_CODE = 'ko-kr'
+TIME_ZONE = 'Asia/Seoul'
+USE_I18N = True
+USE_TZ = False

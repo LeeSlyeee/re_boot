@@ -29,7 +29,7 @@ const authStore = useAuthStore();
       <div class="nav-actions">
         <!-- Direct access to store state for reactivity -->
         <div v-if="authStore.token" class="user-menu">
-            <span class="welcome-msg">환영합니다!</span>
+            <span class="welcome-msg">{{ authStore.user?.username }}님 환영합니다!</span>
             <button class="btn btn-primary" @click="authStore.logout">로그아웃</button>
         </div>
         <RouterLink v-else to="/auth" class="btn btn-primary">로그인</RouterLink>

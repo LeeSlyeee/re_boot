@@ -15,3 +15,39 @@ class Portfolio(models.Model):
 
     def __str__(self):
         return f"[{self.get_portfolio_type_display()}] {self.student.username} - {self.title}"
+
+class MockInterview(models.Model):
+    PERSONA_CHOICES = (
+        ('TECH_LEAD', '깐깐한 기술 팀장'),
+        ('FRIENDLY_SENIOR', '친절한 사수'),
+        ('HR_MANAGER', '인사 담당자'),
+        ('STARTUP_CEO', '스타트업 대표'),
+        ('BIG_TECH', '글로벌 빅테크 면접관'),
+        ('PRESSURE', '압박 면접관'),
+    )
+    
+    STATUS_CHOICES = (
+        ('IN_PROGRESS', '면접 진행 중'),
+        ('COMPLETED', '종료됨'),
+    )
+    
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='interviews')
+    portfolio = models.ForeignKey(Portfolio, on_delete=models.SET_NULL, null=True, related_name='interviews')
+    persona = models.CharField(max_length=20, choices=PERSONA_CHOICES, default='TECH_LEAD')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='IN_PROGRESS')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"[{self.get_persona_display()}] {self.student.username}의 면접"
+
+class InterviewExchange(models.Model):
+    interview = models.ForeignKey(MockInterview, on_delete=models.CASCADE, related_name='exchanges')
+    question = models.TextField(help_text="AI 질문")
+    answer = models.TextField(blank=True, help_text="사용자 답변")
+    feedback = models.TextField(blank=True, help_text="AI 피드백 및 평가")
+    score = models.IntegerField(default=0, help_text="답변 점수 (0~100)")
+    order = models.IntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['order']
