@@ -120,3 +120,38 @@ graph LR
 
 - [Backend] 성취도/진도율 집계 쿼리 최적화.
 - [Frontend] Chart.js 활용 시각화.
+
+---
+
+## 7. Phase 2: 심화 기능 (Real-time Feedback & Assetization) - [Completed]
+
+### 7.1 Dynamic Re-routing (위기 관리 시스템)
+
+- **목적**: 학습 부진 학생(진도율 30% 미만) 조기 발견 및 이탈 방지.
+- **구현**:
+  - `ChecklistViewSet.analyze`: 학습 목표 달성률 실시간 분석.
+  - **Recovery Plan**: OpenAI가 미달성 목표를 분석하여 "3분 압축 복구 플랜" 자동 생성.
+  - **UI**: 학습 화면에 위기 경고 배너(Critical/Warning) 및 모달 제공.
+
+### 7.2 Skill Block Assetization (성취 시각화)
+
+- **목적**: 학생이 학습한 내용을 구체적인 '기술 자산'으로 치환하여 효능감 부여.
+- **구현**:
+  - `StudentChecklist` 데이터를 분석하여 과목별/주차별 획득 스킬 추출.
+  - **PortfolioView**: 획득한 스킬을 블록 형태로 시각화 (Lego Block UI).
+  - **강사 모니터링**: `LectureDetailView`에서 학생별 획득 스킬 실시간 조회.
+
+### 7.3 AI Portfolio Generation (커리어 연결)
+
+- **목적**: 축적된 스킬 블록과 학습 데이터를 바탕으로 즉시 활용 가능한 취업/창업 문서 생성.
+- **구현**:
+  - **Prompt Engineering**: 스킬 블록(`Verified Skills`)과 학습 요약(`Daily Summary`)을 결합.
+  - **Job Portfolio**: 개발자 취업용 이력서/자기소개서 생성.
+  - **Startup MVP**: 보유 기술 기반 창업 아이템 및 개발 기획서 생성.
+
+### 7.4 Professor Dashboard (Monitor Widget)
+
+- **목적**: 강사가 클래스 전체의 위기 상황과 스킬 획득 현황을 한눈에 파악.
+- **구현**:
+  - `LectureViewSet.monitor`: 실시간 진도율 및 상태(Status) 집계 API.
+  - **UI**: Status Badge(🔴/🟠/🟢), Progress Bar, Recent Skills Tag 표시.

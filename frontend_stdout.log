@@ -1,46 +1,13 @@
 
 > frontend@0.0.0 dev
-> vite
+> vite --host 0.0.0.0 --port 5173
 
 
-  VITE v4.5.14  ready in 159 ms
+  VITE v4.5.14  ready in 135 ms
 
   ➜  Local:   http://localhost:5173/
-  ➜  Network: use --host to expose
+  ➜  Network: http://172.16.207.170:5173/
+  ➜  Network: http://10.211.55.2:5173/
+  ➜  Network: http://10.37.129.2:5173/
+  ➜  Network: http://192.168.239.37:5173/
   ➜  press h to show help
-1:18:26 PM [vite] hmr update /src/views/LearningView.vue, /src/views/DashboardView.vue, /src/views/AuthView.vue
-1:21:46 PM [vite] hmr update /src/views/LearningView.vue
-2:23:14 PM [vite] hmr update /src/views/LearningView.vue
-2:23:31 PM [vite] hmr update /src/views/LearningView.vue?vue&type=style&index=0&scoped=ab82f806&lang.scss
-2:23:41 PM [vite] hmr update /src/views/LearningView.vue
-2:24:32 PM [vite] hmr update /src/views/LearningView.vue
-2:26:15 PM [vite] hmr update /src/views/LearningView.vue?vue&type=style&index=0&scoped=ab82f806&lang.scss
-2:56:27 PM [vite] hmr update /src/views/LearningView.vue
-3:10:52 PM [vite] hmr update /src/views/LearningView.vue
-3:15:02 PM [vite] hmr update /src/views/LearningView.vue
-3:15:21 PM [vite] hmr update /src/views/LearningView.vue
-3:21:28 PM [vite] hmr update /src/assets/styles/main.scss
-3:22:16 PM [vite] hmr update /src/views/LearningView.vue?vue&type=style&index=0&scoped=ab82f806&lang.scss
-3:22:35 PM [vite] hmr update /src/views/LearningView.vue?vue&type=style&index=0&scoped=ab82f806&lang.scss
-4:08:33 PM [vite] hmr update /src/views/LearningView.vue, /src/views/LearningView.vue?vue&type=style&index=0&scoped=ab82f806&lang.scss
-4:42:05 PM [vite] hmr update /src/views/LearningView.vue
-4:46:42 PM [vite] hmr update /src/views/LearningView.vue
-4:48:07 PM [vite] hmr update /src/views/LearningView.vue
-4:48:16 PM [vite] hmr update /src/views/LearningView.vue
-4:49:51 PM [vite] hmr update /src/views/LearningView.vue
-4:50:00 PM [vite] hmr update /src/views/LearningView.vue
-4:57:41 PM [vite] hmr update /src/views/DashboardView.vue
-4:57:50 PM [vite] hmr update /src/views/DashboardView.vue
-4:57:59 PM [vite] hmr update /src/views/DashboardView.vue
-4:58:06 PM [vite] hmr update /src/views/DashboardView.vue
-4:58:17 PM [vite] hmr update /src/views/DashboardView.vue?vue&type=style&index=0&scoped=336c5134&lang.scss
-5:06:35 PM [vite] hmr update /src/views/DashboardView.vue
-5:06:48 PM [vite] hmr update /src/views/LearningView.vue
-5:06:56 PM [vite] hmr update /src/views/LearningView.vue
-5:07:30 PM [vite] hmr update /src/views/LearningView.vue
-9:45:48 AM [vite] hmr update /src/views/LearningView.vue
-9:46:25 AM [vite] hmr update /src/views/LearningView.vue
-9:52:31 AM [vite] hmr update /src/views/LearningView.vue
-9:59:54 AM [vite] hmr update /src/views/LearningView.vue
-10:04:45 AM [vite] hmr update /src/views/LearningView.vue
-10:05:06 AM [vite] hmr update /src/views/LearningView.vue

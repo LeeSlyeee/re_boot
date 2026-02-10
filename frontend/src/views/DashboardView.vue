@@ -31,16 +31,33 @@ const dailyProgress = computed(() => {
 
 const uniqueHistory = computed(() => {
     const seenIds = new Set();
-    return watchHistory.value.filter(item => {
-        // [FIX] URL이 없어도(오프라인 수업) 표시해야 함!
-        // 중복 제거: Session ID가 있으면 그걸로, 없으면 URL로
-        const id = item.sessionId || item.url;
-        if (!id) return false;
+    const result = [];
+    
+    // Reverse array to show newest first if not already sorted?
+    // Actually API returns sorted. But filter forward.
+    watchHistory.value.forEach(item => {
+        let id;
+        if (typeof item === 'string') {
+            id = item;
+        } else {
+            // Use sessionId if available (even if 0), otherwise fallback to url
+            // Be careful with 0 being falsy in JS check
+            if (item.sessionId !== undefined && item.sessionId !== null) {
+                id = item.sessionId;
+            } else {
+                id = item.url;
+            }
+        }
+        
+        // If still no ID (e.g. empty url and no sessionId), skip
+        if (!id) return;
 
-        if (seenIds.has(id)) return false;
-        seenIds.add(id);
-        return true;
+        if (!seenIds.has(id)) {
+            seenIds.add(id);
+            result.push(item);
+        }
     });
+    return result;
 });
 
 const fetchAvailableLectures = async () => {
@@ -102,6 +119,7 @@ onMounted(async () => {
     // 2. Fetch History
     try {
         const { data } = await api.get('/learning/sessions/history/');
+        
         if (data && Array.isArray(data)) {
             watchHistory.value = data; 
             localStorage.setItem('watchHistory', JSON.stringify(data)); 
@@ -151,15 +169,17 @@ const goToLearning = (item) => {
         localStorage.setItem('currentSessionId', item.sessionId);
         localStorage.setItem('currentYoutubeUrl', videoUrl || '');
         localStorage.setItem('restoredMode', isUrl ? 'youtube' : 'offline'); // Default to offline if no URL
+        
+        // [FIX] Pass sessionId query to force resume in LearningView
+        router.push({ path: '/learning', query: { sessionId: item.sessionId } });
 
     } 
     // 2. Legacy String URL
     else if (typeof item === 'string') {
         localStorage.setItem('currentYoutubeUrl', item);
         localStorage.removeItem('restoredMode'); 
+        router.push('/learning');
     }
-    
-    router.push('/learning');
 };
 
 const continueLearning = () => {
@@ -256,7 +276,7 @@ const continueLearning = () => {
                 <section class="history-section glass-panel mt-section">
                     <div class="section-header">
                         <h2>최근 수강 목록</h2>
-                        <button class="btn-text">전체보기</button>
+                        <button class="btn btn-primary btn-small">전체보기</button>
                     </div>
                     
                     <div v-if="uniqueHistory.length > 0" class="history-list">
@@ -276,9 +296,12 @@ const continueLearning = () => {
                                 <span class="date">{{ item.url ? '온라인 학습' : '오프라인/강의실 수업' }}</span>
                             </div>
                             
-                            <button class="btn-icon delete-btn" @click.stop="deleteHistory(item.sessionId)">
-                                <Trash2 size="16" />
-                            </button>
+                            <div class="item-actions">
+                                <button class="btn btn-primary btn-small" @click.stop="goToLearning(item)">이어하기</button>
+                                <button class="btn-icon delete-btn" @click.stop="deleteHistory(item.sessionId)">
+                                    <Trash2 size="16" />
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div v-else class="empty-state">
@@ -401,7 +424,9 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
 .dashboard-view {
     padding-top: var(--header-height);
     min-height: 100vh;
-    background: #000;
+    background: radial-gradient(circle at 10% 20%, rgba(29, 78, 216, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(124, 58, 237, 0.15) 0%, transparent 40%),
+                #000; /* Deep black with subtle colored glows */
     color: white;
     padding-bottom: 40px;
 }
@@ -466,13 +491,18 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
 .daily-task-card {
     flex: 1; margin-bottom: 0; /* reset */
     display: flex; align-items: center; gap: 16px;
-    background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+    background: rgba(255,255,255,0.03);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
     padding: 20px; border-radius: 12px;
 }
 
 .analysis-card {
     flex: 1;
-    background: rgba(79, 172, 254, 0.1);
+    background: rgba(79, 172, 254, 0.1); 
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(79, 172, 254, 0.2);
     padding: 20px; border-radius: 12px;
     h3 { color: #4facfe; font-size: 15px; margin-bottom: 8px; }
@@ -487,7 +517,9 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
 }
 
 .lecture-card {
-    background: #2c2c2e;
+    background: rgba(255,255,255,0.03);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     padding: 16px;
     border-radius: 12px;
     display: flex;
@@ -495,10 +527,10 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
     gap: 12px;
     cursor: pointer;
     transition: all 0.2s;
-    border: 1px solid transparent;
+    border: 1px solid rgba(255, 255, 255, 0.05);
 
     &:hover {
-        background: #3a3a3c;
+        background: rgba(255,255,255,0.08); /* Slightly lighter on hover */
         transform: translateY(-2px);
         border-color: var(--color-accent);
     }
@@ -531,11 +563,20 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
     display: flex; justify-content: space-between; align-items: center;
     margin-bottom: 20px;
     h2 { font-size: 20px; font-weight: 600; }
+    .btn-text { 
+        white-space: nowrap; /* Prevent wrapping */
+        color: #888;
+        font-size: 14px;
+        &:hover { color: white; text-decoration: underline; }
+    }
 }
 
 .glass-panel {
-    background: #1c1c1e;
-    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(28, 28, 30, 0.6); /* Semi-transparent */
+    backdrop-filter: blur(20px); /* Heavy blur for glass effect */
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
     border-radius: 16px;
     padding: 24px;
 }
@@ -544,24 +585,91 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
     display: flex; flex-direction: column; gap: 16px;
 }
 
+/* Button Styles matching global or logout button feel */
+.btn {
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center; justify-content: center;
+    white-space: nowrap; /* Prevent wrapping globally */
+}
+
+.btn-primary {
+    background: var(--color-primary, #007aff); /* Fallback to standard blue */
+    color: white;
+    
+    &:hover {
+        background: var(--color-primary-dark, #0062cc);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+    }
+}
+
+.btn-small {
+    padding: 6px 16px; /* Increased padding */
+    font-size: 13px;
+    height: 34px; /* Slightly taller */
+}
+
+.btn-text {
+    background: transparent;
+    color: #888;
+    padding: 8px 16px;
+    
+    &:hover { color: white; background: rgba(255,255,255,0.1); }
+}
+
+.btn-icon {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    padding: 8px;
+    border-radius: 50%;
+    color: #888;
+    transition: all 0.2s;
+    
+    &:hover {
+        background: rgba(255,255,255,0.1);
+        color: white;
+    }
+}
+
+.item-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .history-item {
     display: flex; align-items: center; gap: 16px;
-    padding: 12px;
+    padding: 16px; /* Increased padding for better touch target */
     border-radius: 12px;
-    background: rgba(255,255,255,0.03);
-    cursor: pointer;
-    transition: background 0.2s;
+    background: rgba(255,255,255,0.03); 
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    cursor: default; /* Item itself is container */
+    transition: all 0.2s;
+    border: 1px solid rgba(255,255,255,0.05); 
     
-    &:hover { background: rgba(255,255,255,0.08); }
+    &:hover { 
+        background: rgba(255,255,255,0.05); 
+        border-color: rgba(255,255,255,0.1);
+    }
     
     .info {
         flex: 1; overflow: hidden;
-        .url-text { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .date { font-size: 12px; color: #666; }
+        cursor: pointer; /* Text area is clickable */
+        .url-text { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #eee; margin-bottom: 4px;}
+        .date { font-size: 12px; color: #888; }
     }
     
-    .delete-btn { color: #666; transition: all 0.2s; 
-        &:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); border-radius: 4px; } 
+    .delete-btn { 
+        color: #666; 
+        &:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); } 
     }
 }
 

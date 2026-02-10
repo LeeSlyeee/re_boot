@@ -1,10 +1,15 @@
 <script setup>
 import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { getPortfolios, generatePortfolio } from '../api/career';
-import { FileText, Rocket, Loader, Plus, ChevronRight, Briefcase, AlertTriangle, X } from 'lucide-vue-next';
+import api from '../api/axios'; // [New] for direct calls
+import { FileText, Rocket, Loader, Plus, ChevronRight, Briefcase, AlertTriangle, X, CheckCircle, Mic } from 'lucide-vue-next';
 
+const router = useRouter();
 const portfolios = ref([]);
+const skills = ref([]); // [New] Skill Blocks Data
 const loading = ref(false);
+const skillsLoading = ref(false);
 const generating = ref(false);
 const selectedPortfolio = ref(null);
 
@@ -14,15 +19,31 @@ const errorMessage = ref('');
 
 onMounted(async () => {
     loading.value = true;
+    skillsLoading.value = true;
+    
     try {
-        portfolios.value = await getPortfolios();
+        // Parallel Fetch
+        const [portfolioRes, skillsRes] = await Promise.all([
+            getPortfolios(),
+            api.get('/career/portfolios/skills/') // [FIX] Correct Endpoint
+        ]);
+        
+        portfolios.value = portfolioRes;
         if (portfolios.value.length > 0) {
             selectedPortfolio.value = portfolios.value[0];
         }
+        
+        skills.value = skillsRes.data;
+        
     } catch (e) {
-        console.error(e);
+        console.error("Skills Fetch Failed", e);
+        // Only show critical errors, don't fallback to dummy
+        if (e.response?.status !== 404) {
+             alert(`스킬 데이터 로딩 실패: ${e.message}`);
+        }
     } finally {
         loading.value = false;
+        skillsLoading.value = false;
     }
 });
 
@@ -60,15 +81,18 @@ const closeModal = () => {
                     <h1 class="text-headline">커리어 포트폴리오</h1>
                     <p class="subtitle">AI가 학습 기록을 분석하여 포트폴리오와 기획서를 자동으로 생성합니다.</p>
                 </div>
-                <div class="action-buttons">
-                    <button class="btn btn-primary" @click="handleGenerate('JOB')" :disabled="generating">
-                         <Briefcase size="16" /> 취업 포트폴리오 생성
-                    </button>
-                    <button class="btn btn-accent" @click="handleGenerate('STARTUP')" :disabled="generating">
-                         <Rocket size="16" /> 창업 MVP 기획서 생성
-                    </button>
-                </div>
-            </header>
+                <div class="header-actions">
+                <button @click="startGeneration('JOB')" :disabled="loading" class="gen-btn job">
+                    <Briefcase size="16" /> 취업 포트폴리오 생성
+                </button>
+                <button @click="startGeneration('STARTUP')" :disabled="loading" class="gen-btn startup">
+                    <Rocket size="16" /> 창업 MVP 기획서 생성
+                </button>
+                <button @click="router.push('/interview/setup')" class="gen-btn interview">
+                    <Mic size="16" /> AI 면접 연습
+                </button>
+            </div>
+        </header>
 
             <div v-if="generating" class="loading-overlay">
                 <Loader class="spin" />
@@ -123,6 +147,31 @@ const closeModal = () => {
                     </div>
                 </div>
             </div>
+
+            <!-- [New] Skill Blocks Section -->
+            <section v-if="skills.length > 0" class="skill-heatmap-section glass-panel">
+                <div class="section-header">
+                    <h3>🏆 획득한 스킬 블록 (My Skill Assets)</h3>
+                    <span class="total-count">{{ skills.reduce((acc, cat) => acc + cat.skills.length, 0) }}개 획득</span>
+                </div>
+                
+                <div class="skill-categories">
+                    <div v-for="category in skills" :key="category.category" class="skill-category">
+                        <h4>{{ category.category }}</h4>
+                        <div class="blocks-grid">
+                            <div 
+                                v-for="skill in category.skills" 
+                                :key="skill.id" 
+                                class="skill-block"
+                                :title="`${skill.week} - ${skill.source}\n(${skill.date})`"
+                            >
+                                <span class="block-check"><CheckCircle size="12" /></span>
+                                <span class="block-name">{{ skill.name }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
             <div class="content-layout">
                 <!-- Sidebar List -->
@@ -280,6 +329,50 @@ const closeModal = () => {
 @keyframes slideUp {
     from { opacity: 0; transform: translateY(20px) scale(0.95); }
     to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Skill Heatmap Styles */
+.skill-heatmap-section {
+    margin-bottom: 24px;
+    padding: 24px;
+    background: rgba(255, 255, 255, 0.03); /* Subtle background */
+}
+
+.section-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 20px;
+    h3 { font-size: 18px; font-weight: 700; color: #eee; margin: 0; }
+    .total-count { font-size: 14px; color: #4facfe; font-weight: 600; background: rgba(79, 172, 254, 0.1); padding: 4px 10px; border-radius: 12px; }
+}
+
+.skill-categories {
+    display: flex; flex-direction: column; gap: 20px;
+}
+
+.skill-category {
+    h4 { font-size: 14px; color: #888; margin-bottom: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .blocks-grid {
+        display: flex; flex-wrap: wrap; gap: 8px;
+    }
+}
+
+.skill-block {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 12px;
+    background: rgba(79, 172, 254, 0.1);
+    border: 1px solid rgba(79, 172, 254, 0.2);
+    border-radius: 6px;
+    font-size: 13px; color: #eee;
+    cursor: default;
+    transition: all 0.2s;
+    
+    &:hover {
+        background: rgba(79, 172, 254, 0.2);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    
+    .block-check { color: #4facfe; display: flex; }
 }
 
 /* Existing Content Styles */

@@ -36,7 +36,7 @@ class AssessmentViewSet(viewsets.ViewSet):
                 target_session = LearningSession.objects.filter(
                     Q(student=user) | 
                     Q(lecture__students=user, is_completed=True)
-                ).get(id=requested_session_id)
+                ).distinct().get(id=requested_session_id)
                 print(f"DEBUG: Using requested session ID: {target_session.id}")
             except LearningSession.DoesNotExist:
                 return Response({"error": "요청한 세션을 찾을 수 없거나 권한이 없습니다."}, status=status.HTTP_404_NOT_FOUND)

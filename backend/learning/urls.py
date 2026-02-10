@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import LearningSessionViewSet, EnrollLectureView, PublicLectureListView, MyLectureListView
+from .views import LearningSessionViewSet, EnrollLectureView, PublicLectureListView, MyLectureListView, ChecklistViewSet
 from .views_assessment import AssessmentViewSet
 from .professor_views import LectureViewSet
 
@@ -11,6 +11,7 @@ router.register(r'sessions', LearningSessionViewSet, basename='session')
 router.register(r'assessment', AssessmentViewSet, basename='assessment')
 router.register(r'lectures', LectureViewSet, basename='lecture')
 router.register(r'rag', RAGViewSet, basename='rag')
+router.register(r'checklist', ChecklistViewSet, basename='checklist')
 
 urlpatterns = [
     path('enroll/', EnrollLectureView.as_view(), name='enroll-lecture'),
