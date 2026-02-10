@@ -10,6 +10,7 @@ from django.db.models import Q # Added Q
 import openai
 import os
 import json
+from django.conf import settings # [FIX] Import settings
 
 openai.api_key = os.getenv('OPENAI_API_KEY')
 
@@ -159,6 +160,48 @@ class AssessmentViewSet(viewsets.ViewSet):
             # 100점 만점 환산
             final_score = int((correct_count / total_questions) * 100) if total_questions > 0 else 0
             attempt.score = final_score
+            
+            # [AI Review Generation] 틀린 문제가 있으면 오답노트 생성
+            failed_details = AttemptDetail.objects.filter(attempt=attempt, is_correct=False).select_related('question')
+            
+            if failed_details.exists():
+                try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+                    
+                    review_prompt = "다음은 학생이 퀴즈에서 틀린 문제들입니다. 틀린 이유를 분석하고, 핵심 개념을 보충 설명해주세요.\n\n"
+                    for detail in failed_details:
+                        q = detail.question
+                        review_prompt += f"[문제] {q.question_text}\n"
+                        review_prompt += f"- 학생 답: {detail.student_answer}\n"
+                        review_prompt += f"- 정답: {q.correct_answer}\n"
+                        # 기존 explanation이 있다면 참고용으로 추가
+                        # review_prompt += f"- 참고: {q.explanation}\n"
+                        review_prompt += "\n"
+                        
+                    review_prompt += """
+                    [요청사항]
+                    1. 각 문제별로 '💡 오답 분석'과 '📚 핵심 요약'을 제공하세요.
+                    2. 학생이 헷갈려할 만한 부분을 짚어주세요.
+                    3. Markdown 형식으로 가독성 있게 작성하세요.
+                    """
+                    
+                    response = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": "당신은 IT 교육 전문가입니다. 친절하고 명확하게 오답을 풀이해주세요."},
+                            {"role": "user", "content": review_prompt}
+                        ]
+                    )
+                    attempt.review_note = response.choices[0].message.content
+                    
+                except Exception as e:
+                    print(f"AI Review Generation Failed: {e}")
+                    attempt.review_note = "오답노트 생성에 실패했습니다. (서버 오류)"
+            
+            else:
+                attempt.review_note = "🎉 축하합니다! 모든 문제를 맞히셨습니다. 완벽해요!"
+
             attempt.save()
             
             # 퀴즈 메인 점수 업데이트 (최근 점수 반영)

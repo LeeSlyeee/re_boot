@@ -1104,6 +1104,13 @@ const openSessionReview = (id) => {
                 <div v-if="quizResult" class="result-view">
                     <h2 class="text-headline">{{ quizResult.score >= 80 ? '🎉 통과!' : '💪 재도전!' }}</h2>
                     <div class="score-display"><span class="score">{{quizResult.score}}</span> / 100</div>
+                    
+                    <!-- [NEW] Review Note -->
+                    <div v-if="quizResult.review_note" class="review-note-section">
+                        <h3>💡 AI 맞춤 해설 (오답 노트)</h3>
+                        <div class="markdown-text">{{ quizResult.review_note }}</div>
+                    </div>
+
                     <button class="btn btn-primary" @click="router.push('/dashboard')">나가기</button>
                 </div>
                 <div v-else-if="quizData">
@@ -1398,6 +1405,22 @@ const openSessionReview = (id) => {
 .question-item { .q-title { font-weight: bold; margin-bottom: 10px; } }
 .options-group { display: flex; flex-direction: column; gap: 8px; }
 .quiz-footer { padding: 20px; }
+
+/* Review Note */
+.review-note-section {
+    background: rgba(255, 149, 0, 0.1); 
+    border: 1px solid rgba(255, 149, 0, 0.3);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px 0;
+    text-align: left;
+}
+.review-note-section h3 {
+    margin-top: 0;
+    color: #ff9f0a;
+    font-size: 16px;
+    margin-bottom: 12px;
+}
 .btn-full { width: 100%; height: 48px; }
 .result-view { text-align: center; padding: 40px; .score-display { font-size: 60px; font-weight: bold; margin: 20px 0; color: var(--color-accent); } }
 

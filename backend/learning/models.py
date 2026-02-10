@@ -146,6 +146,7 @@ class QuizAttempt(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     score = models.IntegerField()
     submitted_at = models.DateTimeField(auto_now_add=True)
+    review_note = models.TextField(blank=True, help_text="AI 오답노트 및 학습 가이드")
 
 class AttemptDetail(models.Model):
     attempt = models.ForeignKey(QuizAttempt, on_delete=models.CASCADE, related_name='details')
