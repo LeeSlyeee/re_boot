@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Re:Boot Database ERD</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'base',
+            themeVariables: {
+                primaryColor: '#e1f5fe',
+                edgeLabelBackground: '#ffffff',
+                tertiaryColor: '#f4f4f4',
+                fontSize: '16px'
+            },
+            flowchart: { useMaxWidth: false }
+        });
+    </script>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+            color: #333;
+            font-size: 16px;
+            /* 기본 폰트 크기 증가 */
+        }
+
+        .container {
+            max-width: 100%;
+            /* 화면 너비 꽉 채우기 */
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            overflow-x: auto;
+            /* 가로 스크롤 허용 */
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+            min-width: 1200px;
+            /* 다이어그램 최소 너비 확보 */
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Re:Boot Database ERD</h1>
+        <div class="mermaid">
+            erDiagram
+            %% 사용자 및 인증 (User Management)
+            User {
+            int id PK
+            string username UK "로그인 ID"
+            string password "해시된 비밀번호"
+            string email "이메일 (선택)"
+            string nickname "닉네임"
+            string role "STUDENT, INSTRUCTOR, ADMIN"
+            datetime created_at
+            }
+
+            UserProfile {
+            int id PK
+            int user_id FK
+            string career_goal "JOB_SEEKER(취업), ENTREPRENEUR(창업)"
+            jsonb preferences "학습 스타일, 관심사 등"
+            }
+
+            %% 강의 관리 (Lecture Management)
+            Course {
+            int id PK
+            string title "강좌명"
+            string description "강좌 설명"
+            string category "카테고리"
+            int instructor_id FK "강사 ID"
+            datetime created_at
+            }
+
+            Lecture {
+            int id PK
+            int course_id FK
+            string title "강의 제목"
+            string video_url "영상 URL"
+            int order_index "순서"
+            string ai_status "PENDING, PROCESSING, COMPLETED"
+            text processing_error "AI 처리 에러 로그"
+            text original_script "Whisper STT 결과"
+            vector embedding "pgvector (1536 dim) - 검색용"
+            }
+
+            %% AI 및 학습 도구 (AI & Study Tools)
+            LectureNote {
+            int id PK
+            int lecture_id FK
+            text summary_content "AI 요약 노트"
+            jsonb key_concepts "추출된 핵심 키워드"
+            datetime created_at
+            }
+
+            AIChatSession {
+            int id PK
+            int user_id FK
+            int lecture_id FK "질문 문맥 (어느 강의에서 질문했는지)"
+            datetime start_time
+            }
+
+            AIChatMessage {
+            int id PK
+            int session_id FK
+            string sender "USER, AI"
+            text message "대화 내용"
+            datetime created_at
+            }
+
+            %% 커리큘럼 및 진도 (Curriculum & Progress - Dynamic Re-routing)
+            Curriculum {
+            int id PK
+            int user_id FK
+            int course_id FK
+            string status "ACTIVE, COMPLETED, DROPPED"
+            datetime start_date
+            datetime target_date "목표 완강일"
+            }
+
+            CurriculumItem {
+            int id PK
+            int curriculum_id FK
+            int lecture_id FK
+            int order_index "동적으로 조절 가능한 순서"
+            boolean is_completed "완료 여부"
+            datetime completed_at
+            }
+
+            ReroutingLog {
+            int id PK
+            int curriculum_id FK
+            string reason "Fell behind(진도지연), Quiz failure(퀴즈낙제)"
+            jsonb old_path "변경 전 Lecture IDs"
+            jsonb new_path "변경 후 Lecture IDs (Fast Track)"
+            datetime created_at
+            }
+
+            %% 평가 및 스킬블록 (Assessment & Skill Blocks)
+            Quiz {
+            int id PK
+            int lecture_id FK
+            jsonb questions "문제 목록 (객관식/코드)"
+            }
+
+            QuizAttempt {
+            int id PK
+            int user_id FK
+            int quiz_id FK
+            int score "점수"
+            boolean passed "통과 여부"
+            datetime attempted_at
+            }
+
+            SkillBlock {
+            int id PK
+            string name "스킬명 (e.g. Python Basics)"
+            string category "카테고리"
+            text criteria "획득 조건 로직"
+            }
+
+            UserSkill {
+            int id PK
+            int user_id FK
+            int skill_block_id FK
+            datetime acquired_at
+            string verification_source "인증 출처 (Quiz ID, Project ID)"
+            }
+
+            %% 관계 정의
+            User ||--|| UserProfile : has
+            User ||--o{ Course : creates_as_instructor
+            User ||--o{ Curriculum : enrolls
+            User ||--o{ AIChatSession : initiates
+            User ||--o{ QuizAttempt : takes
+            User ||--o{ UserSkill : earns
+
+            Course ||--o{ Lecture : contains
+            Course ||--o{ Curriculum : base_structure
+
+            Lecture ||--o{ LectureNote : has_ai_note
+            Lecture ||--o{ Quiz : has_assessment
+            Lecture ||--o{ CurriculumItem : included_in
+
+            Curriculum ||--o{ CurriculumItem : consists_of
+            Curriculum ||--o{ ReroutingLog : tracks_changes
+
+            AIChatSession ||--o{ AIChatMessage : contains
+
+            SkillBlock ||--o{ UserSkill : granted_to
+
+            %% ==========================================
+            %% 5. 자산화 & 커리어 (Assetization & Career) - NEW
+            %% ==========================================
+            Portfolio {
+            int id PK
+            int user_id FK
+            string title "문서 제목"
+            string type "RESUME(이력서), BUSINESS_PLAN(사업계획서)"
+            jsonb sections "섹션별 데이터"
+            text compiled_markdown "최종 생성된 마크다운"
+            datetime created_at
+            }
+
+            PortfolioProject {
+            int id PK
+            int portfolio_id FK
+            int skill_block_id FK "관련 스킬 블록 (근거 자료)"
+            string name "프로젝트/기능 명"
+            string description "설명"
+            }
+
+            %% ==========================================
+            %% 6. 모의 면접 (Mock Interview) - NEW
+            %% ==========================================
+            InterviewPersona {
+            int id PK
+            string name "페르소나 이름 (e.g. 까칠한 CTO)"
+            string role "TECH_LEAD, HR, VC, PEER, CUSTOMER"
+            text system_prompt "AI 페르소나 정의 프롬프트"
+            string difficulty "EASY, NORMAL, HARD"
+            }
+
+            MockInterviewSession {
+            int id PK
+            int user_id FK
+            int persona_id FK
+            int portfolio_id FK "면접 대상 문서"
+            int target_question_count "목표 질문 수 (종료 조건)"
+            int time_limit_seconds "제한 시간 (초, 종료 조건)"
+            string status "IN_PROGRESS, COMPLETED, TIMEOUT"
+            datetime start_time
+            datetime end_time
+            int score "면접 점수 (0-100)"
+            text feedback_summary "최종 피드백 요약"
+            jsonb evaluation_detail "항목별 상세 평가 (JSON)"
+            }
+
+            MockInterviewMessage {
+            int id PK
+            int session_id FK
+            string sender "USER, AI"
+            text content "대화 내용"
+            datetime created_at
+            }
+
+            %% Relationships (New)
+            User ||--o{ Portfolio : manages
+            Portfolio ||--o{ PortfolioProject : contains
+            SkillBlock ||--o{ PortfolioProject : backs_up
+
+            User ||--o{ MockInterviewSession : takes
+            InterviewPersona ||--o{ MockInterviewSession : conducts
+            Portfolio ||--o{ MockInterviewSession : reviewed_in
+            MockInterviewSession ||--o{ MockInterviewMessage : logs
+        </div>
+    </div>
+</body>
+
+</html>

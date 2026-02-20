@@ -6,7 +6,7 @@ import { useRouter, useRoute } from 'vue-router'; // useRoute added
 const debugLastChunkSize = ref(0);
 const debugLastStatus = ref('Init');
 const debugLastResponse = ref('-');
-import { Mic, Square, Pause, FileText, MonitorPlay, Users, Youtube, RefreshCw, Bot, Play, List, Plus, Lock } from 'lucide-vue-next'; // Play, List added, Lock added
+import { Mic, Square, Pause, FileText, MonitorPlay, Users, Youtube, RefreshCw, Bot, Play, List, Plus, Lock, Download, PenLine } from 'lucide-vue-next';
 import { AudioRecorder } from '../api/audioRecorder';
 import api from '../api/axios';
 import ChecklistPanel from '../components/ChecklistPanel.vue';
@@ -360,6 +360,67 @@ onMounted(async () => {
 const sessionSummary = ref('');
 const activeTab = ref('stt');
 const isGeneratingSummary = ref(false);
+
+// ── Note Feature ──
+const showNoteEditor = ref(false);
+const noteContent = ref('');
+const isSavingNote = ref(false);
+
+const toggleNoteEditor = async () => {
+    showNoteEditor.value = !showNoteEditor.value;
+    if (showNoteEditor.value && sessionId.value) {
+        // 기존 노트 로드
+        try {
+            const res = await api.get(`/learning/sessions/${sessionId.value}/note/`);
+            noteContent.value = res.data.note || '';
+        } catch (e) {
+            console.error('노트 로드 실패', e);
+        }
+    }
+};
+
+const saveNote = async () => {
+    if (!sessionId.value || !noteContent.value.trim()) return;
+    isSavingNote.value = true;
+    try {
+        const res = await api.post(`/learning/sessions/${sessionId.value}/note/`, {
+            note: noteContent.value
+        });
+        // 요약본 갱신 (메모가 포함된 새 내용)
+        if (res.data.content) {
+            sessionSummary.value = res.data.content;
+        }
+        alert('✅ 메모가 저장되었습니다.');
+    } catch (e) {
+        console.error('노트 저장 실패', e);
+        alert('메모 저장에 실패했습니다.');
+    } finally {
+        isSavingNote.value = false;
+    }
+};
+
+// ── PDF Export ──
+const exportPdf = () => {
+    if (!sessionId.value) return;
+    // 직접 새 창에서 열어서 브라우저 인쇄→PDF 가능
+    const token = localStorage.getItem('token');
+    const url = `${api.defaults.baseURL}/learning/sessions/${sessionId.value}/export-pdf/`;
+    // API 호출 후 HTML 다운로드
+    api.get(`/learning/sessions/${sessionId.value}/export-pdf/`, {
+        responseType: 'blob'
+    }).then(res => {
+        const blob = new Blob([res.data], { type: 'text/html' });
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = `ReBootNote_${sessionId.value}.html`;
+        a.click();
+        window.URL.revokeObjectURL(downloadUrl);
+    }).catch(e => {
+        console.error('PDF 내보내기 실패', e);
+        alert('내보내기에 실패했습니다.');
+    });
+};
 
 const generateSummary = async () => {
     if (!sessionId.value) return;
@@ -1083,8 +1144,27 @@ const openSessionReview = (id) => {
                             <button class="btn-text small" @click="generateSummary" :disabled="isGeneratingSummary">
                                 <RefreshCw size="14" :class="{'spin-anim': isGeneratingSummary}" /> 요약 다시 생성
                             </button>
+                            <button class="btn-text small" @click="exportPdf" title="학습 노트 다운로드">
+                                <Download size="14" /> PDF 내보내기
+                            </button>
+                            <button class="btn-text small" @click="toggleNoteEditor" :class="{ active: showNoteEditor }">
+                                <PenLine size="14" /> 메모 {{ showNoteEditor ? '닫기' : '추가' }}
+                            </button>
                         </div>
                         <div class="markdown-text">{{ sessionSummary }}</div>
+                        
+                        <!-- Note Editor -->
+                        <div v-if="showNoteEditor" class="note-editor">
+                            <h4>📌 나의 메모</h4>
+                            <textarea 
+                                v-model="noteContent" 
+                                placeholder="이 수업에 대한 메모를 남겨보세요... (코드, 의문점, 추가 정리 등)"
+                                rows="5"
+                            ></textarea>
+                            <button class="btn btn-accent" @click="saveNote" :disabled="isSavingNote || !noteContent.trim()">
+                                {{ isSavingNote ? '저장 중...' : '💾 메모 저장' }}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -1481,8 +1561,23 @@ const openSessionReview = (id) => {
 .icon-bot { color: #444; width: 48px; height: 48px; }
 
 .summary-actions {
-    display: flex; justify-content: flex-end; margin-bottom: 16px;
+    display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 16px; flex-wrap: wrap;
 }
+.btn-text.active { color: #4facfe; background: rgba(79,172,254,0.1); border-radius: 6px; }
+
+.note-editor {
+    margin-top: 20px; padding: 16px; background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+}
+.note-editor h4 { margin: 0 0 10px; font-size: 15px; color: #ddd; }
+.note-editor textarea {
+    width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; color: #e0e0e0; padding: 12px; font-size: 14px;
+    resize: vertical; min-height: 100px; outline: none; font-family: inherit;
+}
+.note-editor textarea:focus { border-color: #4facfe; }
+.note-editor .btn { margin-top: 10px; }
+
 .markdown-text {
     white-space: pre-wrap; font-size: 15px; color: #e0e0e0;
 }

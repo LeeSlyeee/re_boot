@@ -2,10 +2,10 @@
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../api/axios';
-import { Bar } from 'vue-chartjs';
-import { Chart as ChartJS, Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale } from 'chart.js';
+import { Bar, Doughnut } from 'vue-chartjs';
+import { Chart as ChartJS, Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement } from 'chart.js';
 
-ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale);
+ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement);
 
 const route = useRoute();
 const router = useRouter();
@@ -13,6 +13,9 @@ const students = ref([]);
 const lectureId = route.params.id;
 const lectureTitle = ref('');
 const lectureCode = ref('');
+
+// Tab Management
+const activeTab = ref('monitor'); // 'monitor' | 'attendance' | 'quiz'
 
 const copyCode = async () => {
     try {
@@ -39,7 +42,6 @@ const fetchDashboard = async () => {
         lectureTitle.value = lecRes.data.title;
         lectureCode.value = lecRes.data.access_code;
 
-        // [Change] Call 'monitor' instead of 'dashboard' for richer data
         const res = await api.get(`/learning/lectures/${lectureId}/monitor/`);
         students.value = res.data;
         
@@ -47,7 +49,7 @@ const fetchDashboard = async () => {
             labels: students.value.map(s => s.name),
             datasets: [
                 {
-                    label: '진도율 (%)', // Changed to Progress
+                    label: '진도율 (%)',
                     backgroundColor: '#4facfe',
                     data: students.value.map(s => s.progress)
                 }
@@ -61,16 +63,15 @@ const fetchDashboard = async () => {
     }
 };
 
-// Checklist Management
+// ── Checklist Management ──
 const syllabi = ref([]);
 const isAddingWeek = ref(false);
 const newWeekTitle = ref('');
 const newWeekDesc = ref('');
-const editingObjective = ref(null); // { weekId, text }
+const editingObjective = ref(null);
 
 const fetchChecklist = async () => {
     try {
-        // [FIX] Correct API endpoint matching ChecklistViewSet.list
         const res = await api.get(`/learning/checklist/?lecture_id=${lectureId}`);
         syllabi.value = res.data;
     } catch (e) {
@@ -116,6 +117,121 @@ const deleteObjective = async (objId) => {
     }
 };
 
+// ── Attendance Data ──
+const attendanceData = ref(null);
+const attendanceLoading = ref(false);
+const attendanceChartData = ref({ labels: [], datasets: [] });
+
+const fetchAttendance = async () => {
+    if (attendanceData.value) return; // 이미 로드됨
+    attendanceLoading.value = true;
+    try {
+        const res = await api.get(`/learning/lectures/${lectureId}/attendance/`);
+        attendanceData.value = res.data;
+        
+        // 학생별 출석률 차트 데이터
+        attendanceChartData.value = {
+            labels: res.data.students.map(s => s.name),
+            datasets: [{
+                label: '출석률 (%)',
+                backgroundColor: res.data.students.map(s => {
+                    if (s.rate >= 80) return '#4caf50';
+                    if (s.rate >= 50) return '#ff9800';
+                    return '#f44336';
+                }),
+                data: res.data.students.map(s => s.rate),
+                borderRadius: 6,
+                borderSkipped: false
+            }]
+        };
+    } catch (e) {
+        console.error("출석률 조회 실패", e);
+    } finally {
+        attendanceLoading.value = false;
+    }
+};
+
+// ── Quiz Analytics Data ──
+const quizData = ref(null);
+const quizLoading = ref(false);
+const quizDistributionChart = ref({ labels: [], datasets: [] });
+const quizStudentChart = ref({ labels: [], datasets: [] });
+
+const fetchQuizAnalytics = async () => {
+    if (quizData.value) return;
+    quizLoading.value = true;
+    try {
+        const res = await api.get(`/learning/lectures/${lectureId}/quiz_analytics/`);
+        quizData.value = res.data;
+        
+        // 점수 분포 도넛 차트
+        const dist = res.data.score_distribution;
+        quizDistributionChart.value = {
+            labels: Object.keys(dist),
+            datasets: [{
+                data: Object.values(dist),
+                backgroundColor: ['#f44336', '#ff9800', '#ffeb3b', '#4caf50', '#2196f3'],
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        };
+        
+        // 학생별 평균 점수 차트
+        quizStudentChart.value = {
+            labels: res.data.students.map(s => s.name),
+            datasets: [{
+                label: '평균 점수',
+                backgroundColor: res.data.students.map(s => {
+                    if (s.avg_score >= 80) return '#4caf50';
+                    if (s.avg_score >= 60) return '#ff9800';
+                    return '#f44336';
+                }),
+                data: res.data.students.map(s => s.avg_score),
+                borderRadius: 6,
+                borderSkipped: false
+            }]
+        };
+    } catch (e) {
+        console.error("퀴즈 분석 조회 실패", e);
+    } finally {
+        quizLoading.value = false;
+    }
+};
+
+// Tab change handler
+const switchTab = (tab) => {
+    activeTab.value = tab;
+    if (tab === 'attendance') fetchAttendance();
+    if (tab === 'quiz') fetchQuizAnalytics();
+};
+
+const attendanceChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+        y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } }
+    },
+    plugins: {
+        tooltip: { callbacks: { label: ctx => `${ctx.parsed.y}%` } }
+    }
+};
+
+const quizBarOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+        y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '점' } }
+    }
+};
+
+const doughnutOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: { position: 'bottom' }
+    }
+};
+
 onMounted(fetchDashboard);
 </script>
 
@@ -123,88 +239,334 @@ onMounted(fetchDashboard);
     <div class="detail-view">
         <button class="back-btn" @click="router.push('/')">← 대시보드로 돌아가기</button>
         <div class="header-row">
-            <h1>{{ lectureTitle }} - 학생 성적 현황</h1>
+            <h1>{{ lectureTitle }}</h1>
             <div class="code-badge" @click="copyCode" v-if="lectureCode">
                 <span class="label">ENTRY CODE</span>
                 <span class="value">{{ lectureCode }}</span>
                 <span class="icon">❐</span>
             </div>
         </div>
-        
-        <div class="chart-container" v-if="students.length > 0">
-            <Bar :data="chartData" :options="chartOptions" />
+
+        <!-- ── Tab Navigation ── -->
+        <div class="tab-nav">
+            <button 
+                :class="['tab-btn', { active: activeTab === 'monitor' }]" 
+                @click="switchTab('monitor')">
+                📊 진도 모니터링
+            </button>
+            <button 
+                :class="['tab-btn', { active: activeTab === 'attendance' }]" 
+                @click="switchTab('attendance')">
+                📋 출석률 현황
+            </button>
+            <button 
+                :class="['tab-btn', { active: activeTab === 'quiz' }]" 
+                @click="switchTab('quiz')">
+                📝 퀴즈 분석
+            </button>
         </div>
 
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width: 15%">이름</th>
-                        <th style="width: 15%">상태</th>
-                        <th style="width: 25%">진도율 (Progress)</th>
-                        <th style="width: 45%">최근 획득 스킬 (Recent Skills)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-for="student in students" :key="student.id">
-                        <td>
-                            <div class="student-name">{{ student.name }}</div>
-                            <div class="student-email">{{ student.email }}</div>
-                        </td>
-                        <td>
-                            <span class="status-badge" :class="student.status">
-                                {{ student.status.toUpperCase() }}
-                            </span>
-                        </td>
-                        <td>
-                            <div class="progress-wrapper">
-                                <div class="progress-bar">
-                                    <div class="fill" :style="{ width: student.progress + '%' }" :class="student.status"></div>
-                                </div>
-                                <span class="percent">{{ student.progress }}%</span>
-                            </div>
-                        </td>
-                        <td>
-                            <div class="skill-tags">
-                                <span v-for="skill in student.recent_skills" :key="skill" class="skill-tag">
-                                    {{ skill }}
+        <!-- ══════════════════════════════════════ -->
+        <!-- Tab 1: 진도 모니터링 (기존) -->
+        <!-- ══════════════════════════════════════ -->
+        <div v-if="activeTab === 'monitor'">
+            <div class="chart-container" v-if="students.length > 0">
+                <Bar :data="chartData" :options="chartOptions" />
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 15%">이름</th>
+                            <th style="width: 15%">상태</th>
+                            <th style="width: 25%">진도율 (Progress)</th>
+                            <th style="width: 45%">최근 획득 스킬 (Recent Skills)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="student in students" :key="student.id">
+                            <td>
+                                <div class="student-name">{{ student.name }}</div>
+                                <div class="student-email">{{ student.email }}</div>
+                            </td>
+                            <td>
+                                <span class="status-badge" :class="student.status">
+                                    {{ student.status.toUpperCase() }}
                                 </span>
-                                <span v-if="student.recent_skills.length === 0" class="no-skill">-</span>
-                            </div>
-                        </td>
-                    </tr>
-                    <tr v-if="students.length === 0">
-                        <td colspan="4" style="text-align: center; color: #888; padding: 40px;">
-                            수강생 데이터가 없습니다.
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
+                            </td>
+                            <td>
+                                <div class="progress-wrapper">
+                                    <div class="progress-bar">
+                                        <div class="fill" :style="{ width: student.progress + '%' }" :class="student.status"></div>
+                                    </div>
+                                    <span class="percent">{{ student.progress }}%</span>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="skill-tags">
+                                    <span v-for="skill in student.recent_skills" :key="skill" class="skill-tag">
+                                        {{ skill }}
+                                    </span>
+                                    <span v-if="student.recent_skills.length === 0" class="no-skill">-</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr v-if="students.length === 0">
+                            <td colspan="4" style="text-align: center; color: #888; padding: 40px;">
+                                수강생 데이터가 없습니다.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
 
-        <div class="syllabus-manager">
-            <h2 class="section-title">📅 강의 계획서 관리</h2>
-            
-            <div class="syllabus-list">
-                <div v-for="week in syllabi" :key="week.id" class="week-card">
-                    <div class="week-header">
-                        <h3>{{week.week_number}}주차: {{week.title}}</h3>
-                        <button class="btn-micro" @click="addObjective(week.id)">+ 목표 추가</button>
-                    </div>
-                    <div class="objective-list">
-                        <div v-for="obj in week.objectives" :key="obj.id" class="obj-item">
-                            <span>- {{obj.content}}</span>
-                            <span class="delete-x" @click="deleteObjective(obj.id)">×</span>
+            <!-- Syllabus Manager -->
+            <div class="syllabus-manager">
+                <h2 class="section-title">📅 강의 계획서 관리</h2>
+                
+                <div class="syllabus-list">
+                    <div v-for="week in syllabi" :key="week.id" class="week-card">
+                        <div class="week-header">
+                            <h3>{{week.week_number}}주차: {{week.title}}</h3>
+                            <button class="btn-micro" @click="addObjective(week.id)">+ 목표 추가</button>
+                        </div>
+                        <div class="objective-list">
+                            <div v-for="obj in week.objectives" :key="obj.id" class="obj-item">
+                                <span>- {{obj.content}}</span>
+                                <span class="delete-x" @click="deleteObjective(obj.id)">×</span>
+                            </div>
                         </div>
                     </div>
                 </div>
+                
+                <div class="add-week-form">
+                    <h3>+ 주차 추가</h3>
+                    <input v-model="newWeekTitle" placeholder="주차 주제 (예: React 기초)" />
+                    <input v-model="newWeekDesc" placeholder="설명 (선택)" />
+                    <button @click="addWeek">추가</button>
+                </div>
             </div>
-            
-            <div class="add-week-form">
-                <h3>+ 주차 추가</h3>
-                <input v-model="newWeekTitle" placeholder="주차 주제 (예: React 기초)" />
-                <input v-model="newWeekDesc" placeholder="설명 (선택)" />
-                <button @click="addWeek">추가</button>
+        </div>
+
+        <!-- ══════════════════════════════════════ -->
+        <!-- Tab 2: 출석률 현황 -->
+        <!-- ══════════════════════════════════════ -->
+        <div v-if="activeTab === 'attendance'">
+            <div v-if="attendanceLoading" class="loading-state">
+                <div class="spinner"></div>
+                <p>출석 데이터를 불러오는 중...</p>
+            </div>
+
+            <div v-else-if="attendanceData">
+                <!-- Summary Cards -->
+                <div class="summary-cards">
+                    <div class="summary-card">
+                        <div class="card-icon">👥</div>
+                        <div class="card-value">{{ attendanceData.summary.total_students }}명</div>
+                        <div class="card-label">총 수강생</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="card-icon">📅</div>
+                        <div class="card-value">{{ attendanceData.summary.total_dates }}일</div>
+                        <div class="card-label">총 수업일</div>
+                    </div>
+                    <div class="summary-card highlight">
+                        <div class="card-icon">📈</div>
+                        <div class="card-value">{{ attendanceData.summary.overall_rate }}%</div>
+                        <div class="card-label">전체 출석률</div>
+                    </div>
+                </div>
+
+                <!-- Attendance Chart -->
+                <div class="chart-container" v-if="attendanceData.students.length > 0">
+                    <h3 class="chart-title">학생별 출석률</h3>
+                    <Bar :data="attendanceChartData" :options="attendanceChartOptions" />
+                </div>
+
+                <!-- Attendance Table -->
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 20%">이름</th>
+                                <th style="width: 15%">출석률</th>
+                                <th style="width: 15%">출석 / 전체</th>
+                                <th style="width: 50%">날짜별 출석</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="student in attendanceData.students" :key="student.id">
+                                <td>
+                                    <div class="student-name">{{ student.name }}</div>
+                                    <div class="student-email">{{ student.email }}</div>
+                                </td>
+                                <td>
+                                    <span class="rate-badge" :class="{
+                                        high: student.rate >= 80,
+                                        mid: student.rate >= 50 && student.rate < 80,
+                                        low: student.rate < 50
+                                    }">{{ student.rate }}%</span>
+                                </td>
+                                <td class="count-cell">
+                                    {{ student.attended_count }} / {{ student.total_dates }}
+                                </td>
+                                <td>
+                                    <div class="attendance-dots">
+                                        <span 
+                                            v-for="(date, idx) in attendanceData.dates" 
+                                            :key="idx"
+                                            class="dot"
+                                            :class="{ present: student.daily[date], absent: !student.daily[date] }"
+                                            :title="date + (student.daily[date] ? ' ✓ 출석' : ' ✗ 결석')"
+                                        ></span>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr v-if="attendanceData.students.length === 0">
+                                <td colspan="4" style="text-align:center; color:#888; padding:40px;">
+                                    출석 데이터가 없습니다.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div v-else class="empty-state">
+                <p>출석 데이터를 불러올 수 없습니다.</p>
+            </div>
+        </div>
+
+        <!-- ══════════════════════════════════════ -->
+        <!-- Tab 3: 퀴즈 분석 -->
+        <!-- ══════════════════════════════════════ -->
+        <div v-if="activeTab === 'quiz'">
+            <div v-if="quizLoading" class="loading-state">
+                <div class="spinner"></div>
+                <p>퀴즈 데이터를 분석하는 중...</p>
+            </div>
+
+            <div v-else-if="quizData">
+                <!-- Summary Cards -->
+                <div class="summary-cards">
+                    <div class="summary-card">
+                        <div class="card-icon">📝</div>
+                        <div class="card-value">{{ quizData.summary.total_quizzes }}회</div>
+                        <div class="card-label">총 응시 횟수</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="card-icon">📊</div>
+                        <div class="card-value">{{ quizData.summary.average_score }}점</div>
+                        <div class="card-label">전체 평균</div>
+                    </div>
+                    <div class="summary-card highlight">
+                        <div class="card-icon">✅</div>
+                        <div class="card-value">{{ quizData.summary.pass_rate }}%</div>
+                        <div class="card-label">합격률 (60점↑)</div>
+                    </div>
+                </div>
+
+                <!-- Charts Row -->
+                <div class="charts-row">
+                    <!-- 학생별 평균 점수 -->
+                    <div class="chart-container flex-2">
+                        <h3 class="chart-title">학생별 평균 점수</h3>
+                        <Bar :data="quizStudentChart" :options="quizBarOptions" />
+                    </div>
+                    <!-- 점수 분포 -->
+                    <div class="chart-container flex-1">
+                        <h3 class="chart-title">점수 분포</h3>
+                        <Doughnut :data="quizDistributionChart" :options="doughnutOptions" />
+                    </div>
+                </div>
+
+                <!-- 학생별 성적 테이블 -->
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 20%">이름</th>
+                                <th style="width: 15%">응시 횟수</th>
+                                <th style="width: 15%">평균 점수</th>
+                                <th style="width: 50%">점수 추이</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="student in quizData.students" :key="student.id">
+                                <td>
+                                    <div class="student-name">{{ student.name }}</div>
+                                </td>
+                                <td>{{ student.quiz_count }}회</td>
+                                <td>
+                                    <span class="rate-badge" :class="{
+                                        high: student.avg_score >= 80,
+                                        mid: student.avg_score >= 60 && student.avg_score < 80,
+                                        low: student.avg_score < 60
+                                    }">{{ student.avg_score }}점</span>
+                                </td>
+                                <td>
+                                    <div class="score-trend">
+                                        <span 
+                                            v-for="(score, idx) in student.scores" 
+                                            :key="idx" 
+                                            class="score-pill"
+                                            :class="{
+                                                high: score >= 80,
+                                                mid: score >= 60 && score < 80,
+                                                low: score < 60
+                                            }"
+                                        >{{ score }}</span>
+                                        <span v-if="student.scores.length === 0" class="no-skill">-</span>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr v-if="quizData.students.length === 0">
+                                <td colspan="4" style="text-align:center; color:#888; padding:40px;">
+                                    퀴즈 데이터가 없습니다.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 문항별 정답률 -->
+                <div class="table-container" v-if="quizData.question_accuracy.length > 0" style="margin-top: 24px;">
+                    <h3 class="section-title" style="padding: 20px 20px 0;">🎯 문항별 정답률 (상위 10문항)</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 60%">문항</th>
+                                <th style="width: 20%">정답률</th>
+                                <th style="width: 20%">응답 수</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="(q, idx) in quizData.question_accuracy" :key="idx">
+                                <td class="question-cell">{{ q.question_text }}</td>
+                                <td>
+                                    <div class="progress-wrapper">
+                                        <div class="progress-bar">
+                                            <div class="fill" 
+                                                :style="{ width: q.accuracy + '%' }" 
+                                                :class="{
+                                                    good: q.accuracy >= 70,
+                                                    warning: q.accuracy >= 40 && q.accuracy < 70,
+                                                    critical: q.accuracy < 40
+                                                }"></div>
+                                        </div>
+                                        <span class="percent">{{ q.accuracy }}%</span>
+                                    </div>
+                                </td>
+                                <td class="count-cell">{{ q.total_answers }}명</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div v-else class="empty-state">
+                <p>퀴즈 데이터를 불러올 수 없습니다.</p>
             </div>
         </div>
     </div>
@@ -212,7 +574,7 @@ onMounted(fetchDashboard);
 
 <style scoped>
 .detail-view { padding: 40px; max-width: 1200px; margin: 0 auto; color: #333; }
-.header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 30px; }
+.header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .header-row h1 { margin: 0; }
 .code-badge {
     background: #e3f2fd; color: #1565c0; padding: 10px 20px; border-radius: 50px;
@@ -222,36 +584,67 @@ onMounted(fetchDashboard);
 .code-badge:hover { background: #bbdefb; }
 .code-badge .label { font-weight: normal; font-size: 13px; opacity: 0.8; }
 .code-badge .value { font-weight: bold; font-size: 20px; letter-spacing: 2px; }
-.back-btn { background: none; border: none; font-size: 16px; color: #007bff; cursor: pointer; margin-bottom: 20px; }
-.chart-container { height: 400px; margin-bottom: 40px; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-.table-container { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 15px; text-align: left; border-bottom: 1px solid #eee; }
-th { background: #f8f9fa; font-weight: bold; }
-tr:last-child td { border-bottom: none; }
+.back-btn { background: none; border: none; font-size: 16px; color: #007bff; cursor: pointer; margin-bottom: 20px; padding: 0; }
 
-/* Syllabus Manager */
-.syllabus-manager { margin-top: 50px; padding-top: 30px; border-top: 1px solid #ddd; }
-.section-title { font-size: 20px; margin-bottom: 20px; }
-.week-card {
-    background: #f9f9f9; padding: 20px; margin-bottom: 20px;
-    border-radius: 8px; border: 1px solid #eee;
+/* ── Tab Navigation ── */
+.tab-nav {
+    display: flex; gap: 4px; margin-bottom: 28px;
+    background: #f1f3f5; padding: 4px; border-radius: 12px;
 }
-.week-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.week-header h3 { margin: 0; font-size: 16px; color: #333; }
-.btn-micro { padding: 4px 8px; font-size: 12px; cursor: pointer; border: 1px solid #ccc; background: white; border-radius: 4px; }
-.objective-list { padding-left: 20px; }
-.obj-item { margin-bottom: 5px; font-size: 14px; position: relative; }
-.delete-x { color: #aaa; cursor: pointer; margin-left: 10px; font-weight: bold; display: none; }
-.obj-item:hover .delete-x { display: inline; color: red; }
-.add-week-form { margin-top: 30px; background: #f0f8ff; padding: 20px; border-radius: 8px; display: flex; gap: 10px; align-items: center; }
-.add-week-form input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-.add-week-form button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+.tab-btn {
+    flex: 1; padding: 12px 20px; border: none; border-radius: 10px;
+    background: transparent; color: #666; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: all 0.25s ease;
+}
+.tab-btn:hover { background: rgba(255,255,255,0.6); color: #333; }
+.tab-btn.active {
+    background: #fff; color: #1565c0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
 
-/* Monitor Styles */
-.student-name { font-weight: bold; font-size: 14px; margin-bottom: 2px; }
-.student-email { font-size: 12px; color: #888; }
+/* ── Summary Cards ── */
+.summary-cards {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px;
+}
+.summary-card {
+    background: #fff; border-radius: 14px; padding: 24px; text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 1px solid #eee;
+    transition: transform 0.2s;
+}
+.summary-card:hover { transform: translateY(-3px); }
+.summary-card.highlight {
+    background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+    border-color: #90caf9;
+}
+.card-icon { font-size: 28px; margin-bottom: 8px; }
+.card-value { font-size: 28px; font-weight: 800; color: #1a1a2e; margin-bottom: 4px; }
+.card-label { font-size: 13px; color: #888; }
 
+/* ── Charts ── */
+.chart-container { 
+    height: 350px; margin-bottom: 24px; background: white; 
+    padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); 
+    border: 1px solid #eee;
+}
+.chart-title { margin: 0 0 16px; font-size: 16px; color: #333; }
+.charts-row { display: flex; gap: 16px; margin-bottom: 24px; }
+.charts-row .chart-container { margin-bottom: 0; }
+.flex-2 { flex: 2; }
+.flex-1 { flex: 1; }
+
+/* ── Tables ── */
+.table-container { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 1px solid #eee; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 15px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+th { background: #f8f9fa; font-weight: 600; font-size: 13px; color: #555; text-transform: uppercase; letter-spacing: 0.5px; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #fafbfc; }
+
+/* ── Student Info ── */
+.student-name { font-weight: 600; font-size: 14px; margin-bottom: 2px; color: #333; }
+.student-email { font-size: 12px; color: #999; }
+
+/* ── Status Badges ── */
 .status-badge {
     padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: bold; text-transform: uppercase;
     display: inline-block;
@@ -260,6 +653,16 @@ tr:last-child td { border-bottom: none; }
 .status-badge.warning { background: #fff3e0; color: #ef6c00; border: 1px solid #ffcc80; }
 .status-badge.good { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
 
+/* ── Rate Badges ── */
+.rate-badge {
+    padding: 5px 12px; border-radius: 20px; font-size: 13px; font-weight: 700;
+    display: inline-block;
+}
+.rate-badge.high { background: #e8f5e9; color: #2e7d32; }
+.rate-badge.mid { background: #fff3e0; color: #ef6c00; }
+.rate-badge.low { background: #ffebee; color: #c62828; }
+
+/* ── Progress ── */
 .progress-wrapper { display: flex; align-items: center; gap: 10px; }
 .progress-bar { flex: 1; height: 8px; background: #eee; border-radius: 10px; overflow: hidden; }
 .progress-bar .fill { height: 100%; border-radius: 10px; transition: width 0.5s ease; }
@@ -268,10 +671,62 @@ tr:last-child td { border-bottom: none; }
 .progress-bar .fill.good { background: #4caf50; }
 .percent { font-size: 12px; font-weight: 600; min-width: 35px; text-align: right; }
 
+/* ── Skills ── */
 .skill-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .skill-tag {
     background: #e3f2fd; color: #1565c0; padding: 4px 8px; border-radius: 4px; font-size: 11px;
     border: 1px solid #bbdefb;
 }
 .no-skill { color: #ccc; font-size: 12px; }
+
+/* ── Attendance Dots ── */
+.attendance-dots { display: flex; gap: 4px; flex-wrap: wrap; }
+.dot {
+    width: 16px; height: 16px; border-radius: 4px;
+    transition: transform 0.15s;
+}
+.dot:hover { transform: scale(1.3); cursor: help; }
+.dot.present { background: #4caf50; }
+.dot.absent { background: #ffcdd2; border: 1px solid #ef9a9a; }
+
+.count-cell { font-weight: 600; color: #555; }
+
+/* ── Score Trend ── */
+.score-trend { display: flex; gap: 5px; flex-wrap: wrap; }
+.score-pill {
+    padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;
+}
+.score-pill.high { background: #e8f5e9; color: #2e7d32; }
+.score-pill.mid { background: #fff3e0; color: #ef6c00; }
+.score-pill.low { background: #ffebee; color: #c62828; }
+
+.question-cell { font-size: 13px; line-height: 1.5; color: #444; }
+
+/* ── Syllabus Manager ── */
+.syllabus-manager { margin-top: 40px; padding-top: 30px; border-top: 1px solid #eee; }
+.section-title { font-size: 18px; margin-bottom: 20px; color: #333; }
+.week-card {
+    background: #f9f9f9; padding: 20px; margin-bottom: 16px;
+    border-radius: 10px; border: 1px solid #eee;
+}
+.week-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.week-header h3 { margin: 0; font-size: 16px; color: #333; }
+.btn-micro { padding: 4px 8px; font-size: 12px; cursor: pointer; border: 1px solid #ccc; background: white; border-radius: 4px; }
+.objective-list { padding-left: 20px; }
+.obj-item { margin-bottom: 5px; font-size: 14px; position: relative; }
+.delete-x { color: #aaa; cursor: pointer; margin-left: 10px; font-weight: bold; display: none; }
+.obj-item:hover .delete-x { display: inline; color: red; }
+.add-week-form { margin-top: 24px; background: #f0f8ff; padding: 20px; border-radius: 10px; display: flex; gap: 10px; align-items: center; }
+.add-week-form input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+.add-week-form button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+
+/* ── Loading & Empty ── */
+.loading-state { text-align: center; padding: 60px; color: #888; }
+.spinner {
+    width: 40px; height: 40px; margin: 0 auto 16px;
+    border: 4px solid #eee; border-top-color: #4facfe;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state { text-align: center; padding: 60px; color: #999; }
 </style>

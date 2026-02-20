@@ -1,13 +1,11 @@
 
 > professor-dashboard@0.0.0 dev
-> vite --host 0.0.0.0 --port 5174
+> vite --host
 
 
-  VITE v5.4.21  ready in 134 ms
+  VITE v5.4.21  ready in 131 ms
 
   ➜  Local:   http://localhost:5174/
-  ➜  Network: http://172.16.207.170:5174/
+  ➜  Network: http://172.16.207.6:5174/
   ➜  Network: http://10.211.55.2:5174/
   ➜  Network: http://10.37.129.2:5174/
-  ➜  Network: http://192.168.239.37:5174/
-  ➜  press h + enter to show help

@@ -89,7 +89,7 @@ class InterviewViewSet(viewsets.ModelViewSet):
         """
         [Interact]
         1. Receive User Answer
-        2. Analyze & Score Answer
+        2. Analyze & Score Answer (Multi-dimensional Rubric)
         3. Generate Follow-up Question
         """
         interview = self.get_object()
@@ -118,17 +118,30 @@ class InterviewViewSet(viewsets.ModelViewSet):
             if ex.answer:
                  messages.append({"role": "user", "content": ex.answer})
         
-        # Prompt for Feedback & Next Question
+        # Prompt for Multi-dimensional Rubric Feedback & Next Question
         next_prompt = """
-        사용자의 답변에 대해:
-        1. 0~100점으로 점수를 매기고, 짧은 피드백을 주세요.
-        2. 그 다음, 꼬리 질문(Follow-up)을 하나 던지세요.
+        사용자의 답변을 아래 4가지 차원으로 평가하세요.
+        각 차원은 0~100점으로 채점하고, 구체적인 근거를 1줄 코멘트로 제시하세요.
+        
+        [평가 차원 (Rubric)]
+        1. technical_depth (기술적 깊이): 개념의 정확성, 기술 선택의 이유, 대안 기술 비교
+        2. logical_coherence (논리적 일관성): 답변 구조, STAR(상황-과제-행동-결과) 기법 준수, 인과관계의 명확성
+        3. communication (소통 능력): 설명의 명확성, 적절한 예시 활용, 질문 의도 파악
+        4. problem_solving (문제 해결력): 실무 적용 능력, 예외/엣지 케이스 고려, 창의적 접근
+        
+        그리고 종합 피드백과 다음 질문을 생성하세요.
         
         응답 형식 (JSON):
         {
-            "score": 85,
-            "feedback": "좋은 답변입니다. 다만 구체적인 예시가 부족합니다.",
-            "next_question": "그렇다면 해당 기술의 단점은 무엇인가요?"
+            "rubric": {
+                "technical_depth": {"score": 85, "comment": "개념은 정확하나 대안 기술 비교가 부족"},
+                "logical_coherence": {"score": 70, "comment": "STAR 구조 중 Result 부분이 약함"},
+                "communication": {"score": 90, "comment": "예시가 구체적이고 설명이 명확"},
+                "problem_solving": {"score": 60, "comment": "엣지 케이스 고려가 부족"}
+            },
+            "overall_score": 76,
+            "feedback": "종합 피드백 (2-3줄)",
+            "next_question": "다음 질문"
         }
         """
         messages.append({"role": "system", "content": next_prompt})
@@ -143,9 +156,19 @@ class InterviewViewSet(viewsets.ModelViewSet):
             import json
             result = json.loads(response.choices[0].message.content)
             
-            # Update Feedback & Score for current exchange
-            current_exchange.feedback = result.get('feedback', '')
-            current_exchange.score = result.get('score', 0)
+            # Rubric 데이터를 feedback에 JSON으로 저장
+            rubric = result.get('rubric', {})
+            overall_score = result.get('overall_score', 0)
+            feedback_text = result.get('feedback', '')
+            
+            # feedback 필드에 구조화된 데이터 저장 (JSON 형태)
+            structured_feedback = json.dumps({
+                'rubric': rubric,
+                'feedback': feedback_text
+            }, ensure_ascii=False)
+            
+            current_exchange.feedback = structured_feedback
+            current_exchange.score = overall_score
             current_exchange.save()
             
             # Create Next Question
@@ -158,14 +181,103 @@ class InterviewViewSet(viewsets.ModelViewSet):
                 )
             
             return Response({
-                "feedback": current_exchange.feedback,
-                "score": current_exchange.score,
+                "rubric": rubric,
+                "overall_score": overall_score,
+                "feedback": feedback_text,
                 "next_question": next_q
             })
 
         except Exception as e:
             print(f"OpenAI Error: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='finish')
+    def finish_interview(self, request, pk=None):
+        """
+        [면접 종료 및 결과 리포트 생성]
+        - 모든 교환의 Rubric 점수를 집계
+        - 차원별 평균 점수 + 종합 분석 리포트 생성
+        """
+        import json
+        interview = self.get_object()
+        interview.status = 'COMPLETED'
+        interview.save()
+        
+        exchanges = interview.exchanges.filter(score__gt=0).order_by('order')
+        
+        if not exchanges.exists():
+            return Response({
+                'status': 'completed',
+                'message': '채점된 답변이 없습니다.',
+                'report': None
+            })
+        
+        # Rubric 차원별 점수 집계
+        dimensions = {
+            'technical_depth': {'scores': [], 'label': '기술적 깊이'},
+            'logical_coherence': {'scores': [], 'label': '논리적 일관성'},
+            'communication': {'scores': [], 'label': '소통 능력'},
+            'problem_solving': {'scores': [], 'label': '문제 해결력'}
+        }
+        
+        overall_scores = []
+        best_exchange = None
+        worst_exchange = None
+        
+        for ex in exchanges:
+            overall_scores.append(ex.score)
+            
+            # Best/Worst 판별
+            if best_exchange is None or ex.score > best_exchange.score:
+                best_exchange = ex
+            if worst_exchange is None or ex.score < worst_exchange.score:
+                worst_exchange = ex
+            
+            # Rubric 파싱
+            try:
+                feedback_data = json.loads(ex.feedback)
+                rubric = feedback_data.get('rubric', {})
+                for dim_key in dimensions:
+                    if dim_key in rubric:
+                        dimensions[dim_key]['scores'].append(rubric[dim_key].get('score', 0))
+            except (json.JSONDecodeError, TypeError):
+                # 이전 형식(단순 텍스트) 호환
+                pass
+        
+        # 차원별 평균 계산
+        dimension_averages = {}
+        for dim_key, dim_data in dimensions.items():
+            scores = dim_data['scores']
+            avg = round(sum(scores) / len(scores), 1) if scores else 0
+            dimension_averages[dim_key] = {
+                'label': dim_data['label'],
+                'average': avg,
+                'count': len(scores)
+            }
+        
+        overall_avg = round(sum(overall_scores) / len(overall_scores), 1) if overall_scores else 0
+        
+        report = {
+            'interview_id': interview.id,
+            'persona': interview.get_persona_display(),
+            'total_questions': exchanges.count(),
+            'overall_average': overall_avg,
+            'dimensions': dimension_averages,
+            'best_answer': {
+                'question': best_exchange.question[:100] if best_exchange else '',
+                'score': best_exchange.score if best_exchange else 0
+            },
+            'needs_improvement': {
+                'question': worst_exchange.question[:100] if worst_exchange else '',
+                'score': worst_exchange.score if worst_exchange else 0
+            },
+            'disclaimer': '⚠️ 본 평가는 AI가 자동 생성한 참고 자료이며, 전문가 검증을 거치지 않았습니다. STAR 기법 및 업계 통용 면접 평가 프레임워크를 참고하였으나, 실제 채용 면접의 공식 평가로 사용될 수 없습니다.'
+        }
+        
+        return Response({
+            'status': 'completed',
+            'report': report
+        })
 
     def _get_system_prompt(self, persona):
         prompts = {

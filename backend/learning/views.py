@@ -706,6 +706,192 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             
             return fallback_text
 
+    # ──────────────────────────────────────────
+    # [NEW] PDF 내보내기 API
+    # ──────────────────────────────────────────
+    @action(detail=True, methods=['get'], url_path='export-pdf')
+    def export_pdf(self, request, pk=None):
+        """
+        세션의 요약본을 PDF로 변환하여 다운로드
+        - SessionSummary의 Markdown 텍스트를 HTML로 변환 후 PDF 생성
+        """
+        import io
+        import re
+        from django.http import HttpResponse
+
+        session = self.get_object()
+        summaries = SessionSummary.objects.filter(session=session).order_by('created_at')
+        
+        if not summaries.exists():
+            return Response({'error': '요약본이 없습니다. 먼저 요약을 생성해주세요.'}, 
+                          status=status.HTTP_404_NOT_FOUND)
+        
+        # 모든 요약본을 하나로 합침
+        combined_text = ""
+        for idx, summary in enumerate(summaries):
+            if idx > 0:
+                combined_text += "\n\n---\n\n"
+            combined_text += summary.content_text
+        
+        # Markdown → Simple HTML 변환 (외부 라이브러리 없이 기본 변환)
+        def md_to_html(md_text):
+            lines = md_text.split('\n')
+            html_lines = []
+            in_code_block = False
+            
+            for line in lines:
+                # Code Block
+                if line.strip().startswith('```'):
+                    if in_code_block:
+                        html_lines.append('</pre>')
+                        in_code_block = False
+                    else:
+                        html_lines.append('<pre style="background:#f5f5f5;padding:12px;border-radius:6px;font-size:13px;overflow-x:auto;">')
+                        in_code_block = True
+                    continue
+                
+                if in_code_block:
+                    html_lines.append(line)
+                    continue
+                
+                # Headers
+                if line.startswith('# '):
+                    html_lines.append(f'<h1 style="color:#1a1a2e;border-bottom:2px solid #4facfe;padding-bottom:8px;">{line[2:]}</h1>')
+                elif line.startswith('## '):
+                    html_lines.append(f'<h2 style="color:#333;margin-top:24px;">{line[3:]}</h2>')
+                elif line.startswith('### '):
+                    html_lines.append(f'<h3 style="color:#555;">{line[4:]}</h3>')
+                # Blockquote
+                elif line.startswith('> '):
+                    html_lines.append(f'<blockquote style="border-left:3px solid #4facfe;padding-left:12px;color:#666;margin:8px 0;">{line[2:]}</blockquote>')
+                # Horizontal rule
+                elif line.strip() == '---':
+                    html_lines.append('<hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">')
+                # Bullet points
+                elif line.strip().startswith('- '):
+                    content = line.strip()[2:]
+                    # Bold text
+                    content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content)
+                    html_lines.append(f'<div style="padding:3px 0 3px 20px;">• {content}</div>')
+                # Empty line
+                elif line.strip() == '':
+                    html_lines.append('<br>')
+                # Normal paragraph
+                else:
+                    content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', line)
+                    content = re.sub(r'`(.+?)`', r'<code style="background:#e8e8e8;padding:2px 4px;border-radius:3px;font-size:13px;">\1</code>', content)
+                    html_lines.append(f'<p style="margin:4px 0;line-height:1.6;">{content}</p>')
+            
+            return '\n'.join(html_lines)
+        
+        content_html = md_to_html(combined_text)
+        
+        # 세션 정보
+        import pytz
+        kst = pytz.timezone('Asia/Seoul')
+        session_date = session.start_time.astimezone(kst).strftime('%Y년 %m월 %d일') if session.start_time else '날짜 미상'
+        section_title = session.section.title if session.section else '자율 학습'
+        
+        # Full HTML Document
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body {{
+                    font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif;
+                    max-width: 800px; margin: 0 auto; padding: 40px;
+                    color: #333; line-height: 1.7;
+                }}
+                .header {{
+                    text-align: center; margin-bottom: 40px; padding-bottom: 20px;
+                    border-bottom: 2px solid #4facfe;
+                }}
+                .header h1 {{ color: #1a1a2e; margin: 0; font-size: 24px; }}
+                .header p {{ color: #888; margin: 8px 0 0; font-size: 14px; }}
+                .footer {{
+                    margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd;
+                    text-align: center; color: #aaa; font-size: 12px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>📝 Re:Boot 학습 노트</h1>
+                <p>{section_title} | {session_date} | {session.session_order}교시</p>
+            </div>
+            {content_html}
+            <div class="footer">
+                Re:Boot Career Build-up Platform | AI 기반 학습 요약 자동 생성
+            </div>
+        </body>
+        </html>
+        """
+        
+        # HTML을 직접 다운로드 가능한 형태로 반환 (브라우저에서 인쇄→PDF 가능)
+        response = HttpResponse(html_content, content_type='text/html; charset=utf-8')
+        filename = f"ReBootNote_{session.id}_{session_date.replace(' ', '')}.html"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        
+        return response
+
+    # ──────────────────────────────────────────
+    # [NEW] 노트 기능 (사용자 메모 추가)
+    # ──────────────────────────────────────────
+    @action(detail=True, methods=['get', 'post'], url_path='note')
+    def note(self, request, pk=None):
+        """
+        GET: 세션의 사용자 메모를 조회
+        POST: 세션에 사용자 메모를 저장
+        """
+        session = self.get_object()
+
+        if request.method == 'GET':
+            latest_summary = session.summaries.last()
+            note_content = ''
+            if latest_summary:
+                note_marker = "\n\n---\n\n## 📌 나의 메모\n"
+                if note_marker in latest_summary.content_text:
+                    note_content = latest_summary.content_text.split(note_marker)[1]
+            return Response({
+                'has_note': bool(note_content),
+                'note': note_content,
+                'summary_id': latest_summary.id if latest_summary else None
+            })
+
+        # POST
+        note_text = request.data.get('note', '')
+        if not note_text:
+            return Response({'error': '메모 내용이 필요합니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        latest_summary = session.summaries.last()
+
+        if latest_summary:
+            note_marker = "\n\n---\n\n## 📌 나의 메모\n"
+            if note_marker in latest_summary.content_text:
+                base_content = latest_summary.content_text.split(note_marker)[0]
+                latest_summary.content_text = base_content + note_marker + note_text
+            else:
+                latest_summary.content_text += note_marker + note_text
+            latest_summary.save()
+            return Response({
+                'status': 'saved',
+                'summary_id': latest_summary.id,
+                'content': latest_summary.content_text
+            })
+        else:
+            summary = SessionSummary.objects.create(
+                session=session,
+                content_text=f"## 📌 나의 메모\n{note_text}",
+                raw_stt_link="User Note"
+            )
+            return Response({
+                'status': 'created',
+                'summary_id': summary.id,
+                'content': summary.content_text
+            }, status=status.HTTP_201_CREATED)
+
 from .models import Syllabus, LearningObjective, StudentChecklist, Lecture
 from .serializers import SyllabusSerializer
 

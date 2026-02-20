@@ -1,15 +1,21 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db.models import Avg, Count
-from .models import Lecture, QuizAttempt
+from django.db.models import Avg, Count, Q, F
+from django.db.models.functions import TruncDate
+from .models import (
+    Lecture, QuizAttempt, LearningSession, LearningObjective,
+    StudentChecklist, DailyQuiz, QuizQuestion, AttemptDetail
+)
 from .serializers import LectureSerializer
 
 from users.models import User
 
+
 class IsInstructor(permissions.BasePermission):
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role == User.Role.INSTRUCTOR
+
 
 class LectureViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsInstructor]
@@ -31,13 +37,6 @@ class LectureViewSet(viewsets.ModelViewSet):
         
         data = []
         for student in students:
-            # 해당 학생의 퀴즈 성적 집계
-            # (Note: This aggregates ALL quizzes, might want to filter by course section if lecture is linked to one?)
-            # For now, simplistic approach: All quiz attempts by this student.
-            # Ideally, we should filter by quizzes related to the lecture content.
-            # But Lecture -> ?? -> Content is not strictly defined yet.
-            # We will just show all quiz stats for now.
-            
             attempts = QuizAttempt.objects.filter(student=student)
             avg_score = attempts.aggregate(Avg('score'))['score__avg'] or 0
             quiz_count = attempts.count()
@@ -65,14 +64,11 @@ class LectureViewSet(viewsets.ModelViewSet):
         lecture = self.get_object()
         students = lecture.students.all()
         
-        # 1. Total Objectives Count
-        from .models import LearningObjective, StudentChecklist
         total_objectives = LearningObjective.objects.filter(syllabus__lecture=lecture).count()
         
         monitor_data = []
         
         for student in students:
-            # 2. Student Progress
             checked_qs = StudentChecklist.objects.filter(
                 student=student, 
                 objective__syllabus__lecture=lecture, 
@@ -82,14 +78,12 @@ class LectureViewSet(viewsets.ModelViewSet):
             checked_count = checked_qs.count()
             progress = (checked_count / total_objectives * 100) if total_objectives > 0 else 0
             
-            # 3. Determine Status
             status_level = 'good'
             if progress < 30:
                 status_level = 'critical'
             elif progress < 60:
                 status_level = 'warning'
                 
-            # 4. Recent Skills (Top 3)
             recent_skills = [
                 check.objective.content 
                 for check in checked_qs.order_by('-updated_at')[:3]
@@ -106,8 +100,198 @@ class LectureViewSet(viewsets.ModelViewSet):
                 'total_count': total_objectives
             })
             
-        # Sort by status priority (Critical -> Warning -> Good)
         status_priority = {'critical': 0, 'warning': 1, 'good': 2}
         monitor_data.sort(key=lambda x: status_priority.get(x['status'], 3))
             
         return Response(monitor_data)
+
+    # ──────────────────────────────────────────
+    # [NEW] 출석률 현황 API
+    # ──────────────────────────────────────────
+    @action(detail=True, methods=['get'])
+    def attendance(self, request, pk=None):
+        """
+        강의별 학생 출석률 집계
+        
+        Response:
+        {
+            "summary": {
+                "total_students": 25,
+                "total_dates": 10,
+                "overall_rate": 85.2
+            },
+            "dates": ["2026-02-10", "2026-02-11", ...],
+            "students": [
+                {
+                    "id": 1, "name": "홍길동",
+                    "attended_count": 8, "total_dates": 10,
+                    "rate": 80.0,
+                    "daily": {"2026-02-10": true, "2026-02-11": false, ...}
+                }, ...
+            ]
+        }
+        """
+        lecture = self.get_object()
+        students = lecture.students.all()
+        
+        # 이 강의에 속한 모든 세션의 날짜 목록 (중복 제거, 정렬)
+        all_dates = (
+            LearningSession.objects
+            .filter(lecture=lecture)
+            .values_list('session_date', flat=True)
+            .distinct()
+            .order_by('session_date')
+        )
+        date_list = list(all_dates)
+        total_dates = len(date_list)
+        
+        student_data = []
+        total_attendance_sum = 0
+        
+        for student in students:
+            # 이 학생이 출석한 날짜 목록
+            attended_dates = set(
+                LearningSession.objects
+                .filter(lecture=lecture, student=student)
+                .values_list('session_date', flat=True)
+                .distinct()
+            )
+            
+            attended_count = len(attended_dates)
+            rate = (attended_count / total_dates * 100) if total_dates > 0 else 0
+            total_attendance_sum += rate
+            
+            # 날짜별 출석 여부 딕셔너리
+            daily = {}
+            for d in date_list:
+                daily[str(d)] = d in attended_dates
+            
+            student_data.append({
+                'id': student.id,
+                'name': student.username,
+                'email': student.email,
+                'attended_count': attended_count,
+                'total_dates': total_dates,
+                'rate': round(rate, 1),
+                'daily': daily
+            })
+        
+        # 출석률 높은 순 정렬
+        student_data.sort(key=lambda x: x['rate'], reverse=True)
+        
+        overall_rate = (total_attendance_sum / len(students)) if len(students) > 0 else 0
+        
+        return Response({
+            'summary': {
+                'total_students': len(students),
+                'total_dates': total_dates,
+                'overall_rate': round(overall_rate, 1)
+            },
+            'dates': [str(d) for d in date_list],
+            'students': student_data
+        })
+
+    # ──────────────────────────────────────────
+    # [NEW] 퀴즈 데이터 시각화 API
+    # ──────────────────────────────────────────
+    @action(detail=True, methods=['get'])
+    def quiz_analytics(self, request, pk=None):
+        """
+        강의별 퀴즈 통계 분석
+        
+        Response:
+        {
+            "summary": {
+                "total_quizzes": 50,
+                "average_score": 72.5,
+                "pass_rate": 68.0
+            },
+            "score_distribution": {
+                "0-20": 2, "21-40": 5, "41-60": 10, "61-80": 20, "81-100": 13
+            },
+            "students": [
+                {
+                    "id": 1, "name": "홍길동",
+                    "quiz_count": 5, "avg_score": 82.0,
+                    "scores": [80, 75, 90, 85, 80]
+                }, ...
+            ],
+            "question_accuracy": [
+                {"question_text": "...", "accuracy": 75.0, "total_answers": 20}, ...
+            ]
+        }
+        """
+        lecture = self.get_object()
+        students = lecture.students.all()
+        student_ids = list(students.values_list('id', flat=True))
+        
+        # 전체 퀴즈 시도 (해당 강의 수강생들의 것만)
+        all_attempts = QuizAttempt.objects.filter(student_id__in=student_ids)
+        
+        total_quizzes = all_attempts.count()
+        avg_score_val = all_attempts.aggregate(Avg('score'))['score__avg'] or 0
+        
+        # 합격률 (60점 이상을 합격으로 간주)
+        pass_count = all_attempts.filter(score__gte=60).count()
+        pass_rate = (pass_count / total_quizzes * 100) if total_quizzes > 0 else 0
+        
+        # 점수 분포 (5구간)
+        distribution = {
+            '0-20': all_attempts.filter(score__lte=20).count(),
+            '21-40': all_attempts.filter(score__gt=20, score__lte=40).count(),
+            '41-60': all_attempts.filter(score__gt=40, score__lte=60).count(),
+            '61-80': all_attempts.filter(score__gt=60, score__lte=80).count(),
+            '81-100': all_attempts.filter(score__gt=80).count(),
+        }
+        
+        # 학생별 성적 추이
+        student_stats = []
+        for student in students:
+            attempts = all_attempts.filter(student=student).order_by('submitted_at')
+            scores = list(attempts.values_list('score', flat=True))
+            avg = sum(scores) / len(scores) if scores else 0
+            
+            student_stats.append({
+                'id': student.id,
+                'name': student.username,
+                'quiz_count': len(scores),
+                'avg_score': round(avg, 1),
+                'scores': scores
+            })
+        
+        # 평균 점수 높은 순 정렬
+        student_stats.sort(key=lambda x: x['avg_score'], reverse=True)
+        
+        # 문항별 정답률 (최근 퀴즈 기준, 상위 10개 문항)
+        question_accuracy = []
+        recent_details = (
+            AttemptDetail.objects
+            .filter(attempt__student_id__in=student_ids)
+            .values('question_id', 'question__question_text')
+            .annotate(
+                total_answers=Count('id'),
+                correct_answers=Count('id', filter=Q(is_correct=True))
+            )
+            .order_by('-total_answers')[:10]
+        )
+        
+        for detail in recent_details:
+            total = detail['total_answers']
+            correct = detail['correct_answers']
+            accuracy = (correct / total * 100) if total > 0 else 0
+            question_accuracy.append({
+                'question_text': detail['question__question_text'][:80],
+                'accuracy': round(accuracy, 1),
+                'total_answers': total
+            })
+        
+        return Response({
+            'summary': {
+                'total_quizzes': total_quizzes,
+                'average_score': round(avg_score_val, 1),
+                'pass_rate': round(pass_rate, 1)
+            },
+            'score_distribution': distribution,
+            'students': student_stats,
+            'question_accuracy': question_accuracy
+        })
