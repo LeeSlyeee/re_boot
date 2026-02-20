@@ -28,6 +28,7 @@ const liveSessionData = ref(null);
 const liveSessionCode = ref('');
 const livePolling = ref(null);
 const lastSttSeq = ref(0);
+const liveNoteTab = ref('subtitle');
 const myPulse = ref(null); // 'UNDERSTAND' | 'CONFUSED' | null
 const livePulseStats = ref({ understand: 0, confused: 0, total: 0, understand_rate: 0 });
 
@@ -1449,10 +1450,19 @@ const openSessionReview = (id) => {
                 </div>
             </div>
 
-            <!-- 📝 교수자 실시간 자막 -->
-            <div v-if="liveSessionData.status === 'LIVE' || sttLogs.length > 0" class="glass-panel live-subtitle-panel">
-                <h3 class="subtitle-header">📝 실시간 자막 <span class="subtitle-count" v-if="sttLogs.length > 0">({{ sttLogs.length }})</span></h3>
-                <div class="subtitle-scroll" ref="subtitleScroll">
+            <!-- 📝 실시간 자막 + AI 학습노트 통합 패널 -->
+            <div v-if="liveSessionData.status === 'LIVE' || sttLogs.length > 0 || liveNote" class="glass-panel live-note-panel">
+                <div class="live-note-tabs">
+                    <button :class="['ln-tab', { active: liveNoteTab === 'subtitle' }]" @click="liveNoteTab = 'subtitle'">
+                        📝 실시간 자막 <span v-if="sttLogs.length" class="ln-count">{{ sttLogs.length }}</span>
+                    </button>
+                    <button :class="['ln-tab', { active: liveNoteTab === 'note' }]" @click="liveNoteTab = 'note'">
+                        🤖 AI 학습노트
+                    </button>
+                </div>
+
+                <!-- 자막 뷰 -->
+                <div v-show="liveNoteTab === 'subtitle'" class="subtitle-scroll" ref="subtitleScroll">
                     <div v-if="sttLogs.length === 0" class="subtitle-empty">
                         <p>🎙️ 교수자가 강의를 시작하면 여기에 내용이 표시됩니다...</p>
                     </div>
@@ -1460,6 +1470,15 @@ const openSessionReview = (id) => {
                         <span class="subtitle-time">{{ log.timestamp }}</span>
                         <p class="subtitle-text">{{ log.text_chunk }}</p>
                     </div>
+                </div>
+
+                <!-- AI 노트 뷰 -->
+                <div v-show="liveNoteTab === 'note'" class="live-ai-note-view">
+                    <div v-if="!sessionSummary && !liveNote" class="subtitle-empty">
+                        <p>🤖 수업 종료 후 AI가 학습 노트를 자동 생성합니다.</p>
+                    </div>
+                    <div v-else-if="liveNote && liveNote.content" class="note-body" v-html="renderMarkdown(liveNote.content)"></div>
+                    <div v-else-if="sessionSummary" class="note-body" v-html="renderMarkdown(sessionSummary)"></div>
                 </div>
             </div>
 
@@ -1738,8 +1757,8 @@ const openSessionReview = (id) => {
                 </div>
             </section>
 
-            <!-- D. Common Note Area (Vertical for Youtube, Split for others) -->
-            <section class="note-area glass-panel" :class="{'full-width': mode === 'youtube', 'full-height': mode !== 'youtube'}">
+            <!-- D. Common Note Area — 라이브 모드에서는 상단 통합 패널 사용 -->
+            <section v-if="mode !== 'live'" class="note-area glass-panel" :class="{'full-width': mode === 'youtube', 'full-height': mode !== 'youtube'}">
                 <div class="tab-header">
                     <span :class="{active: activeTab==='stt'}" @click="activeTab='stt'">실시간 자막</span>
                     <span :class="{active: activeTab==='summary'}" @click="activeTab='summary'">AI 학습노트</span>
@@ -1949,8 +1968,8 @@ const openSessionReview = (id) => {
 
     </template> <!-- END MAIN CONTENT -->
 
-    <!-- [DEBUG PANEL] -->
-    <div v-if="mode" class="debug-panel">
+    <!-- [DEBUG PANEL] — 라이브 모드에서는 숨김 -->
+    <div v-if="mode && mode !== 'live'" class="debug-panel">
         <div><strong>STT Debugger</strong></div>
         <div>Last Chunk: {{ debugLastChunkSize }} bytes</div>
         <div>Last Status: {{ debugLastStatus }}</div>
@@ -2565,15 +2584,22 @@ const openSessionReview = (id) => {
 .live-badge.ENDED { background: #e5e7eb; color: #6b7280; }
 @keyframes pulse-live { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
 
-/* 실시간 자막 패널 */
-.live-subtitle-panel { padding: 20px; margin-bottom: 20px; }
-.subtitle-header { margin: 0 0 12px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
-.subtitle-count { font-size: 12px; color: var(--accent); }
-.subtitle-scroll { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+/* 실시간 자막 + AI 학습노트 통합 패널 */
+.live-note-panel { padding: 0; margin-bottom: 20px; overflow: hidden; }
+.live-note-tabs { display: flex; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.ln-tab {
+    flex: 1; padding: 12px 16px; border: none; cursor: pointer; font-size: 14px; font-weight: 500;
+    background: transparent; color: #9ca3af; transition: all 0.2s;
+}
+.ln-tab.active { color: var(--accent, #3b82f6); border-bottom: 2px solid var(--accent, #3b82f6); background: rgba(59,130,246,0.05); }
+.ln-tab:hover:not(.active) { background: rgba(255,255,255,0.03); }
+.ln-count { font-size: 11px; background: var(--accent, #3b82f6); color: white; border-radius: 10px; padding: 1px 6px; margin-left: 4px; }
+.subtitle-scroll { max-height: 300px; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 .subtitle-empty p { color: #9ca3af; font-size: 14px; text-align: center; padding: 40px 0; }
 .subtitle-bubble { display: flex; gap: 10px; align-items: flex-start; padding: 8px 12px; border-radius: 10px; background: rgba(59,130,246,0.06); }
 .subtitle-time { font-size: 11px; color: #6b7280; white-space: nowrap; padding-top: 2px; min-width: 55px; }
 .subtitle-text { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-primary); }
+.live-ai-note-view { padding: 16px; max-height: 300px; overflow-y: auto; }
 
 .session-code-small { color: #888; font-size: 13px; margin: 0; }
 .session-ended-notice {
