@@ -155,8 +155,8 @@ const fetchAttendance = async () => {
 // ── Quiz Analytics Data ──
 const quizData = ref(null);
 const quizLoading = ref(false);
-const quizDistributionChart = ref({ labels: [], datasets: [] });
-const quizStudentChart = ref({ labels: [], datasets: [] });
+const quizDistributionChart = ref(null);
+const quizStudentChart = ref(null);
 
 const fetchQuizAnalytics = async () => {
     if (quizData.value) return;
@@ -429,7 +429,7 @@ const groupMsgContent = ref('');
 
 // Analytics computed charts
 const levelChartData = computed(() => {
-    if (!analyticsOverview.value?.level_distribution) return { labels: [], datasets: [] };
+    if (!analyticsOverview.value?.level_distribution) return null;
     const dist = analyticsOverview.value.level_distribution;
     return {
         labels: ['Beginner', 'Intermediate', 'Advanced'],
@@ -441,7 +441,7 @@ const levelChartData = computed(() => {
 });
 
 const sessionComparisonChart = computed(() => {
-    if (!weakInsights.value?.session_comparison) return { labels: [], datasets: [] };
+    if (!weakInsights.value?.session_comparison?.length) return null;
     const sc = weakInsights.value.session_comparison;
     return {
         labels: sc.map(s => s.session_title),
@@ -1186,12 +1186,12 @@ onMounted(fetchDashboard);
                     <!-- 학생별 평균 점수 -->
                     <div class="chart-container flex-2">
                         <h3 class="chart-title">학생별 평균 점수</h3>
-                        <Bar :data="quizStudentChart" :options="quizBarOptions" />
+                        <Bar v-if="quizStudentChart" :data="quizStudentChart" :options="quizBarOptions" />
                     </div>
                     <!-- 점수 분포 -->
                     <div class="chart-container flex-1">
                         <h3 class="chart-title">점수 분포</h3>
-                        <Doughnut :data="quizDistributionChart" :options="doughnutOptions" />
+                        <Doughnut v-if="quizDistributionChart" :data="quizDistributionChart" :options="doughnutOptions" />
                     </div>
                 </div>
 
@@ -1816,7 +1816,7 @@ onMounted(fetchDashboard);
                     </div>
 
                     <!-- 레벨 분포 -->
-                    <div class="an-chart-row" v-if="analyticsOverview.level_distribution">
+                    <div class="an-chart-row" v-if="levelChartData">
                         <div class="an-chart-box">
                             <h3>레벨 분포</h3>
                             <Doughnut :data="levelChartData" :options="{ responsive: true, maintainAspectRatio: false }" style="max-height: 200px;" />
@@ -1867,7 +1867,7 @@ onMounted(fetchDashboard);
                     </table>
 
                     <!-- 차시별 비교 -->
-                    <div v-if="weakInsights.session_comparison && weakInsights.session_comparison.length > 1" class="an-chart-box" style="margin-top: 20px;">
+                    <div v-if="sessionComparisonChart" class="an-chart-box" style="margin-top: 20px;">
                         <h3>차시별 비교 추이</h3>
                         <Bar :data="sessionComparisonChart" :options="{ responsive: true, maintainAspectRatio: false }" style="max-height: 250px;" />
                     </div>
