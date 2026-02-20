@@ -1692,8 +1692,8 @@ onMounted(fetchDashboard);
                         <button v-if="materials.length > 0" class="btn-link-materials" @click="linkMaterials">📎 교안 연결 저장</button>
                     </div>
 
-                    <!-- 승인 컨트롤 -->
-                    <div class="approve-section" v-if="insightData && !insightData.is_approved">
+                    <!-- 승인 컨트롤 (인사이트 내용이 생성된 후에만 표시) -->
+                    <div class="approve-section" v-if="insightData && insightData.instructor_insight && !insightData.is_approved">
                         <p class="approve-notice">⚠️ 아직 학생에게 노트가 공개되지 않았습니다. 검토 후 승인해주세요.</p>
                         <div class="approve-options">
                             <label class="approve-check">
