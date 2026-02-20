@@ -1559,7 +1559,7 @@ onMounted(fetchDashboard);
             </div>
 
                 <!-- 실시간 Q&A 피드 (LIVE일 때만) -->
-                <div v-if="liveSession.status === 'LIVE'" class="qa-feed-section">
+                <div v-if="liveSession && liveSession.status === 'LIVE'" class="qa-feed-section">
                     <h3>💬 실시간 질문 ({{ liveQuestions.length }}건)</h3>
                     <div v-if="liveQuestions.length === 0" class="qa-empty">
                         학생들이 챗봇에 질문하면 여기에 익명으로 표시됩니다.
@@ -1640,7 +1640,7 @@ onMounted(fetchDashboard);
             </div>
 
             <!-- 세션 종료 후: 인사이트 리포트 -->
-            <div v-if="liveSession.status === 'ENDED'" class="insight-section">
+            <div v-if="liveSession && liveSession.status === 'ENDED'" class="insight-section">
                 <h2 class="section-title">📊 인사이트 리포트</h2>
                 <div v-if="!insightData" class="insight-loading">
                     <div class="insight-spinner"></div>
