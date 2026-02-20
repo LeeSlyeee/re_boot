@@ -1437,10 +1437,11 @@ const openSessionReview = (id) => {
 }
 @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
 
-/* Mode Overlay */
+/* Mode Overlay — 네비바(48px) 아래부터 시작하여 헤더 클릭 가능 유지 */
 .mode-overlay {
-    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0,0,0,0.85); z-index: 3000;
+    position: fixed; top: var(--header-height, 48px); left: 0;
+    width: 100vw; height: calc(100vh - var(--header-height, 48px));
+    background: rgba(0,0,0,0.85); z-index: 900;
     display: flex; align-items: center; justify-content: center;
 }
 .mode-card { width: 620px; padding: 40px; text-align: center; }
