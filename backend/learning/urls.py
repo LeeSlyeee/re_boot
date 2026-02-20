@@ -18,6 +18,7 @@ from .analytics_views import (
     AISuggestionsView, SuggestionActionView, SendGroupMessageView,
     QualityReportView, ApplyRedistributionView, MyMessagesView,
 )
+from .skillblock_views import SyncSkillBlocksView, MySkillBlocksView, MockInterviewDataView
 
 router = DefaultRouter()
 router.register(r'sessions', LearningSessionViewSet, basename='session')
@@ -73,5 +74,9 @@ urlpatterns = [
     path('professor/<int:lecture_id>/send-group-message/', SendGroupMessageView.as_view(), name='send-group-message'),
     path('professor/<int:lecture_id>/apply-redistribution/', ApplyRedistributionView.as_view(), name='apply-redistribution'),
     path('messages/my/', MyMessagesView.as_view(), name='my-messages'),
+    # 스킬블록 시스템
+    path('skill-blocks/sync/<int:lecture_id>/', SyncSkillBlocksView.as_view(), name='sync-skill-blocks'),
+    path('skill-blocks/my/', MySkillBlocksView.as_view(), name='my-skill-blocks'),
+    path('skill-blocks/interview-data/', MockInterviewDataView.as_view(), name='interview-data'),
     path('', include(router.urls)),
 ]

@@ -142,6 +142,9 @@ onMounted(async () => {
     fetchSRDue();
     // 6. Phase 3: 교수자 메시지 로드
     fetchMyMessages();
+    // 7. 스킬블록 로드
+    fetchSkillBlocks();
+    fetchInterviewData();
 });
 
 // --- Phase 2-3: Spaced Repetition ---
@@ -198,6 +201,32 @@ const markRead = async (msgId) => {
         const msg = myMessages.value.find(m => m.id === msgId);
         if (msg) msg.is_read = true;
         unreadCount.value = myMessages.value.filter(m => !m.is_read).length;
+    } catch (e) { /* silent */ }
+};
+
+// --- 스킬블록 ---
+const skillBlocks = ref(null);
+const interviewData = ref(null);
+
+const fetchSkillBlocks = async () => {
+    try {
+        const { data } = await api.get('/learning/skill-blocks/my/');
+        skillBlocks.value = data;
+    } catch (e) { /* silent */ }
+};
+
+const fetchInterviewData = async () => {
+    try {
+        const { data } = await api.get('/learning/skill-blocks/interview-data/');
+        interviewData.value = data;
+    } catch (e) { /* silent */ }
+};
+
+const syncSkillBlocks = async (lectureId) => {
+    try {
+        await api.post(`/learning/skill-blocks/sync/${lectureId}/`);
+        await fetchSkillBlocks();
+        await fetchInterviewData();
     } catch (e) { /* silent */ }
 };
 
@@ -329,6 +358,49 @@ const continueLearning = () => {
                 </section>
 
                 <!-- Phase 2-3: 간격 반복 알림 -->
+                <!-- Phase 3: 교수자 메시지 -->
+                <!-- 스킬블록 -->
+                <section v-if="skillBlocks || interviewData" class="skillblock-section glass-panel mt-section">
+                    <div class="sr-header">
+                        <h2>🏆 스킬블록</h2>
+                    </div>
+
+                    <!-- 인터뷰 멘트 -->
+                    <div v-if="interviewData" class="sb-interview-card">
+                        <div class="sb-level-badge">
+                            <span class="sb-level-emoji">{{ interviewData.emoji }}</span>
+                            <span class="sb-level-name">{{ interviewData.level_name }}</span>
+                        </div>
+                        <p class="sb-hint">{{ interviewData.interview_hint }}</p>
+                        <div class="sb-counts">
+                            <span class="sb-earned">✅ {{ interviewData.earned_count }}개 획득</span>
+                            <span class="sb-remaining">🔲 {{ interviewData.remaining_count }}개 남음</span>
+                        </div>
+                    </div>
+
+                    <!-- 블록 그리드 -->
+                    <div v-if="skillBlocks && skillBlocks.categories" class="sb-categories">
+                        <div v-for="(cat, catName) in skillBlocks.categories" :key="catName" class="sb-category">
+                            <h4 class="sb-cat-title">{{ catName }}</h4>
+                            <div class="sb-blocks-row">
+                                <div v-for="b in [...cat.earned, ...cat.remaining]" :key="b.id"
+                                    class="sb-block" :class="{ 'sb-earned': b.is_earned, 'sb-remaining': !b.is_earned }">
+                                    <span class="sb-emoji">{{ b.emoji }}</span>
+                                    <span class="sb-name">{{ b.skill_name }}</span>
+                                    <span class="sb-score">{{ b.total_score }}점</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 갭 맵 비교 -->
+                    <div v-if="skillBlocks && skillBlocks.gap_map" class="sb-gap-compare">
+                        <div class="sb-gap-item"><span class="sb-gap-label">보유 ✅</span><span class="sb-gap-val">{{ skillBlocks.gap_map.owned }}</span></div>
+                        <div class="sb-gap-item"><span class="sb-gap-label">학습중 🔄</span><span class="sb-gap-val">{{ skillBlocks.gap_map.learning }}</span></div>
+                        <div class="sb-gap-item"><span class="sb-gap-label">미보유 🔲</span><span class="sb-gap-val">{{ skillBlocks.gap_map.gap }}</span></div>
+                    </div>
+                </section>
+
                 <!-- Phase 3: 교수자 메시지 -->
                 <section v-if="myMessages.length > 0" class="msg-section glass-panel mt-section">
                     <div class="sr-header">
@@ -864,4 +936,31 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
 .msg-from { font-size: 11px; color: #94a3b8; }
 .msg-title { margin: 4px 0; font-size: 14px; color: #e2e8f0; }
 .msg-content { margin: 0; font-size: 12px; color: #94a3b8; line-height: 1.5; }
+
+/* 스킬블록 */
+.skillblock-section { margin-bottom: 16px; }
+.sb-interview-card { background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(168,85,247,0.1)); border: 1px solid rgba(99,102,241,0.2); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.sb-level-badge { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sb-level-emoji { font-size: 32px; }
+.sb-level-name { font-size: 18px; font-weight: 700; color: #c4b5fd; }
+.sb-hint { color: #e2e8f0; font-size: 13px; line-height: 1.6; margin: 8px 0; }
+.sb-counts { display: flex; gap: 16px; }
+.sb-earned { color: #22c55e; font-size: 13px; font-weight: 600; }
+.sb-remaining { color: #94a3b8; font-size: 13px; }
+
+.sb-categories { margin-bottom: 16px; }
+.sb-category { margin-bottom: 12px; }
+.sb-cat-title { color: #a78bfa; font-size: 13px; margin: 0 0 6px 0; }
+.sb-blocks-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.sb-block { display: flex; flex-direction: column; align-items: center; padding: 8px; border-radius: 10px; min-width: 70px; text-align: center; transition: all 0.2s; }
+.sb-block.sb-earned { background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(251,191,36,0.1)); border: 1px solid rgba(234,179,8,0.3); }
+.sb-block.sb-remaining { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); opacity: 0.6; }
+.sb-emoji { font-size: 20px; }
+.sb-name { font-size: 10px; color: #e2e8f0; margin-top: 2px; }
+.sb-score { font-size: 9px; color: #a78bfa; }
+
+.sb-gap-compare { display: flex; gap: 12px; justify-content: center; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; }
+.sb-gap-item { text-align: center; }
+.sb-gap-label { display: block; font-size: 11px; color: #94a3b8; }
+.sb-gap-val { display: block; font-size: 20px; font-weight: 700; color: #e2e8f0; }
 </style>

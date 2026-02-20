@@ -792,3 +792,41 @@ class StudentSkill(models.Model):
 
     def __str__(self):
         return f"{self.student.username} | {self.skill.name} → {self.status} ({self.progress}%)"
+
+
+# ══════════════════════════════════════════════════════════
+# 스킬블록 시스템 (Phase 3 이후)
+# ══════════════════════════════════════════════════════════
+
+class SkillBlock(models.Model):
+    """
+    스킬블록 — 학습자가 획득한 시각적 역량 자산
+    체크포인트 통과 + 이해도 + 형성평가 기반 자동 생성
+    """
+    LEVEL_EMOJIS = {1: '🌱', 2: '🌿', 3: '🌸'}
+
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='skill_blocks')
+    skill = models.ForeignKey(Skill, on_delete=models.CASCADE, related_name='blocks')
+    lecture = models.ForeignKey(Lecture, on_delete=models.CASCADE, related_name='skill_blocks')
+
+    level = models.IntegerField(default=1, help_text="획득 시점 레벨 (1=Beginner/씨앗, 2=Intermediate/새싹, 3=Advanced/꽃)")
+    checkpoint_score = models.FloatField(default=0, help_text="체크포인트 통과율 (0~100)")
+    formative_score = models.FloatField(default=0, help_text="형성평가 점수 (0~100)")
+    understand_score = models.FloatField(default=0, help_text="펄스 이해도 비율 (0~100)")
+    total_score = models.FloatField(default=0, help_text="종합 점수 (가중 평균)")
+
+    is_earned = models.BooleanField(default=False, help_text="블록 획득 여부")
+    earned_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['student', 'skill', 'lecture']
+        ordering = ['skill__category', 'skill__order']
+
+    @property
+    def emoji(self):
+        return self.LEVEL_EMOJIS.get(self.level, '🌱')
+
+    def __str__(self):
+        earned = '✅' if self.is_earned else '🔲'
+        return f"{earned} {self.emoji} {self.skill.name} ({self.total_score:.0f}점)"

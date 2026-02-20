@@ -6,7 +6,7 @@ from .models import (
     LiveQuiz, LiveQuizResponse, LiveQuestion, LiveSessionNote,
     WeakZoneAlert, AdaptiveContent, ReviewRoute, SpacedRepetitionItem,
     FormativeAssessment, FormativeResponse,
-    NoteViewLog, GroupMessage,
+    NoteViewLog, GroupMessage, SkillBlock,
     Skill, CareerGoal, PlacementQuestion, PlacementResult,
     StudentGoal, StudentSkill
 )
@@ -171,3 +171,8 @@ class NoteViewLogAdmin(admin.ModelAdmin):
 class GroupMessageAdmin(admin.ModelAdmin):
     list_display = ('id', 'lecture', 'sender', 'title', 'message_type', 'target_level', 'created_at')
     list_filter = ('message_type', 'target_level')
+
+@admin.register(SkillBlock)
+class SkillBlockAdmin(admin.ModelAdmin):
+    list_display = ('id', 'student', 'skill', 'lecture', 'level', 'total_score', 'is_earned', 'earned_at')
+    list_filter = ('is_earned', 'level')
