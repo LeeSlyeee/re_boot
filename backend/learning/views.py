@@ -8,11 +8,21 @@ from .models import LearningSession, STTLog, SessionSummary
 from .serializers import LearningSessionSerializer, STTLogSerializer, SessionSummarySerializer, PublicLectureSerializer
 import openai
 import os
+import logging
+from logging.handlers import RotatingFileHandler
 from django.conf import settings
 from rest_framework import generics
 
 # OpenAI API Key Setup
 openai.api_key = settings.OPENAI_API_KEY
+
+# STT 디버그 로거 설정 (RotatingFileHandler: 5MB 제한, 최대 3파일)
+stt_logger = logging.getLogger('stt_debug')
+if not stt_logger.handlers:
+    handler = RotatingFileHandler('debug_stt.log', maxBytes=5*1024*1024, backupCount=3, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s'))
+    stt_logger.addHandler(handler)
+    stt_logger.setLevel(logging.DEBUG)
 
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
@@ -40,6 +50,12 @@ class EnrollLectureView(APIView):
             return Response({'error': 'Access code is required'}, status=status.HTTP_400_BAD_REQUEST)
         
         lecture = get_object_or_404(Lecture, access_code=access_code)
+        
+        # [BUGFIX] 실제 수강 등록 수행 (이전에 누락되어 있었음)
+        if lecture.students.filter(id=request.user.id).exists():
+            return Response({'message': '이미 등록된 강의입니다.', 'lecture_id': lecture.id, 'title': lecture.title}, status=status.HTTP_200_OK)
+        
+        lecture.students.add(request.user)
         
         return Response({'message': 'Enrolled successfully', 'lecture_id': lecture.id, 'title': lecture.title}, status=status.HTTP_200_OK)
 
@@ -115,8 +131,7 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
             # [DEBUG LOGGING]
-            with open("debug_stt.log", "a") as f:
-                f.write(f"[{sequence_order}] Size: {audio_file.size}, Type: {audio_file.content_type}\n")
+            stt_logger.debug(f"[{sequence_order}] Size: {audio_file.size}, Type: {audio_file.content_type}")
 
             # [CONTEXT IMPROVEMENT] Use last 3 logs as prompt to guide Whisper
             # This significantly reduces "silence hallucinations" by providing context.
@@ -148,9 +163,7 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             
             stt_text = transcript.text
 
-            with open("debug_stt.log", "a") as f:
-                f.write(f"[{sequence_order}] RAW GPT-4o-TRANSCRIBE: {stt_text}\n")
-            
+            stt_logger.debug(f"[{sequence_order}] RAW GPT-4o-TRANSCRIBE: {stt_text}")
             print(f"📝 GPT-4o-Transcribe Output: [{stt_text}]")
             
             # [CRITICAL FIX] Hallucination & Valid Content Filter
@@ -235,8 +248,7 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                         break
 
             if is_hallucination:
-                with open("debug_stt.log", "a") as f:
-                    f.write(f"⚠️ Filtered: '{cleaned_text}' | Reason: {skip_reason}\n")
+                stt_logger.debug(f"⚠️ Filtered: '{cleaned_text}' | Reason: {skip_reason}")
                 print(f"⚠️ Filtered: '{cleaned_text}' | Reason: {skip_reason}")
                 return Response({'status': 'silence_skipped', 'text': '', 'reason': skip_reason}, status=status.HTTP_200_OK)
 
@@ -254,8 +266,7 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            with open("debug_stt.log", "a") as f:
-                f.write(f"ERROR: {str(e)}\n")
+            stt_logger.error(f"CRITICAL STT Error: {str(e)}")
             print(f"❌ CRITICAL STT Error: {e}")
             import traceback
             traceback.print_exc()
@@ -263,8 +274,10 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='debug-openai')
     def debug_openai(self, request):
+        # [SECURITY] DEBUG=True에서만 동작
+        if not settings.DEBUG:
+            return Response({"error": "Debug endpoint is disabled in production"}, status=status.HTTP_403_FORBIDDEN)
         from openai import OpenAI
-        from django.conf import settings
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
         try:
             response = client.chat.completions.create(
@@ -500,6 +513,9 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='debug-sessions')
     def debug_sessions(self, request):
+        # [SECURITY] DEBUG=True에서만 동작
+        if not settings.DEBUG:
+            return Response({"error": "Debug endpoint is disabled in production"}, status=status.HTTP_403_FORBIDDEN)
         from django.contrib.auth import get_user_model
         User = get_user_model()
         user_count = User.objects.count()
@@ -527,11 +543,12 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                 "title": s.section.title if s.section else "No Section"
             })
         return Response({'info': info, 'sessions': data}, status=status.HTTP_200_OK)
-
-
         
     @action(detail=False, methods=['get'], url_path='debug-lectures')
     def debug_lectures(self, request):
+        # [SECURITY] DEBUG=True에서만 동작
+        if not settings.DEBUG:
+            return Response({"error": "Debug endpoint is disabled in production"}, status=status.HTTP_403_FORBIDDEN)
         lectures = Lecture.objects.all()
         data = [{"id": l.id, "title": l.title} for l in lectures]
         return Response(data, status=status.HTTP_200_OK)

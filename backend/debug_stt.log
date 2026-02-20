@@ -771,3 +771,381 @@
 ⚠️ Filtered by NoSpeechProb: 0.5766128301620483
 [39] PROBS: NoSpeech=0.5907, LogProb=-3.1014
 ⚠️ Filtered by NoSpeechProb: 0.5907264351844788
+[1] Size: 7422, Type: audio/webm
+[1] RAW GPT-4o-TRANSCRIBE: 이것은 한국어 IT 부트캠프 강의 자막입니다.
+[2] Size: 81440, Type: audio/webm
+[2] RAW GPT-4o-TRANSCRIBE: 이것은 한국어 IT 부트캠프 강의 자막입니다.
+⚠️ Filtered: '이것은 한국어 IT 부트캠프 강의 자막입니다.' | Reason: Prompt Echo Loop
+[3] Size: 81440, Type: audio/webm
+[3] RAW GPT-4o-TRANSCRIBE: 이것은 한국어 IT 부트캠프 강의 자막입니다.
+⚠️ Filtered: '이것은 한국어 IT 부트캠프 강의 자막입니다.' | Reason: Prompt Echo Loop
+[4] Size: 81440, Type: audio/webm
+[4] RAW GPT-4o-TRANSCRIBE: 이것은 한국어 IT 부트캠프 강의 자막입니다.
+⚠️ Filtered: '이것은 한국어 IT 부트캠프 강의 자막입니다.' | Reason: Prompt Echo Loop
+[5] Size: 81440, Type: audio/webm
+[5] RAW GPT-4o-TRANSCRIBE: 이것은 한국어 IT 부트캠프 강의 자막입니다.
+⚠️ Filtered: '이것은 한국어 IT 부트캠프 강의 자막입니다.' | Reason: Prompt Echo Loop
+[6] Size: 81440, Type: audio/webm
+[6] RAW GPT-4o-TRANSCRIBE: 자 14강
+[7] Size: 81440, Type: audio/webm
+[7] RAW GPT-4o-TRANSCRIBE: 핸드폰 이제 집어넣고
+[8] Size: 81440, Type: audio/webm
+[8] RAW GPT-4o-TRANSCRIBE: 14강 레디 투룩
+[9] Size: 81440, Type: audio/webm
+[9] RAW GPT-4o-TRANSCRIBE: 이게 무슨 내용인지 잠깐 살펴보겠습니다.
+[10] Size: 81440, Type: audio/webm
+[10] RAW GPT-4o-TRANSCRIBE: 이 질문은 바로 볼 거 없어.
+[11] Size: 81440, Type: audio/webm
+[11] RAW GPT-4o-TRANSCRIBE: 보통 계약이라면요. 교사랑 지금 학생 이야기인데요.
+[12] Size: 81440, Type: audio/webm
+[12] RAW GPT-4o-TRANSCRIBE: 교실 좌석표로 만든 거야.
+[13] Size: 81440, Type: audio/webm
+[13] RAW GPT-4o-TRANSCRIBE: 경찰들 다 간 거죠. 근데 이제
+[14] Size: 81440, Type: audio/webm
+[14] RAW GPT-4o-TRANSCRIBE: 학생 이름 얘기를 한 거죠.
+[15] Size: 81440, Type: audio/webm
+[15] RAW GPT-4o-TRANSCRIBE: 근데 교사 입장으로는
+[16] Size: 81440, Type: audio/webm
+[16] RAW GPT-4o-TRANSCRIBE: 이름은 내가 알고 있으니까 굳이 다필요 없었던 거죠. 근데
+[17] Size: 81440, Type: audio/webm
+[17] RAW GPT-4o-TRANSCRIBE: 애들 입장에서 중요한 건 선생님 이름이잖아.
+[18] Size: 81440, Type: audio/webm
+[18] RAW GPT-4o-TRANSCRIBE: 관점이 다르니까 상황도 다르게 인식한다는 거죠.
+[19] Size: 81440, Type: audio/webm
+[19] RAW GPT-4o-TRANSCRIBE: 그건 알고 있었던 건데 애들 입장에서는 그게 당연한 거다.
+[20] Size: 81440, Type: audio/webm
+[20] RAW GPT-4o-TRANSCRIBE: 관점의 차이라는 거죠?
+[21] Size: 81440, Type: audio/webm
+[21] RAW GPT-4o-TRANSCRIBE: 1번부터 보겠습니다.
+[22] Size: 81440, Type: audio/webm
+[22] RAW GPT-4o-TRANSCRIBE: 원옵더 퍼스트 띵스 아 디드 인 이치 클라스룸 이즈 셀프 투 뷰보 킨.
+[23] Size: 81440, Type: audio/webm
+[23] RAW GPT-4o-TRANSCRIBE: 밀워키라는 지방, 남부 밀워키 지방의 내가 각 교실마다
+[24] Size: 81440, Type: audio/webm
+[24] RAW GPT-4o-TRANSCRIBE: 했던 가장 첫 번째 일 중에 하나가 뭐였냐면요.
+[25] Size: 81440, Type: audio/webm
+[25] RAW GPT-4o-TRANSCRIBE: 각 교실마다 했던 가장 첫 번째 일 중에 하나가 뭐였냐면요.
+⚠️ Filtered: '각 교실마다 했던 가장 첫 번째 일 중에 하나가 뭐였냐면요.' | Reason: Prompt Echo Loop
+[26] Size: 81440, Type: audio/webm
+[26] RAW GPT-4o-TRANSCRIBE: 학생의 책상에다가
+[27] Size: 81440, Type: audio/webm
+[27] RAW GPT-4o-TRANSCRIBE: 초를 그리는 거, 그게 첫 번째 한 것 중에 하나였대요.
+[28] Size: 81440, Type: audio/webm
+[28] RAW GPT-4o-TRANSCRIBE: 그리고 그 다이어그램은 라벨드 데이터
+[29] Size: 81440, Type: audio/webm
+[29] RAW GPT-4o-TRANSCRIBE: 이름 명찰이 달려져 있었어요.
+[30] Size: 81440, Type: audio/webm
+[30] RAW GPT-4o-TRANSCRIBE: 근데 뭐로써?
+[31] Size: 81439, Type: audio/webm
+[31] RAW GPT-4o-TRANSCRIBE: 도움이죠 에이탐은 근데 무슨 도움?
+[32] Size: 81440, Type: audio/webm
+[32] RAW GPT-4o-TRANSCRIBE: 도움을 주는 거죠.
+[33] Size: 81440, Type: audio/webm
+[33] RAW GPT-4o-TRANSCRIBE: 학생 이름을
+[34] Size: 81440, Type: audio/webm
+[34] RAW GPT-4o-TRANSCRIBE: 알아차리기 위한 어떤 도움 보조도구로써
+[35] Size: 81440, Type: audio/webm
+[35] RAW GPT-4o-TRANSCRIBE: 보조도구로써 학생 이름 명찰표가 달린 다이어그램.
+[36] Size: 81440, Type: audio/webm
+[36] RAW GPT-4o-TRANSCRIBE: 표를 한 마디로 명찰표죠? 그 명찰표 좌석표를 그렸다.
+[37] Size: 81440, Type: audio/webm
+[37] RAW GPT-4o-TRANSCRIBE: 그게 첫 번째.
+[38] Size: 81440, Type: audio/webm
+[38] RAW GPT-4o-TRANSCRIBE: 2번. 점진적으로
+[39] Size: 81440, Type: audio/webm
+[39] RAW GPT-4o-TRANSCRIBE: 2시간에 1학년 교실에서요. 첫날
+[40] Size: 81440, Type: audio/webm
+[40] RAW GPT-4o-TRANSCRIBE: 왜냐하면요, 여기서 아이는 계속 교사예요.
+[41] Size: 81440, Type: audio/webm
+[41] RAW GPT-4o-TRANSCRIBE: 의사가 나타난 거야.
+[42] Size: 81440, Type: audio/webm
+[42] RAW GPT-4o-TRANSCRIBE: 그때 선생님이 온 거죠.
+[43] Size: 81440, Type: audio/webm
+[43] RAW GPT-4o-TRANSCRIBE: 한 무리의 학생들이 이제 온 거야.
+[44] Size: 81440, Type: audio/webm
+[44] RAW GPT-4o-TRANSCRIBE: 1번 동사, 케이 2번 동사, 쏘고.
+[45] Size: 81440, Type: audio/webm
+[45] RAW GPT-4o-TRANSCRIBE: 와가지고 그 명찰표를 봤겠죠?
+[46] Size: 81440, Type: audio/webm
+[46] RAW GPT-4o-TRANSCRIBE: 여기 의자, 책상에 달린 명찰표를 봤겠죠?
+[47] Size: 81440, Type: audio/webm
+[47] RAW GPT-4o-TRANSCRIBE: 그러고 나서 이게 find, 찾기 시작했대요.
+[48] Size: 81440, Type: audio/webm
+[48] RAW GPT-4o-TRANSCRIBE: 흔들흔들려? My picture.
+[49] Size: 81440, Type: audio/webm
+[49] RAW GPT-4o-TRANSCRIBE: 자기 선생님 책상에도 그 픽처가 있을 거 아니야?
+[50] Size: 81440, Type: audio/webm
+[50] RAW GPT-4o-TRANSCRIBE: 여기 자리에도 있겠지?
+[51] Size: 81440, Type: audio/webm
+[51] RAW GPT-4o-TRANSCRIBE: 그래서 누군가가 이제 말한 거야. Where's your name? 선생님, 선생님 이름은 어디 있어요?
+[52] Size: 81440, Type: audio/webm
+[52] RAW GPT-4o-TRANSCRIBE: 음, 우리 선생님 이름 쓰게 말하면서 이렇게 말하고 나서
+[53] Size: 81440, Type: audio/webm
+[53] RAW GPT-4o-TRANSCRIBE: 만족스러워하지 못했대요.
+[54] Size: 81440, Type: audio/webm
+[54] RAW GPT-4o-TRANSCRIBE: 아, 내가 포함시킬까 저거 스티치를 말해.
+[55] Size: 81440, Type: audio/webm
+[55] RAW GPT-4o-TRANSCRIBE: 의자 스케치를 포함할 때까지요.
+[56] Size: 81440, Type: audio/webm
+[56] RAW GPT-4o-TRANSCRIBE: 어, 오케이 있으면 이제 서재 좀.
+[57] Size: 81440, Type: audio/webm
+[57] RAW GPT-4o-TRANSCRIBE: 책 서재, 책 선반 옆에 있는 의자 스케치까지 내가 포함할게
+[58] Size: 37004, Type: audio/webm
+[58] RAW GPT-4o-TRANSCRIBE: 그때까지 그때 전까지는요
+[1] Size: 6790, Type: audio/webm
+[1] RAW GPT-4o-TRANSCRIBE: 이것은 한국어 IT 부트캠프 강의 자막입니다.
+[2] Size: 81440, Type: audio/webm
+[2] RAW GPT-4o-TRANSCRIBE: 네, 여러분 안녕하세요. M365 AI 효율성 높이기 이번 세션을 맡은
+[3] Size: 81440, Type: audio/webm
+[3] RAW GPT-4o-TRANSCRIBE: 이동훈입니다. 이번 세션에서는요. MSP에 대해서
+[4] Size: 81440, Type: audio/webm
+[4] RAW GPT-4o-TRANSCRIBE: 여러분들과 자세하게 알아보는 시간을 가져볼 거고, 이 MCP를 직접 활용해서
+[5] Size: 81440, Type: audio/webm
+[5] RAW GPT-4o-TRANSCRIBE: 다양한 도구들과 연결한 후에 자연으로 쉽게 여러분들이 도구를
+[6] Size: 81440, Type: audio/webm
+[6] RAW GPT-4o-TRANSCRIBE: 관리해 볼 수 있는 시간 가져보도록 하겠습니다. 그러면은 바로 시작을 해보도록 하겠습니다
+[7] Size: 81440, Type: audio/webm
+[7] RAW GPT-4o-TRANSCRIBE: 첫 번째는 MCP의 탄생과 이해입니다.
+[8] Size: 81440, Type: audio/webm
+[8] RAW GPT-4o-TRANSCRIBE: 여러분들에게 만들어줬고 그리고 MCP가 어떤 구조로 작동을 하고 있는지에 대해서 알아보는 시간
+[9] Size: 50528, Type: audio/webm
+[9] RAW GPT-4o-TRANSCRIBE: 가져보도록 하겠습니다.
+⚠️ Filtered: '가져보도록 하겠습니다.' | Reason: Prompt Echo Loop
+[10] Size: 81440, Type: audio/webm
+[10] RAW GPT-4o-TRANSCRIBE: 여러분들은 어떤 AI 툴을 활용을 하십니까
+[11] Size: 81440, Type: audio/webm
+[11] RAW GPT-4o-TRANSCRIBE: 계신가요 아무래도 가장 많이 유명한 것들 중 하나가
+[12] Size: 81440, Type: audio/webm
+[12] RAW GPT-4o-TRANSCRIBE: 있을 거고 클로드도 있을 거고 퍼플렉스티도 있을 거고 최근에 있는 재미있는
+[13] Size: 81440, Type: audio/webm
+[13] RAW GPT-4o-TRANSCRIBE: 핫하죠 재민아이가 같이 이런 다양한 툴들을 기존에 많이 사용을하시고
+[14] Size: 81440, Type: audio/webm
+[14] RAW GPT-4o-TRANSCRIBE: 계실 거라고 생각을 합니다. 그러면 여러분들은 어떻게 AI 툴들을 활용을
+[15] Size: 81440, Type: audio/webm
+[15] RAW GPT-4o-TRANSCRIBE: 하시고 계신가요? 혹시 프롬프트를 바탕으로 질문만 하고 계시지 않습니까?
+[16] Size: 81440, Type: audio/webm
+[16] RAW GPT-4o-TRANSCRIBE: 다음과 같이 GPT를 예로 들었을 때 프롬프트를
+[17] Size: 81440, Type: audio/webm
+[17] RAW GPT-4o-TRANSCRIBE: 바탕으로 질문을 하게 됩니다 우리는.
+[18] Size: 81440, Type: audio/webm
+[18] RAW GPT-4o-TRANSCRIBE: GPT에게 내가 가진 정보들을 기반으로 질문을 내리고 싶다면
+[19] Size: 81440, Type: audio/webm
+[19] RAW GPT-4o-TRANSCRIBE: 다음과 같이 프롬프트를 작성해서 전달을 하겠죠.
+[20] Size: 81440, Type: audio/webm
+[20] RAW GPT-4o-TRANSCRIBE: 한 다음에 해당 내용을 바탕으로 보고서 만들어줘. 그리고 이미지를 업로드한
+[21] Size: 81440, Type: audio/webm
+[21] RAW GPT-4o-TRANSCRIBE: 후에 해당 이미지 내용을 정리해줘. 긴 텍스트를 입력한 후에
+[22] Size: 81440, Type: audio/webm
+[22] RAW GPT-4o-TRANSCRIBE: 위의 텍스트 내용을 바탕으로 답변을 만들어줘.
+[23] Size: 81440, Type: audio/webm
+[23] RAW GPT-4o-TRANSCRIBE: 결과는 맥락을 함께 전달하게 됩니다. 하지만은
+[24] Size: 81440, Type: audio/webm
+[24] RAW GPT-4o-TRANSCRIBE: 이거는 제가 가진 정보들만으로 하기 때문에 어느 정도 한계가 있을 수밖에 없죠.
+[25] Size: 81440, Type: audio/webm
+[25] RAW GPT-4o-TRANSCRIBE: 그래서 GPT를 사용하는 많은 사람들이 다음과 같은 필요성을 느끼게 됩니다.
+[26] Size: 81440, Type: audio/webm
+[26] RAW GPT-4o-TRANSCRIBE: 자 GPT 말고 다른 정보들, 다른 도구들을 연결해서
+[27] Size: 81440, Type: audio/webm
+[27] RAW GPT-4o-TRANSCRIBE: 없을까 그리고 다음과 같이 말이죠.
+[28] Size: 81440, Type: audio/webm
+[28] RAW GPT-4o-TRANSCRIBE: 이메일이나 혹은 노션 혹은 구글 드라이버와 같이
+[29] Size: 81440, Type: audio/webm
+[29] RAW GPT-4o-TRANSCRIBE: GPT랑 이것들이 연결해서 나만의 비서 그리고 내가 이것들을
+[30] Size: 81440, Type: audio/webm
+[30] RAW GPT-4o-TRANSCRIBE: 훨씬 더 쉽게 관리할 수 있도록 하면 얼마나 좋을까 라는 인지가.
+[31] Size: 36038, Type: audio/webm
+[31] RAW GPT-4o-TRANSCRIBE: 이게 된 것이죠.
+[32] Size: 81440, Type: audio/webm
+[32] RAW GPT-4o-TRANSCRIBE: 그래서 다음과 같이 프롬프트한테 요청을 해볼 수 있게 되는 겁니다.
+[33] Size: 81440, Type: audio/webm
+[33] RAW GPT-4o-TRANSCRIBE: 노션에 여행 일정 만들어 줘 와 같죠.
+[34] Size: 81440, Type: audio/webm
+[34] RAW GPT-4o-TRANSCRIBE: 근데 이렇게 하려고 하면은 어쨌든 내가 주피티와
+[35] Size: 81440, Type: audio/webm
+[35] RAW GPT-4o-TRANSCRIBE: 노션, 구글 캘린더, 그리고 드라이버와 같이 다양한 도구들과 연결하
+[36] Size: 77576, Type: audio/webm
+[36] RAW GPT-4o-TRANSCRIBE: 위한 어떤 기술적인 필요성이 있게 되겠죠.
+[37] Size: 81440, Type: audio/webm
+[37] RAW GPT-4o-TRANSCRIBE: 그래서 이 사이에, 이 사이에 주피티와 다양한 도구들 사이에서
+[38] Size: 81440, Type: audio/webm
+[38] RAW GPT-4o-TRANSCRIBE: 정보를 교환하기 위한 일련의 규칙이 필요하게 됩니다.
+[39] Size: 81440, Type: audio/webm
+[39] RAW GPT-4o-TRANSCRIBE: 이 규칙의 필요성으로 인해서 만들어진 게 바로
+[40] Size: 81440, Type: audio/webm
+[40] RAW GPT-4o-TRANSCRIBE: MCP라는 개념이라고 생각하시면 될 것 같고요. 그래서 이 MCP가
+[41] Size: 81440, Type: audio/webm
+[41] RAW GPT-4o-TRANSCRIBE: 왜 등장했고 왜 등장이 필요하게 됐는지에 대해서는 간단하게 알아봤는데요.
+[42] Size: 81440, Type: audio/webm
+[42] RAW GPT-4o-TRANSCRIBE: 앞으로 이제 이 MCP가 어떤 특징을 갖고 있고, 그리고 어떻게
+[43] Size: 81440, Type: audio/webm
+[43] RAW GPT-4o-TRANSCRIBE: 동작을 하는지 한번 알아보는 시간 가져보도록 하겠습니다. 우선 MCP는
+[44] Size: 81440, Type: audio/webm
+[44] RAW GPT-4o-TRANSCRIBE: 모델 컨텍스트 프로토콜의 약자인데요.
+[45] Size: 81440, Type: audio/webm
+[45] RAW GPT-4o-TRANSCRIBE: 모델 컨텍스트 맥락 프로토콜은 뭔가 규칙인 것 같고.
+[46] Size: 81440, Type: audio/webm
+[46] RAW GPT-4o-TRANSCRIBE: 보면은 아무래도 너무 어려울 수 있으니까요.
+[47] Size: 81440, Type: audio/webm
+[47] RAW GPT-4o-TRANSCRIBE: 단어로 한번 설명을 해보도록 하겠습니다.
+[48] Size: 81440, Type: audio/webm
+[48] RAW GPT-4o-TRANSCRIBE: AI 언어모델 NLM이라고도 하죠. 그래서 우리가 사용하고 있는 클로드나
+[49] Size: 67916, Type: audio/webm
+[49] RAW GPT-4o-TRANSCRIBE: GPT, 제미나이를 뜻한다고 생각하시면 될 것 같습니다.
+[50] Size: 81440, Type: audio/webm
+[50] RAW GPT-4o-TRANSCRIBE: 그리고 컨텍스트는 AI 모델이 작업을 수행하는데 필요한 배경.
+[51] Size: 81440, Type: audio/webm
+[51] RAW GPT-4o-TRANSCRIBE: 정보와 환경이라고 생각하시면 될 것 같고요. 예를 들면 접근 가능한 데이터들.
+[52] Size: 81440, Type: audio/webm
+[52] RAW GPT-4o-TRANSCRIBE: 혹은 사용할 수 있는 도구가 무엇인지, 현재 작업 환경 상태는 어떤지
+[53] Size: 81440, Type: audio/webm
+[53] RAW GPT-4o-TRANSCRIBE: 그리고 관련된 이 소스들을 포함하는 의미라고 생각하시면 될 것 같습니다.
+[54] Size: 81440, Type: audio/webm
+[54] RAW GPT-4o-TRANSCRIBE: 마지막 프로토콜은 표준화된 통신 규칙과
+[55] Size: 81440, Type: audio/webm
+[55] RAW GPT-4o-TRANSCRIBE: 절차, 단어 그대로 통신 규칙과 절차라고 생각하시면 될 것 같고요.
+[56] Size: 81440, Type: audio/webm
+[56] RAW GPT-4o-TRANSCRIBE: 그래서 좀 쉽게 정리를 하자면 모델 컨텍스트 프로토콜 MCP는
+[57] Size: 81440, Type: audio/webm
+[57] RAW GPT-4o-TRANSCRIBE: AI 모델이 주변 환경과 소통하는 표준화된 방식이라고 생각하시면 되고
+[58] Size: 81440, Type: audio/webm
+[58] RAW GPT-4o-TRANSCRIBE: 좀 더 쉽게 말씀을 드리자면 AI가 외부 도구들과
+[59] Size: 81440, Type: audio/webm
+[59] RAW GPT-4o-TRANSCRIBE: 아까 앞서 말씀드린 노션이나 혹은 구글 드라이버 같이 외부 도구들
+[60] Size: 81440, Type: audio/webm
+[60] RAW GPT-4o-TRANSCRIBE: 도구와 연결되어서 정보를 주고받을 때 사용하는 공통되는 언어와
+[61] Size: 81440, Type: audio/webm
+[61] RAW GPT-4o-TRANSCRIBE: 규칙이라고 생각하시면 될 것 같습니다.
+[62] Size: 81440, Type: audio/webm
+[62] RAW GPT-4o-TRANSCRIBE: MCP의 등장 배경 어떤 문제를 해결하고자
+[63] Size: 81439, Type: audio/webm
+[63] RAW GPT-4o-TRANSCRIBE: MCP가 등장하기 이전에는 다음과 같이
+[64] Size: 81440, Type: audio/webm
+[64] RAW GPT-4o-TRANSCRIBE: 문제가 있었는데요. N 곱하기 M 통합 문제가 있었습니다.
+[65] Size: 81440, Type: audio/webm
+[65] RAW GPT-4o-TRANSCRIBE: 예를 들면 클로드나 제미나이나 그록이나 계속해서 뭔가 AI 툴들
+[66] Size: 81440, Type: audio/webm
+[66] RAW GPT-4o-TRANSCRIBE: 계속해서 만나주고 있죠. 그리고 내가 연결하고 싶은 도구들도 계속
+[67] Size: 81440, Type: audio/webm
+[67] RAW GPT-4o-TRANSCRIBE: 늘어나고 있습니다. 그래서 하나의 LLM에 하나의 도구를 연결하는
+[68] Size: 81440, Type: audio/webm
+[68] RAW GPT-4o-TRANSCRIBE: 표준화된 절차가 없었기 때문에 LLM의 수가 많아지고
+[69] Size: 81440, Type: audio/webm
+[69] RAW GPT-4o-TRANSCRIBE: 그에 따라 도구의 수도 지금 많이 증가하는 상태에서 하나하나씩 일대일로
+[70] Size: 81440, Type: audio/webm
+[70] RAW GPT-4o-TRANSCRIBE: 대응을 해서 연결하는 방식을 만들게 되면 이웃들은 따라갈 수가 없는 문제가
+[71] Size: 81440, Type: audio/webm
+[71] RAW GPT-4o-TRANSCRIBE: 생기는 그러한 한계가 있었습니다.
+[72] Size: 81440, Type: audio/webm
+[72] RAW GPT-4o-TRANSCRIBE: 해결했었어야 됐는데요. 기존에는 LLM과 연결하기 위한
+[73] Size: 81440, Type: audio/webm
+[73] RAW GPT-4o-TRANSCRIBE: API 함수를 구현했어야 됐습니다. 그렇기 때문에 굉장히 비효율적으로
+[74] Size: 81440, Type: audio/webm
+[74] RAW GPT-4o-TRANSCRIBE: 할 수밖에 없었던 문제가 있었죠. 무엇보다 표준화
+[75] Size: 81440, Type: audio/webm
+[75] RAW GPT-4o-TRANSCRIBE: 문제를 해결하기 위해서 등장을 했다고 생각하시면 될 것 같습니다.
+[76] Size: 81440, Type: audio/webm
+[76] RAW GPT-4o-TRANSCRIBE: 그리고 LLM마다 다른 설정 방식이 있었기 때문에 그래서 예를 들면은 GBT
+[77] Size: 81440, Type: audio/webm
+[77] RAW GPT-4o-TRANSCRIBE: 에 맞는 그 연결하는 방식이 또 있었고, 제미나이의 맞
+[78] Size: 81440, Type: audio/webm
+[78] RAW GPT-4o-TRANSCRIBE: 맞는 연결하는 방식이 또 있었고, 이런 식으로 LLM마다 연결하는 방식이 다 달라서
+[79] Size: 81440, Type: audio/webm
+[79] RAW GPT-4o-TRANSCRIBE: 때문에 AI 생태계에서 이를 표준화 시킬 가능성
+[80] Size: 81440, Type: audio/webm
+[80] RAW GPT-4o-TRANSCRIBE: 그렇기 때문에 이 AI라고 하는 환경에서 표준화된 문제를 해결할 필요성
+[81] Size: 81440, Type: audio/webm
+[81] RAW GPT-4o-TRANSCRIBE: 대두되기 시작한 것이죠. 이런 문제들을 해결하기 위해서 바로
+[82] Size: 46664, Type: audio/webm
+[82] RAW GPT-4o-TRANSCRIBE: MCP가 등장을 하게 됩니다.
+[83] Size: 81440, Type: audio/webm
+[83] RAW GPT-4o-TRANSCRIBE: 2014년 11월 25일 엔트로픽에서 MCP를 오픈소스로 공개를 했고요.
+[84] Size: 81440, Type: audio/webm
+[84] RAW GPT-4o-TRANSCRIBE: 개발자 커뮤니티 실제 니즈를 반영해서 개발을 하게 되었습니다.
+[85] Size: 81440, Type: audio/webm
+[85] RAW GPT-4o-TRANSCRIBE: 표준화된 방식이었기 때문에요 한번 만들면 모든 곳에서 사용 가능하게끔
+[86] Size: 81440, Type: audio/webm
+[86] RAW GPT-4o-TRANSCRIBE: 되었고요. 이거 클로드사에서 만들었지만 적극적으로
+[87] Size: 81440, Type: audio/webm
+[87] RAW GPT-4o-TRANSCRIBE: 다른 업계에서도 이를 적극적으로 채용하게 되면서 AI 시대에서
+[88] Size: 81440, Type: audio/webm
+[88] RAW GPT-4o-TRANSCRIBE: 표준화될 수 있었던 기반을 마련하게 됩니다.
+[89] Size: 81440, Type: audio/webm
+[89] RAW GPT-4o-TRANSCRIBE: 2025년 3월 에이전트 SDK의 MCP 클라이언트 통합
+[90] Size: 81440, Type: audio/webm
+[90] RAW GPT-4o-TRANSCRIBE: 발표를 했고요. 구글 딥마인드도 역시 MCPT-1을 발표하게 됩니다.
+[91] Size: 81440, Type: audio/webm
+[91] RAW GPT-4o-TRANSCRIBE: 마이크로소프트도 2025년 5월 Copilot Studio의
+[92] Size: 81440, Type: audio/webm
+[92] RAW GPT-4o-TRANSCRIBE: 인티브 MCP를 지원하게 되었고요. 지금 현재 날짜가 11월
+[93] Size: 81440, Type: audio/webm
+[93] RAW GPT-4o-TRANSCRIBE: 11월 기준에서도 굉장히 다양한
+[94] Size: 81440, Type: audio/webm
+[94] RAW GPT-4o-TRANSCRIBE: LLM이 MCP를 지원하고 있기 때문에 도구와 AI 연계
+[95] Size: 81440, Type: audio/webm
+[95] RAW GPT-4o-TRANSCRIBE: 를 하는 부분에 있어서 굉장히 표준화된 통신 방식이 되었다고 생각하시면 됩니다.
+[96] Size: 81440, Type: audio/webm
+[96] RAW GPT-4o-TRANSCRIBE: MCP를 가장 쉽게 설명할 수 있는 단어는
+[97] Size: 81440, Type: audio/webm
+[97] RAW GPT-4o-TRANSCRIBE: 인공지능일 수 있습니다.
+[98] Size: 72746, Type: audio/webm
+[98] RAW GPT-4o-TRANSCRIBE: 하단에 다양한 도구들이 존재를 하고 있고요. 그리고
+[99] Size: 81440, Type: audio/webm
+[99] RAW GPT-4o-TRANSCRIBE: 우측 상단을 보시면 클로드나 주피터나 커서와 같은
+[100] Size: 81440, Type: audio/webm
+[100] RAW GPT-4o-TRANSCRIBE: 들이 지금 있는 것을 확인해볼 수 있습니다.
+[101] Size: 81440, Type: audio/webm
+[101] RAW GPT-4o-TRANSCRIBE: 주피터나 클로드와 같은 LLM 모델들과
+[102] Size: 81440, Type: audio/webm
+[102] RAW GPT-4o-TRANSCRIBE: 슬랙, 지메일, 캘린더와 같은 다양한 도구들을 중간에 연결하여
+[103] Size: 81440, Type: audio/webm
+[103] RAW GPT-4o-TRANSCRIBE: 그 방식이 바로 MCP라고 생각하시면 될 것 같고요.
+[104] Size: 79508, Type: audio/webm
+[104] RAW GPT-4o-TRANSCRIBE: C와 같은 역할하고 있다라고 생각하시면 될 것 같습니다.
+[105] Size: 81440, Type: audio/webm
+[105] RAW GPT-4o-TRANSCRIBE: 그래서 실제 예시를 좀 보면요. MCP가 등장하기 이전에는 만약
+[106] Size: 81440, Type: audio/webm
+[106] RAW GPT-4o-TRANSCRIBE: 내가 데이터베이스와 AI를 연결하고 싶다라고 하면 굉장히 복잡한
+[107] Size: 81440, Type: audio/webm
+[107] RAW GPT-4o-TRANSCRIBE: 과정을 거칠 수밖에 없었습니다. 그래서 이런 식으로 AI에 대한
+[108] Size: 81440, Type: audio/webm
+[108] RAW GPT-4o-TRANSCRIBE: 도구별로 굉장히 다양한 함수들을 막 작성을 하고 테스트를 해보고 이런 것들을
+[109] Size: 81440, Type: audio/webm
+[109] RAW GPT-4o-TRANSCRIBE: 있었는데 MCP 등장 이후에는요 단 한 줄로 다 무엇
+[110] Size: 81440, Type: audio/webm
+[110] RAW GPT-4o-TRANSCRIBE: GCP 서버를 등록을 하고 그리고 최단추에 가장 많이 팔린
+[111] Size: 81440, Type: audio/webm
+[111] RAW GPT-4o-TRANSCRIBE: 상품 10개 보여줘'와 같이 AI가 자체적으로 일을 해석해서
+[112] Size: 81440, Type: audio/webm
+[112] RAW GPT-4o-TRANSCRIBE: MCP 서버에게 요청을 내리는 방식으로 굉장히
+[113] Size: 81440, Type: audio/webm
+[113] RAW GPT-4o-TRANSCRIBE: 개발자들도 사용하기 편하고 또 만들기도 편하고 그래서 이런 부분을 통해
+[114] Size: 81440, Type: audio/webm
+[114] RAW GPT-4o-TRANSCRIBE: AI 사용성에 굉장한 날개를 달아줬다라고 생각하시면 될 것 같습니다.
+[115] Size: 81440, Type: audio/webm
+[115] RAW GPT-4o-TRANSCRIBE: 다음은 MCP 아키텍처 설계 이야기입니다.
+[116] Size: 81440, Type: audio/webm
+[116] RAW GPT-4o-TRANSCRIBE: 다음과 같이 세 개의 요소로 이루어져 있는데요.
+[117] Size: 81440, Type: audio/webm
+[117] RAW GPT-4o-TRANSCRIBE: MCP 클라이언트, MCP 서버로 이루어져 있습니다.
+[118] Size: 81440, Type: audio/webm
+[118] RAW GPT-4o-TRANSCRIBE: 보시는 바와 같이
+[119] Size: 81440, Type: audio/webm
+[119] RAW GPT-4o-TRANSCRIBE: 도구들 슬랙이나 지메일, 캘린더와 같은 부분들은 바로
+[120] Size: 81440, Type: audio/webm
+[120] RAW GPT-4o-TRANSCRIBE: 서버에 해당하는 부분이고 그리고 클로드, 제미나이
+[121] Size: 81440, Type: audio/webm
+[121] RAW GPT-4o-TRANSCRIBE: 주피터 커서와 같은 저희가 사용하고 있는 AI 툴들 같은 경우
+[122] Size: 81440, Type: audio/webm
+[122] RAW GPT-4o-TRANSCRIBE: 영역이 구분되어 있는 걸 확인해볼 수 있습니다.
+[123] Size: 81440, Type: audio/webm
+[123] RAW GPT-4o-TRANSCRIBE: 이 툴 사이에 연결을 해주는 역할을 하는 게 바로 MCP 클라이언트라고 생각합니다.
+[124] Size: 81440, Type: audio/webm
+[124] RAW GPT-4o-TRANSCRIBE: 되겠습니다. 그러면 자세하게 하나하나씩 어떤 역할
+[2026-02-20 13:24:56,284] [125] Size: 81440, Type: audio/webm
+[2026-02-20 13:24:57,007] [125] RAW GPT-4o-TRANSCRIBE: 하고 있는지 소개를 해보도록 하겠습니다.
+[2026-02-20 13:25:01,291] [126] Size: 81440, Type: audio/webm
+[2026-02-20 13:25:01,936] [126] RAW GPT-4o-TRANSCRIBE: 모든 것을 결정하는 지휘관의 역할을 하고 있다라고 생각하시면 될 것 같아요.
+[2026-02-20 13:25:06,349] [127] Size: 81440, Type: audio/webm
+[2026-02-20 13:25:07,128] [127] RAW GPT-4o-TRANSCRIBE: 사용자 요청을 이해하거나 분석하는 역할을 하고 있고요.
+[2026-02-20 13:25:11,411] [128] Size: 81440, Type: audio/webm
+[2026-02-20 13:25:12,009] [128] RAW GPT-4o-TRANSCRIBE: 필요한 도구를 결정하거나 작업 계획을 수립하거나
