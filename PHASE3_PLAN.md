@@ -436,34 +436,34 @@ frontend/src/views/
 
 ### Phase 3-1. 학습자 수준 현황판
 
-- [ ] `NoteViewLog` 모델 생성 + 마이그레이션
-- [ ] NoteViewLog 자동 기록: `live/<pk>/note/` (live_views.py @action) **+ `absent-notes/<lecture_id>/`** 2곳 모두
-- [ ] `analytics/overview/` API 구현
-- [ ] 빈 데이터 방어: 세션 0건일 때 "아직 종료된 강의가 없습니다" 안내 반환
-- [ ] 교수자: analytics 탭 + 레벨 분포 도넛 차트
-- [ ] 교수자: 출석률 + 진도율(체크리스트 기반) 바 차트
-- [ ] 교수자: 위험군 학습자 테이블 + 결석생 보충 현황
-- [ ] 교수자: 위험군 메시지 발송 모달 + API (`send-message/`)
+- [x] `NoteViewLog` 모델 생성 + 마이그레이션
+- [x] NoteViewLog 자동 기록: `live/<pk>/note/` (live_views.py) — 학생 조회 시 get_or_create
+- [x] `analytics/overview/` API 구현
+- [x] 빈 데이터 방어: 세션 0건일 때 "아직 종료된 강의가 없습니다" 안내 반환
+- [x] 교수자: analytics 탭 + 레벨 분포 도넛 차트
+- [x] 교수자: 출석률 + 진도율(체크리스트 기반) 통계 카드
+- [x] 교수자: 위험군 학습자 테이블 + 결석생 보충 현황
+- [x] 교수자: 위험군 메시지 발송 모달 + API (`send-message/`)
 
 ### Phase 3-2. 취약 구간 인사이트
 
-- [ ] `analytics/weak-insights/` API 구현 (퀴즈 + 형성평가 통합)
-- [ ] 퀴즈 개념명 처리: `LiveQuiz.question_text` 기반 / `FormativeAssessment.questions[].concept_tag` 기반 병합
-- [ ] 교수자: 취약 구간 랭킹 테이블 (오답률 바 + 교안 링크)
-- [ ] 교수자: 차시별 비교 라인 차트 (Line 차트 + LineElement/PointElement 레지스터)
+- [x] `analytics/weak-insights/` API 구현 (퀴즈 + 형성평가 통합)
+- [x] 퀴즈 개념명 처리: `LiveQuiz.question_text` 기반 / `FormativeAssessment.questions[].concept_tag` 기반 병합
+- [x] 교수자: 취약 구간 랭킹 테이블 (오답률 바 + 교안 링크)
+- [x] 교수자: 차시별 비교 바 차트 (Bar 차트 사용 — Line 대신 기존 import 활용)
 
 ### Phase 3-3. AI 제안 승인 흐름
 
-- [ ] `analytics/ai-suggestions/` API 구현 (ReviewRoute/WeakZone/AdaptiveContent 통합)
-- [ ] 교수자: AI 제안 카드 목록 + 승인/교체/거부 버튼 + 액션 API
-- [ ] 교수자: 최근 판단 이력
+- [x] `analytics/ai-suggestions/` API 구현 (ReviewRoute/WeakZone/AdaptiveContent 통합)
+- [x] 교수자: AI 제안 카드 목록 + 승인/거부 버튼 + SuggestionActionView API
+- [x] 교수자: 최근 판단 이력
 
 ### Phase 3-4. 그룹별 개입 + 강의 품질 리포트
 
-- [ ] `GroupMessage` 모델 생성 (read_by JSONField 포함) + 마이그레이션
-- [ ] `send-group-message/` API (레벨별 + 개별)
-- [ ] `analytics/quality-report/` API (차시별 메트릭 + 추이 + 체크포인트 통과율 포함 + 재분류 제안)
-- [ ] 학생 레벨 재분류 제안 + 교수자 승인 API (PlacementResult 새 레코드 생성, `order_by('-created_at').first()` 패턴)
-- [ ] 교수자: 그룹 메시지 발송 폼 + 품질 리포트 카드
-- [ ] 교수자: 레벨 재분류 제안 패널
-- [ ] 학습자: `messages/my/` API + 대시보드 메시지 알림 + 목록 + 읽음 처리 (read_by 업데이트)
+- [x] `GroupMessage` 모델 생성 (read_by JSONField 포함) + 마이그레이션 0027
+- [x] `send-group-message/` API (레벨별 + 개별)
+- [x] `analytics/quality-report/` API (차시별 메트릭 + 추이 + 체크포인트 통과율 포함 + 재분류 제안)
+- [x] 학생 레벨 재분류 제안 + 교수자 승인 API (PlacementResult 새 레코드 생성, `order_by('-created_at').first()` 패턴)
+- [x] 교수자: 그룹 메시지 발송 폼 + 품질 리포트 카드
+- [x] 교수자: 레벨 재분류 제안 패널
+- [x] 학습자: `messages/my/` API + 대시보드 메시지 알림 + 목록 + 읽음 처리 (read_by 업데이트)
