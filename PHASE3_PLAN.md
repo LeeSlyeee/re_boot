@@ -10,6 +10,11 @@
 2. **LectureMaterial → Lecture FK**: `source_material__lecture_id` 역참조 가능 확인됨 (uploaded_by는 있지만 lecture FK는 lecture\_\_materials)
 3. **Lecture.students (M2M)**: 수강생 목록 접근 가능 (현재 2명 등록 확인)
 4. **FormativeAssessment 데이터**: 아직 실제 데이터 0건 — 빈 데이터 처리 로직 필수
+5. **NoteViewLog 삽입 위치 2곳**: `live/<pk>/note/` (live_views.py @action) + `absent-notes/<lecture_id>/` (별도 APIView) — 둘 다에 삽입해야 결석생 열람 추적 정확
+6. **GroupMessage 읽음 추적 누락**: 원래 설계에 `read_by` 없음 → `MessageReadLog` 모델 추가 또는 `read_by = JSONField(default=list)` 필요
+7. **LiveQuiz에 concept 필드 없음**: `question_text`만 있음 → 취약 구간 분석 시 question_text 기반 그룹핑 또는 AI로 concept 추출 필요
+8. **PlacementResult unique 제약 없음**: 동 학생 복수 레코드 가능 → 항상 `order_by('-created_at').first()` 사용 필수
+9. **종료된 세션 0건일 때**: analytics 빈 화면 + "아직 종료된 강의가 없습니다" 안내 메시지 필수
 
 ---
 
@@ -69,7 +74,9 @@ class GroupMessage(models.Model):
         ('FEEDBACK', '1:1 피드백 요청'),
         ('SUPPLEMENT', '보충 자료'),
     ), default='NOTICE')
+    read_by = JSONField(default=list, help_text="읽은 학생 ID 목록")
     created_at = DateTimeField(auto_now_add=True)
+
 
     class Meta:
         ordering = ['-created_at']
@@ -425,30 +432,33 @@ frontend/src/views/
 ### Phase 3-1. 학습자 수준 현황판
 
 - [ ] `NoteViewLog` 모델 생성 + 마이그레이션
-- [ ] 학습자 노트 조회 시 NoteViewLog 자동 기록 (live_views.py 수정)
+- [ ] NoteViewLog 자동 기록: `live/<pk>/note/` (live_views.py @action) **+ `absent-notes/<lecture_id>/`** 2곳 모두
 - [ ] `analytics/overview/` API 구현
+- [ ] 빈 데이터 방어: 세션 0건일 때 "아직 종료된 강의가 없습니다" 안내 반환
 - [ ] 교수자: analytics 탭 + 레벨 분포 도넛 차트
+- [ ] 교수자: 출석률 + 진도율(체크리스트 기반) 바 차트
 - [ ] 교수자: 위험군 학습자 테이블 + 결석생 보충 현황
-- [ ] 교수자: 위험군 메시지 발송 모달 + API
+- [ ] 교수자: 위험군 메시지 발송 모달 + API (`send-message/`)
 
 ### Phase 3-2. 취약 구간 인사이트
 
 - [ ] `analytics/weak-insights/` API 구현 (퀴즈 + 형성평가 통합)
+- [ ] 퀴즈 개념명 처리: `LiveQuiz.question_text` 기반 / `FormativeAssessment.questions[].concept_tag` 기반 병합
 - [ ] 교수자: 취약 구간 랭킹 테이블 (오답률 바 + 교안 링크)
-- [ ] 교수자: 차시별 비교 라인 차트
+- [ ] 교수자: 차시별 비교 라인 차트 (Line 차트 + LineElement/PointElement 레지스터)
 
 ### Phase 3-3. AI 제안 승인 흐름
 
-- [ ] `analytics/ai-suggestions/` API 구현 (3개 모델 통합)
-- [ ] 교수자: AI 제안 카드 목록 + 승인/교체/거부 버튼
+- [ ] `analytics/ai-suggestions/` API 구현 (ReviewRoute/WeakZone/AdaptiveContent 통합)
+- [ ] 교수자: AI 제안 카드 목록 + 승인/교체/거부 버튼 + 액션 API
 - [ ] 교수자: 최근 판단 이력
 
 ### Phase 3-4. 그룹별 개입 + 강의 품질 리포트
 
-- [ ] `GroupMessage` 모델 생성 + 마이그레이션
+- [ ] `GroupMessage` 모델 생성 (read_by JSONField 포함) + 마이그레이션
 - [ ] `send-group-message/` API (레벨별 + 개별)
-- [ ] `analytics/quality-report/` API (차시별 메트릭 + 추이 + 재분류 제안)
-- [ ] 학생 레벨 재분류 제안 + 교수자 승인 API
+- [ ] `analytics/quality-report/` API (차시별 메트릭 + 추이 + 체크포인트 통과율 포함 + 재분류 제안)
+- [ ] 학생 레벨 재분류 제안 + 교수자 승인 API (PlacementResult 새 레코드 생성, `order_by('-created_at').first()` 패턴)
 - [ ] 교수자: 그룹 메시지 발송 폼 + 품질 리포트 카드
 - [ ] 교수자: 레벨 재분류 제안 패널
-- [ ] 학습자: 대시보드 메시지 알림 + 목록
+- [ ] 학습자: `messages/my/` API + 대시보드 메시지 알림 + 목록 + 읽음 처리 (read_by 업데이트)
