@@ -199,3 +199,110 @@ class RecordingUpload(models.Model):
     def __str__(self):
         return f"[{self.status}] {self.original_filename} ({self.lecture.title})"
 
+
+# ══════════════════════════════════════════════════════════
+# Phase 0: 라이브 세션 인프라 모델
+# ══════════════════════════════════════════════════════════
+
+class LiveSession(models.Model):
+    """
+    교수자가 시작하는 실시간 수업 세션.
+    학생들은 session_code로 입장하여 참여한다.
+    """
+    STATUS_CHOICES = (
+        ('WAITING', '대기 중'),
+        ('LIVE', '진행 중'),
+        ('ENDED', '종료됨'),
+    )
+
+    lecture = models.ForeignKey(Lecture, on_delete=models.CASCADE, related_name='live_sessions')
+    instructor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='hosted_live_sessions')
+    title = models.CharField(max_length=200, blank=True, help_text="세션 제목 (예: Week 3 - Django ORM)")
+    session_code = models.CharField(max_length=6, unique=True, blank=True, help_text="학생 입장용 6자리 코드")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='WAITING')
+    started_at = models.DateTimeField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self.session_code:
+            self.session_code = self._generate_unique_code()
+        super().save(*args, **kwargs)
+
+    def _generate_unique_code(self):
+        chars = string.ascii_uppercase + string.digits
+        while True:
+            code = ''.join(random.choice(chars) for _ in range(6))
+            if not LiveSession.objects.filter(session_code=code).exists():
+                return code
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[{self.status}] {self.title or self.lecture.title} ({self.session_code})"
+
+
+class LiveParticipant(models.Model):
+    """
+    라이브 세션에 참여한 학생 기록.
+    입장 시 개인 LearningSession이 자동 생성되어 연결된다.
+    """
+    live_session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name='participants')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='live_participations')
+    learning_session = models.ForeignKey(
+        LearningSession, null=True, blank=True, on_delete=models.SET_NULL,
+        help_text="입장 시 자동 생성되는 개인 학습 세션"
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True, help_text="현재 접속 중 여부 (heartbeat 기반)")
+    last_heartbeat = models.DateTimeField(auto_now=True, help_text="마지막 활동 시간")
+
+    class Meta:
+        unique_together = ['live_session', 'student']
+        ordering = ['joined_at']
+
+    def __str__(self):
+        return f"{self.student.username} @ {self.live_session.session_code}"
+
+
+class LectureMaterial(models.Model):
+    """
+    강의 전 교수자가 업로드하는 교안 (PDF, PPT, 마크다운)
+    """
+    FILE_TYPE_CHOICES = (
+        ('PDF', 'PDF'),
+        ('PPT', 'PowerPoint'),
+        ('MD', '마크다운'),
+        ('OTHER', '기타'),
+    )
+
+    lecture = models.ForeignKey(Lecture, on_delete=models.CASCADE, related_name='materials')
+    title = models.CharField(max_length=200, help_text="교안 제목")
+    file = models.FileField(upload_to='materials/%Y/%m/')
+    file_type = models.CharField(max_length=10, choices=FILE_TYPE_CHOICES, default='PDF')
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return f"[{self.file_type}] {self.title} ({self.lecture.title})"
+
+
+class LiveSTTLog(models.Model):
+    """
+    라이브 세션 중 교수자 마이크에서 캡처된 STT 로그.
+    기존 STTLog(학생 개인)와 구분되는 공유 STT 로그.
+    """
+    live_session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name='stt_logs')
+    sequence_order = models.IntegerField()
+    text_chunk = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['sequence_order']
+
+    def __str__(self):
+        return f"[{self.sequence_order}] {self.text_chunk[:30]}..."

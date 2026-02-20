@@ -15,7 +15,7 @@ const lectureTitle = ref('');
 const lectureCode = ref('');
 
 // Tab Management
-const activeTab = ref('monitor'); // 'monitor' | 'attendance' | 'quiz' | 'recording'
+const activeTab = ref('monitor'); // 'monitor' | 'attendance' | 'quiz' | 'recording' | 'live'
 
 const copyCode = async () => {
     try {
@@ -204,6 +204,109 @@ const switchTab = (tab) => {
     if (tab === 'attendance') fetchAttendance();
     if (tab === 'quiz') fetchQuizAnalytics();
     if (tab === 'recording') fetchRecordings();
+    if (tab === 'live') fetchLiveStatus();
+};
+
+// ── Live Session State ──
+const liveSession = ref(null);
+const liveLoading = ref(false);
+const liveSessionTitle = ref('');
+const liveParticipants = ref([]);
+const livePollingTimer = ref(null);
+const materials = ref([]);
+const materialUploading = ref(false);
+
+const fetchLiveStatus = async () => {
+    try {
+        const { data } = await api.get('/learning/live/active/');
+        const current = data.find(s => s.lecture_id == lectureId);
+        if (current) {
+            liveSession.value = current;
+            const detail = await api.get(`/learning/live/${current.id}/status/`);
+            liveParticipants.value = detail.data.participants || [];
+            liveSession.value = { ...liveSession.value, ...detail.data };
+            startLivePolling();
+        } else {
+            liveSession.value = null;
+        }
+    } catch (e) { console.error('Live status fetch error:', e); }
+    await fetchMaterials();
+};
+
+const createLiveSession = async () => {
+    liveLoading.value = true;
+    try {
+        const { data } = await api.post('/learning/live/create/', {
+            lecture_id: lectureId, title: liveSessionTitle.value || '',
+        });
+        liveSession.value = data;
+        liveSessionTitle.value = '';
+        startLivePolling();
+    } catch (e) {
+        if (e.response?.status === 409) {
+            liveSession.value = e.response.data;
+            startLivePolling();
+        } else { alert('세션 생성 실패: ' + (e.response?.data?.error || '')); }
+    } finally { liveLoading.value = false; }
+};
+
+const startLiveSession = async () => {
+    if (!liveSession.value) return;
+    try {
+        const { data } = await api.post(`/learning/live/${liveSession.value.id}/start/`);
+        liveSession.value = { ...liveSession.value, ...data };
+    } catch (e) { alert('세션 시작 실패: ' + (e.response?.data?.error || '')); }
+};
+
+const endLiveSession = async () => {
+    if (!liveSession.value || !confirm('세션을 종료하시겠습니까?')) return;
+    try {
+        await api.post(`/learning/live/${liveSession.value.id}/end/`);
+        stopLivePolling();
+        liveSession.value = null;
+        liveParticipants.value = [];
+    } catch (e) { alert('세션 종료 실패'); }
+};
+
+const startLivePolling = () => {
+    stopLivePolling();
+    livePollingTimer.value = setInterval(async () => {
+        if (!liveSession.value) return;
+        try {
+            const { data } = await api.get(`/learning/live/${liveSession.value.id}/status/`);
+            liveSession.value = { ...liveSession.value, ...data };
+            liveParticipants.value = data.participants || [];
+        } catch (e) { /* ignore */ }
+    }, 5000);
+};
+
+const stopLivePolling = () => {
+    if (livePollingTimer.value) { clearInterval(livePollingTimer.value); livePollingTimer.value = null; }
+};
+
+const copyLiveCode = async () => {
+    if (!liveSession.value?.session_code) return;
+    try { await navigator.clipboard.writeText(liveSession.value.session_code); alert('코드 복사 완료!'); } catch {}
+};
+
+const fetchMaterials = async () => {
+    try { const { data } = await api.get(`/learning/materials/list/?lecture_id=${lectureId}`); materials.value = data; } catch {}
+};
+
+const uploadMaterial = async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    materialUploading.value = true;
+    try {
+        const fd = new FormData(); fd.append('file', file); fd.append('lecture_id', lectureId); fd.append('title', file.name);
+        await api.post('/learning/materials/upload/', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+        await fetchMaterials();
+    } catch { alert('교안 업로드 실패'); }
+    finally { materialUploading.value = false; e.target.value = ''; }
+};
+
+const deleteMaterial = async (id) => {
+    if (!confirm('교안을 삭제하시겠습니까?')) return;
+    try { await api.delete(`/learning/materials/${id}/delete/`); await fetchMaterials(); } catch { alert('삭제 실패'); }
 };
 
 // ── Recording Upload Data ──
@@ -363,6 +466,11 @@ onMounted(fetchDashboard);
                 :class="['tab-btn', { active: activeTab === 'recording' }]" 
                 @click="switchTab('recording')">
                 🎤 녹음 업로드
+            </button>
+            <button 
+                :class="['tab-btn live-tab', { active: activeTab === 'live' }]" 
+                @click="switchTab('live')">
+                🟢 라이브 세션
             </button>
         </div>
 
@@ -789,6 +897,85 @@ onMounted(fetchDashboard);
                 </div>
             </div>
         </div>
+
+        <!-- ══════════════════════════════════════ -->
+        <!-- Tab 5: 라이브 세션 -->
+        <!-- ══════════════════════════════════════ -->
+        <div v-if="activeTab === 'live'" class="live-tab-content">
+            
+            <!-- 세션 없음: 생성 폼 -->
+            <div v-if="!liveSession" class="live-create-section">
+                <div class="create-card">
+                    <h2>🟢 라이브 세션 시작</h2>
+                    <p class="sub">학생들이 6자리 코드로 입장할 수 있는 실시간 수업 세션을 만듭니다.</p>
+                    <input type="text" v-model="liveSessionTitle" placeholder="세션 제목 (선택)" class="session-title-input" />
+                    <button class="btn-live-create" @click="createLiveSession" :disabled="liveLoading">
+                        {{ liveLoading ? '생성 중...' : '세션 생성' }}
+                    </button>
+                </div>
+            </div>
+
+            <!-- 세션 활성: 코드 표시 + 컨트롤 -->
+            <div v-else class="live-active-section">
+                <!-- 상태 뱃지 -->
+                <div class="live-status-bar">
+                    <span class="status-badge" :class="liveSession.status">
+                        {{ liveSession.status === 'WAITING' ? '⏳ 대기 중' : liveSession.status === 'LIVE' ? '🔴 진행 중' : '종료됨' }}
+                    </span>
+                    <span class="participant-count">
+                        👥 {{ liveSession.active_participants || 0 }}명 참가 중
+                    </span>
+                </div>
+
+                <!-- 대형 코드 디스플레이 -->
+                <div class="code-display" @click="copyLiveCode">
+                    <span class="code-label">입장 코드</span>
+                    <span class="code-value">{{ liveSession.session_code }}</span>
+                    <span class="code-hint">클릭하여 복사</span>
+                </div>
+
+                <!-- 컨트롤 버튼 -->
+                <div class="live-controls">
+                    <button v-if="liveSession.status === 'WAITING'" class="btn-live-start" @click="startLiveSession">
+                        ▶️ 수업 시작
+                    </button>
+                    <button v-if="liveSession.status === 'LIVE'" class="btn-live-end" @click="endLiveSession">
+                        ⏹️ 세션 종료
+                    </button>
+                </div>
+
+                <!-- 참가자 목록 -->
+                <div v-if="liveParticipants.length > 0" class="participants-list">
+                    <h3>참가자 ({{ liveParticipants.length }}명)</h3>
+                    <div class="participant-grid">
+                        <div v-for="p in liveParticipants" :key="p.id" class="participant-chip" :class="{ active: p.is_active }">
+                            <span class="dot" :class="{ online: p.is_active }"></span>
+                            {{ p.username }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 교안 업로드 영역 (항상 표시) -->
+            <div class="materials-section">
+                <h3>📄 교안 관리</h3>
+                <div class="material-upload-area">
+                    <label class="upload-label">
+                        <input type="file" accept=".pdf,.ppt,.pptx,.md,.markdown" @change="uploadMaterial" hidden />
+                        {{ materialUploading ? '업로드 중...' : '+ 교안 파일 업로드' }}
+                    </label>
+                </div>
+                <div v-if="materials.length > 0" class="material-list">
+                    <div v-for="m in materials" :key="m.id" class="material-item">
+                        <span class="material-type">{{ m.file_type }}</span>
+                        <span class="material-title">{{ m.title }}</span>
+                        <button class="btn-material-delete" @click="deleteMaterial(m.id)">×</button>
+                    </div>
+                </div>
+                <p v-else class="empty-text">아직 업로드된 교안이 없습니다.</p>
+            </div>
+        </div>
+
     </div>
 </template>
 
@@ -1017,4 +1204,103 @@ tr:hover td { background: #fafbfc; }
     font-family: 'Pretendard', sans-serif; font-size: 14px;
     line-height: 1.8; color: #333; margin: 0;
 }
+
+/* ── Live Session Tab ── */
+.live-tab .active { color: #22c55e; }
+.live-tab-content { padding: 20px 0; }
+
+.live-create-section { display: flex; justify-content: center; padding: 40px 0; }
+.create-card {
+    text-align: center; padding: 40px; background: #f8fdf8; border-radius: 16px;
+    border: 2px dashed #22c55e33; max-width: 480px; width: 100%;
+}
+.create-card h2 { margin: 0 0 8px; font-size: 22px; }
+.create-card .sub { color: #888; font-size: 14px; margin-bottom: 24px; }
+.session-title-input {
+    width: 100%; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px;
+    font-size: 14px; margin-bottom: 16px; box-sizing: border-box;
+}
+.btn-live-create {
+    background: #22c55e; color: white; border: none; padding: 12px 32px;
+    border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;
+    transition: background 0.2s;
+}
+.btn-live-create:hover { background: #16a34a; }
+.btn-live-create:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.live-active-section { }
+.live-status-bar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 16px; background: #f9f9f9; border-radius: 8px; margin-bottom: 20px;
+}
+.status-badge {
+    padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600;
+}
+.status-badge.WAITING { background: #fef3c7; color: #92400e; }
+.status-badge.LIVE { background: #fee2e2; color: #991b1b; animation: pulse-live 2s infinite; }
+.status-badge.ENDED { background: #e5e7eb; color: #6b7280; }
+@keyframes pulse-live { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
+
+.participant-count { font-size: 14px; color: #555; }
+
+.code-display {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 32px; background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+    border-radius: 16px; margin-bottom: 20px; cursor: pointer; transition: transform 0.1s;
+}
+.code-display:hover { transform: scale(1.02); }
+.code-label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 2px; }
+.code-value { font-size: 56px; font-weight: 800; color: #166534; letter-spacing: 12px; font-family: monospace; }
+.code-hint { font-size: 11px; color: #aaa; margin-top: 8px; }
+
+.live-controls { display: flex; gap: 12px; margin-bottom: 24px; }
+.btn-live-start {
+    flex: 1; padding: 14px; background: #22c55e; color: white; border: none;
+    border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;
+}
+.btn-live-start:hover { background: #16a34a; }
+.btn-live-end {
+    flex: 1; padding: 14px; background: #ef4444; color: white; border: none;
+    border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;
+}
+.btn-live-end:hover { background: #dc2626; }
+
+.participants-list { margin-bottom: 24px; }
+.participants-list h3 { font-size: 15px; color: #333; margin-bottom: 12px; }
+.participant-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.participant-chip {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px; background: #f3f4f6; border-radius: 20px; font-size: 13px;
+}
+.participant-chip.active { background: #f0fdf4; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #d1d5db; }
+.dot.online { background: #22c55e; }
+
+.materials-section {
+    margin-top: 24px; padding-top: 24px; border-top: 1px solid #eee;
+}
+.materials-section h3 { font-size: 15px; margin-bottom: 12px; }
+.material-upload-area { margin-bottom: 16px; }
+.upload-label {
+    display: inline-block; padding: 10px 20px; background: #f3f4f6;
+    border: 1px dashed #ccc; border-radius: 8px; cursor: pointer;
+    font-size: 13px; color: #555; transition: background 0.2s;
+}
+.upload-label:hover { background: #e5e7eb; }
+.material-list { display: flex; flex-direction: column; gap: 8px; }
+.material-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; background: #fafafa; border-radius: 8px;
+}
+.material-type {
+    background: #dbeafe; color: #1e40af; padding: 2px 8px;
+    border-radius: 4px; font-size: 11px; font-weight: 600;
+}
+.material-title { flex: 1; font-size: 13px; }
+.btn-material-delete {
+    background: none; border: none; color: #aaa; font-size: 18px;
+    cursor: pointer; padding: 0 4px;
+}
+.btn-material-delete:hover { color: #ef4444; }
+.empty-text { color: #aaa; font-size: 13px; }
 </style>

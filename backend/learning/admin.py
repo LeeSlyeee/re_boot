@@ -1,7 +1,8 @@
 from django.contrib import admin
 from .models import (
     Lecture, LearningSession, STTLog, SessionSummary, 
-    DailyQuiz, QuizQuestion, QuizAttempt, VectorStore
+    DailyQuiz, QuizQuestion, QuizAttempt, VectorStore,
+    LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog
 )
 
 @admin.register(Lecture)
@@ -33,3 +34,29 @@ class VectorStoreAdmin(admin.ModelAdmin):
     
     def content_preview(self, obj):
         return obj.content[:100] + "..."
+
+
+# ── Phase 0: 라이브 세션 인프라 ──
+
+@admin.register(LiveSession)
+class LiveSessionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'title', 'session_code', 'status', 'lecture', 'instructor', 'created_at')
+    list_filter = ('status',)
+    search_fields = ('session_code', 'title', 'lecture__title')
+
+@admin.register(LiveParticipant)
+class LiveParticipantAdmin(admin.ModelAdmin):
+    list_display = ('id', 'student', 'live_session', 'is_active', 'joined_at')
+    list_filter = ('is_active',)
+
+@admin.register(LectureMaterial)
+class LectureMaterialAdmin(admin.ModelAdmin):
+    list_display = ('id', 'title', 'file_type', 'lecture', 'uploaded_by', 'uploaded_at')
+    list_filter = ('file_type',)
+
+@admin.register(LiveSTTLog)
+class LiveSTTLogAdmin(admin.ModelAdmin):
+    list_display = ('id', 'live_session', 'sequence_order', 'text_preview')
+
+    def text_preview(self, obj):
+        return obj.text_chunk[:50] + "..." if len(obj.text_chunk) > 50 else obj.text_chunk
