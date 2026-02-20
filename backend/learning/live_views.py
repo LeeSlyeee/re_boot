@@ -303,6 +303,7 @@ class LiveSessionViewSet(viewsets.ViewSet):
             correct_answer=correct_answer,
             explanation=explanation,
             is_ai_generated=False,
+            time_limit=int(request.data.get('time_limit', 60)),
         )
 
         return Response({
@@ -310,6 +311,7 @@ class LiveSessionViewSet(viewsets.ViewSet):
             'question_text': quiz.question_text,
             'options': quiz.options,
             'is_active': quiz.is_active,
+            'time_limit': quiz.time_limit,
             'triggered_at': quiz.triggered_at,
         }, status=status.HTTP_201_CREATED)
 
@@ -394,12 +396,18 @@ class LiveSessionViewSet(viewsets.ViewSet):
         pending = []
         for q in active_quizzes:
             if not q.responses.filter(student=request.user).exists():
-                pending.append({
-                    'id': q.id,
-                    'question_text': q.question_text,
-                    'options': q.options,
-                    'triggered_at': q.triggered_at,
-                })
+                # 남은 시간 계산
+                elapsed = (timezone.now() - q.triggered_at).total_seconds()
+                remaining = max(0, q.time_limit - int(elapsed))
+                if remaining > 0:  # 시간 지난 퀀즈는 제외
+                    pending.append({
+                        'id': q.id,
+                        'question_text': q.question_text,
+                        'options': q.options,
+                        'time_limit': q.time_limit,
+                        'remaining_seconds': remaining,
+                        'triggered_at': q.triggered_at,
+                    })
 
         return Response(pending)
 

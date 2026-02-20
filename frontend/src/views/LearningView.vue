@@ -36,6 +36,31 @@ const quizResult = ref(null);
 const quizAnswering = ref(false);
 const liveNote = ref(null);
 const notePolling = ref(null);
+const quizTimer = ref(0);
+const quizTimerInterval = ref(null);
+const quizTimeLimit = ref(60);
+
+const timerPercent = computed(() => {
+    if (quizTimeLimit.value <= 0) return 100;
+    return Math.max(0, (quizTimer.value / quizTimeLimit.value) * 100);
+});
+
+// pendingQuiz가 set되면 카운트다운 시작
+watch(pendingQuiz, (newQuiz) => {
+    if (quizTimerInterval.value) { clearInterval(quizTimerInterval.value); quizTimerInterval.value = null; }
+    if (newQuiz) {
+        quizTimeLimit.value = newQuiz.time_limit || 60;
+        quizTimer.value = newQuiz.remaining_seconds || newQuiz.time_limit || 60;
+        quizTimerInterval.value = setInterval(() => {
+            quizTimer.value--;
+            if (quizTimer.value <= 0) {
+                clearInterval(quizTimerInterval.value);
+                quizTimerInterval.value = null;
+                pendingQuiz.value = null; // 시간초과 → 자동 닫기
+            }
+        }, 1000);
+    }
+});
 
 const joinLiveSession = async () => {
     const code = liveSessionCode.value.trim().toUpperCase();
@@ -452,6 +477,15 @@ const joinClass = async () => {
 onMounted(async () => {
     try {
         console.log("🚀 LearningView Mounted.");
+        
+        // [QR/URL 자동 입장] ?live=XXXXXX 파라미터 감지
+        const liveCode = route.query.live;
+        if (liveCode && liveCode.length === 6) {
+            console.log(`📱 QR/URL 자동 입장 감지: ${liveCode}`);
+            liveSessionCode.value = liveCode;
+            await joinLiveSession();
+            return; // 라이브 모드로 진입하므로 나머지 초기화 스킵
+        }
         
         // [NEW] Check for Lecture Mode (from Dashboard)
         const queryLectureId = route.query.lectureId;
@@ -1160,7 +1194,13 @@ const openSessionReview = (id) => {
             <!-- 퀴즈 팝업 모달 -->
             <div v-if="pendingQuiz" class="quiz-modal-overlay">
                 <div class="quiz-modal">
-                    <h3>📝 체크포인트 퀴즈!</h3>
+                    <div class="quiz-timer-bar">
+                        <div class="timer-fill" :style="{ width: timerPercent + '%' }" :class="{ urgent: quizTimer <= 10 }"></div>
+                    </div>
+                    <div class="quiz-header-row">
+                        <h3>📝 체크포인트 퀴즈!</h3>
+                        <span class="quiz-countdown" :class="{ urgent: quizTimer <= 10 }">⏱ {{ quizTimer }}초</span>
+                    </div>
                     <p class="quiz-question">{{ pendingQuiz.question_text }}</p>
                     <div class="quiz-options">
                         <button v-for="(opt, idx) in pendingQuiz.options" :key="idx"
@@ -2244,6 +2284,21 @@ const openSessionReview = (id) => {
 
 .quiz-modal.result h3 { font-size: 28px; }
 .quiz-explanation { color: #1e40af; background: #eff6ff; padding: 12px; border-radius: 8px; font-size: 13px; margin: 12px 0; }
+
+/* Quiz Timer */
+.quiz-timer-bar {
+    height: 6px; background: #e5e7eb; border-radius: 16px 16px 0 0;
+    margin: -32px -32px 16px -32px; overflow: hidden;
+}
+.timer-fill {
+    height: 100%; background: #3b82f6; transition: width 1s linear;
+}
+.timer-fill.urgent { background: #ef4444; }
+.quiz-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.quiz-header-row h3 { margin: 0; }
+.quiz-countdown { font-size: 20px; font-weight: 700; color: #3b82f6; }
+.quiz-countdown.urgent { color: #ef4444; animation: pulse-warn 0.5s infinite; }
+@keyframes pulse-warn { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
 
 /* ── Live Note ── */
 .note-loading { text-align: center; padding: 20px; }

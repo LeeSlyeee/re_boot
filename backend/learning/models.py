@@ -342,6 +342,7 @@ class LiveQuiz(models.Model):
     explanation = models.TextField(blank=True, help_text="해설")
     is_ai_generated = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True, help_text="현재 활성 퀴즈 여부")
+    time_limit = models.IntegerField(default=60, help_text="제한 시간 (초)")
     triggered_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

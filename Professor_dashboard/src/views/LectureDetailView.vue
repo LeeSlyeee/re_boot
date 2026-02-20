@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../api/axios';
+import QrcodeVue from 'qrcode.vue';
 import { Bar, Doughnut } from 'vue-chartjs';
 import { Chart as ChartJS, Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement } from 'chart.js';
 
@@ -367,6 +368,19 @@ const copyLiveCode = async () => {
     if (!liveSession.value?.session_code) return;
     try { await navigator.clipboard.writeText(liveSession.value.session_code); alert('코드 복사 완료!'); } catch {}
 };
+
+// QR코드에 인코딩될 URL (학습자 프론트 + 세션코드)
+const qrJoinUrl = computed(() => {
+    const code = liveSession.value?.session_code || '';
+    return `${window.location.origin}/learning?live=${code}`;
+});
+
+// 펄스 50% 미만 경고
+const pulseWarning = computed(() => {
+    const rate = pulseStats.value?.understand_rate || 0;
+    const total = pulseStats.value?.total || 0;
+    return total > 0 && rate < 50;
+});
 
 const fetchMaterials = async () => {
     try { const { data } = await api.get(`/learning/materials/list/?lecture_id=${lectureId}`); materials.value = data; } catch {}
@@ -1006,11 +1020,17 @@ onMounted(fetchDashboard);
                     </span>
                 </div>
 
-                <!-- 대형 코드 디스플레이 -->
-                <div class="code-display" @click="copyLiveCode">
-                    <span class="code-label">입장 코드</span>
-                    <span class="code-value">{{ liveSession.session_code }}</span>
-                    <span class="code-hint">클릭하여 복사</span>
+                <!-- 대형 코드 + QR 디스플레이 -->
+                <div class="code-qr-row">
+                    <div class="code-display" @click="copyLiveCode">
+                        <span class="code-label">입장 코드</span>
+                        <span class="code-value">{{ liveSession.session_code }}</span>
+                        <span class="code-hint">클릭하여 복사</span>
+                    </div>
+                    <div class="qr-display">
+                        <QrcodeVue :value="qrJoinUrl" :size="160" level="M" />
+                        <span class="qr-hint">QR 스캔으로 입장</span>
+                    </div>
                 </div>
 
                 <!-- 컨트롤 버튼 -->
@@ -1024,8 +1044,11 @@ onMounted(fetchDashboard);
                 </div>
 
                 <!-- 이해도 펄스 게이지 (LIVE일 때만) -->
-                <div v-if="liveSession.status === 'LIVE' && pulseStats.total > 0" class="pulse-gauge-section">
+                <div v-if="liveSession.status === 'LIVE' && pulseStats.total > 0" class="pulse-gauge-section" :class="{ warning: pulseWarning }">
                     <h3>📊 실시간 이해도</h3>
+                    <div v-if="pulseWarning" class="pulse-alert">
+                        ⚠️ 이해도가 50% 미만입니다! 보충 설명을 권장합니다.
+                    </div>
                     <div class="pulse-gauge">
                         <div class="gauge-bar">
                             <div class="gauge-fill understand" :style="{ width: pulseStats.understand_rate + '%' }"></div>
@@ -1418,6 +1441,15 @@ tr:hover td { background: #fafbfc; }
 .code-value { font-size: 56px; font-weight: 800; color: #166534; letter-spacing: 12px; font-family: monospace; }
 .code-hint { font-size: 11px; color: #aaa; margin-top: 8px; }
 
+.code-qr-row { display: flex; gap: 24px; align-items: center; margin-bottom: 20px; }
+.code-qr-row .code-display { flex: 1; margin-bottom: 0; }
+.qr-display {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 16px; background: white; border-radius: 12px;
+    border: 1px solid #e5e7eb;
+}
+.qr-hint { font-size: 11px; color: #888; }
+
 .live-controls { display: flex; gap: 12px; margin-bottom: 24px; }
 .btn-live-start {
     flex: 1; padding: 14px; background: #22c55e; color: white; border: none;
@@ -1470,10 +1502,17 @@ tr:hover td { background: #fafbfc; }
 .empty-text { color: #aaa; font-size: 13px; }
 
 /* ── Pulse Gauge ── */
-.pulse-gauge-section { margin-bottom: 24px; padding: 16px; background: #fafafa; border-radius: 12px; }
+.pulse-gauge-section { margin-bottom: 24px; padding: 16px; background: #fafafa; border-radius: 12px; transition: all 0.3s; }
+.pulse-gauge-section.warning { background: #fef2f2; border: 2px solid #ef4444; box-shadow: 0 0 12px rgba(239,68,68,0.2); }
 .pulse-gauge-section h3 { font-size: 14px; margin: 0 0 12px; color: #333; }
 .pulse-gauge-section.empty { text-align: center; }
 .pulse-waiting { color: #aaa; font-size: 13px; margin: 0; }
+.pulse-alert {
+    padding: 8px 12px; background: #ef4444; color: white; border-radius: 8px;
+    font-size: 13px; font-weight: 600; margin-bottom: 12px; text-align: center;
+    animation: pulse-warn 1.5s infinite;
+}
+@keyframes pulse-warn { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
 
 .gauge-bar {
     display: flex; height: 28px; border-radius: 14px; overflow: hidden;
