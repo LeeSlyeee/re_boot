@@ -23,8 +23,7 @@ api.interceptors.request.use((config) => {
     }
 
     if (token) {
-        config.headers['Authorization'] = `Bearer ${token}`; // Use Bracket notation for safety
-        console.log("Attached Token:", token.substring(0, 10) + "..."); // Debugging Log
+        config.headers['Authorization'] = `Bearer ${token}`;
     } else {
         // console.warn("No token found in localStorage");
     }

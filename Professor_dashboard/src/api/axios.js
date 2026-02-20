@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const api = axios.create({
     baseURL: '/api',
-    timeout: 10000,
+    timeout: 300000, // 5분 (녹음 업로드 파이프라인 대응)
     headers: {
         'Content-Type': 'application/json',
     }

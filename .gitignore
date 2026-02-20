@@ -2,3 +2,20 @@ backend/.env
 venv/
 venv_win/
 __pycache__/
+
+# 업로드된 미디어 파일 (녹음 등)
+backend/media/
+
+# 디버그 로그
+*.log
+debug_stt.log*
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Node
+node_modules/
+dist/
