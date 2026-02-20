@@ -1205,14 +1205,31 @@ const openSessionReview = (id) => {
                     <div v-else-if="liveNote.status === 'PENDING'" class="note-loading">
                         <p>📝 AI가 통합 노트를 작성하고 있습니다... 잠시만 기다려주세요.</p>
                     </div>
-                    <div v-else-if="liveNote.status === 'DONE'" class="note-content">
-                        <h3>📚 통합 노트</h3>
-                        <div class="note-stats" v-if="liveNote.stats">
-                            <span>⏱ {{ liveNote.stats.duration_minutes }}분</span>
-                            <span>👥 {{ liveNote.stats.total_participants }}명</span>
-                            <span>📊 이해도 {{ liveNote.stats.understand_rate }}%</span>
+                    <div v-else-if="liveNote.status === 'DONE'">
+                        <!-- 미승인 상태 -->
+                        <div v-if="liveNote.is_approved === false" class="note-pending-approval">
+                            <p>📋 통합 노트가 생성되었습니다.</p>
+                            <p>교수자가 노트를 검토 중입니다. 승인 후 열람할 수 있습니다.</p>
                         </div>
-                        <div class="note-body" v-html="renderMarkdown(liveNote.content)"></div>
+                        <!-- 승인된 노트 -->
+                        <div v-else class="note-content">
+                            <h3>📚 통합 노트</h3>
+                            <div class="note-stats" v-if="liveNote.stats">
+                                <span>⏱ {{ liveNote.stats.duration_minutes }}분</span>
+                                <span>👥 {{ liveNote.stats.total_participants }}명</span>
+                                <span>📊 이해도 {{ liveNote.stats.understand_rate }}%</span>
+                            </div>
+                            <div class="note-body" v-html="renderMarkdown(liveNote.content)"></div>
+                            <!-- 연결된 교안 -->
+                            <div v-if="liveNote.linked_materials && liveNote.linked_materials.length > 0" class="linked-materials">
+                                <h4>📎 관련 교안</h4>
+                                <div v-for="m in liveNote.linked_materials" :key="m.id" class="linked-material-item">
+                                    <span class="lm-type">{{ m.file_type }}</span>
+                                    <a v-if="m.file_url" :href="m.file_url" target="_blank" class="lm-link">{{ m.title }}</a>
+                                    <span v-else>{{ m.title }}</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <button class="btn btn-secondary" @click="leaveLiveSession" style="margin-top:16px;">나가기</button>
                 </div>
@@ -2446,4 +2463,21 @@ const openSessionReview = (id) => {
 .answer-badge { font-size: 10px; font-weight: 600; margin-right: 4px; }
 .qa-pending { font-size: 11px; color: #64748b; font-style: italic; }
 .qa-empty { text-align: center; color: #64748b; font-size: 13px; padding: 20px; }
+
+/* ── Note Approval + Materials ── */
+.note-pending-approval {
+    text-align: center; padding: 24px; color: #94a3b8;
+    background: rgba(245,158,11,0.08); border: 1px dashed rgba(245,158,11,0.3);
+    border-radius: 10px;
+}
+.note-pending-approval p { margin: 4px 0; }
+
+.linked-materials { margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); }
+.linked-materials h4 { color: #94a3b8; font-size: 13px; margin: 0 0 8px; }
+.linked-material-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 0;
+}
+.lm-type { font-size: 10px; padding: 2px 6px; background: rgba(59,130,246,0.2); color: #93c5fd; border-radius: 4px; font-weight: 600; }
+.lm-link { color: #60a5fa; text-decoration: none; font-size: 13px; }
+.lm-link:hover { text-decoration: underline; }
 </style>

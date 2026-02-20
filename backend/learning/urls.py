@@ -4,7 +4,7 @@ from .views import LearningSessionViewSet, EnrollLectureView, PublicLectureListV
 from .views_assessment import AssessmentViewSet
 from .professor_views import LectureViewSet
 from .rag_views import RAGViewSet
-from .live_views import LiveSessionViewSet, JoinLiveSessionView, LectureMaterialViewSet, LiveNoteView
+from .live_views import LiveSessionViewSet, JoinLiveSessionView, LectureMaterialViewSet, LiveNoteView, NoteApproveView, NoteMaterialLinkView, AbsentNoteListView
 from .placement_views import PlacementViewSet, GoalViewSet, GapMapViewSet, ProfessorDiagnosticView
 
 router = DefaultRouter()
@@ -30,6 +30,9 @@ urlpatterns = [
     # 라이브 세션 입장 (학생용)
     path('live/join/', JoinLiveSessionView.as_view(), name='live-join'),
     path('live/<int:pk>/note/', LiveNoteView.as_view(), name='live-note'),
+    path('live/<int:pk>/note/approve/', NoteApproveView.as_view(), name='note-approve'),
+    path('live/<int:pk>/note/materials/', NoteMaterialLinkView.as_view(), name='note-materials'),
+    path('absent-notes/<int:lecture_id>/', AbsentNoteListView.as_view(), name='absent-notes'),
     # Phase 1: 교수자 진단 분석
     path('professor/<int:lecture_id>/diagnostics/', ProfessorDiagnosticView.as_view(), name='professor-diagnostics'),
     path('', include(router.urls)),

@@ -304,6 +304,33 @@ const renderInsightMarkdown = (text) => {
         .replace(/\n/g, '<br/>');
 };
 
+// ── Step E: 승인 + 교안 매핑 ──
+const makePublicForAbsent = ref(true);
+const selectedMaterialIds = ref([]);
+
+const approveNote = async () => {
+    if (!liveSession.value) return;
+    try {
+        const { data } = await api.post(`/learning/live/${liveSession.value.id}/note/approve/`, {
+            is_public: makePublicForAbsent.value,
+        });
+        if (data.ok) {
+            insightData.value = { ...insightData.value, is_approved: true, is_public: data.is_public };
+            alert('노트가 승인되어 학생에게 공개됩니다.');
+        }
+    } catch (e) { alert('승인 실패: ' + (e.response?.data?.error || '')); }
+};
+
+const linkMaterials = async () => {
+    if (!liveSession.value) return;
+    try {
+        const { data } = await api.post(`/learning/live/${liveSession.value.id}/note/materials/`, {
+            material_ids: selectedMaterialIds.value,
+        });
+        alert(`${data.linked_count}개 교안이 연결되었습니다.`);
+    } catch (e) { alert('교안 연결 실패'); }
+};
+
 const startLivePolling = () => {
     stopLivePolling();
     livePollingTimer.value = setInterval(async () => {
@@ -1387,6 +1414,36 @@ onMounted(fetchDashboard);
                     <!-- 교수자 인사이트 마크다운 -->
                     <div v-if="insightData.instructor_insight" class="insight-body" v-html="renderInsightMarkdown(insightData.instructor_insight)"></div>
                     <p v-else class="insight-pending">인사이트 리포트 생성 중...</p>
+
+                    <!-- 교안 매핑 -->
+                    <div class="material-link-section" v-if="insightData">
+                        <h3>📎 교안 연결</h3>
+                        <div v-if="lectureMaterials.length > 0" class="material-checklist">
+                            <label v-for="m in lectureMaterials" :key="m.id" class="material-check-item">
+                                <input type="checkbox" :value="m.id" v-model="selectedMaterialIds" />
+                                <span class="material-type-badge">{{ m.file_type }}</span>
+                                {{ m.title }}
+                            </label>
+                        </div>
+                        <p v-else class="empty-text">업로드된 교안이 없습니다.</p>
+                        <button v-if="lectureMaterials.length > 0" class="btn-link-materials" @click="linkMaterials">📎 교안 연결 저장</button>
+                    </div>
+
+                    <!-- 승인 컨트롤 -->
+                    <div class="approve-section" v-if="insightData && !insightData.is_approved">
+                        <p class="approve-notice">⚠️ 아직 학생에게 노트가 공개되지 않았습니다. 검토 후 승인해주세요.</p>
+                        <div class="approve-options">
+                            <label class="approve-check">
+                                <input type="checkbox" v-model="makePublicForAbsent" />
+                                결석생에게도 공개 (결석 보충용)
+                            </label>
+                        </div>
+                        <button class="btn-approve" @click="approveNote">✅ 노트 승인 → 학생 공개</button>
+                    </div>
+                    <div v-else-if="insightData && insightData.is_approved" class="approved-badge">
+                        ✅ 승인 완료 — 학생에게 공개 중
+                        <span v-if="insightData.is_public"> (결석생 포함)</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2031,4 +2088,36 @@ tr:hover td { background: #fafbfc; }
 .insight-body h4 { font-size: 14px; margin: 10px 0 4px; color: #475569; }
 .insight-body li { margin-left: 16px; list-style: disc; margin-bottom: 4px; }
 .insight-body strong { color: #1e40af; }
+
+/* ── Step E: Approve & Materials ── */
+.material-link-section { margin-top: 20px; padding: 16px; background: #f9fafb; border-radius: 10px; border: 1px solid #e5e7eb; }
+.material-link-section h3 { font-size: 14px; margin: 0 0 10px; color: #333; }
+.material-checklist { display: flex; flex-direction: column; gap: 6px; }
+.material-check-item { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; padding: 6px 0; }
+.material-check-item input[type=checkbox] { width: 16px; height: 16px; }
+.material-type-badge { font-size: 10px; padding: 2px 6px; background: #dbeafe; color: #2563eb; border-radius: 4px; font-weight: 600; }
+.btn-link-materials {
+    margin-top: 10px; padding: 8px 16px; background: #6366f1; color: white; border: none;
+    border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.btn-link-materials:hover { background: #4f46e5; }
+
+.approve-section {
+    margin-top: 20px; padding: 16px; background: #fffbeb; border: 1px solid #fde68a;
+    border-radius: 10px;
+}
+.approve-notice { color: #92400e; font-size: 13px; margin: 0 0 10px; font-weight: 500; }
+.approve-options { margin-bottom: 12px; }
+.approve-check { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.approve-check input[type=checkbox] { width: 16px; height: 16px; }
+.btn-approve {
+    padding: 10px 24px; background: #22c55e; color: white; border: none;
+    border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.btn-approve:hover { background: #16a34a; }
+
+.approved-badge {
+    margin-top: 16px; padding: 12px; background: #f0fdf4; border: 1px solid #bbf7d0;
+    border-radius: 8px; color: #16a34a; font-weight: 600; font-size: 14px; text-align: center;
+}
 </style>

@@ -410,6 +410,11 @@ class LiveSessionNote(models.Model):
     instructor_insight = models.TextField(blank=True, help_text="교수자용 인사이트 리포트 (Markdown)")
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
     stats = models.JSONField(default=dict, help_text="세션 통계 (참가자수, 정답률 등)")
+    # Step E: 승인 + 교안 매핑
+    is_approved = models.BooleanField(default=False, help_text="교수자 승인 여부 (True=학생 공개)")
+    approved_at = models.DateTimeField(null=True, blank=True)
+    linked_materials = models.ManyToManyField('LectureMaterial', blank=True, related_name='linked_notes', help_text="세션에 연결된 교안")
+    is_public = models.BooleanField(default=False, help_text="결석생 포함 전체 공개 여부")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
