@@ -170,6 +170,7 @@ const showQuiz = ref(false);
 const quizAnswers = ref({});
 const quizResult = ref(null);
 const isGeneratingQuiz = ref(false);
+const isSubmittingQuiz = ref(false);
 
 // --- RAG Chat State ---
 const isChatOpen = ref(false);
@@ -853,13 +854,18 @@ const startVideoLecture = async () => {
 };
 
 const submitQuiz = async () => {
-    if (!quizData.value) return;
+    if (!quizData.value || isSubmittingQuiz.value) return;
+    isSubmittingQuiz.value = true;
     try {
         const { data } = await api.post(`/learning/assessment/${quizData.value.id}/submit/`, {
             answers: quizAnswers.value
         });
         quizResult.value = data;
-    } catch (e) { alert("제출 실패"); }
+    } catch (e) {
+        alert("제출 실패: " + (e.response?.data?.error || "서버 오류"));
+    } finally {
+        isSubmittingQuiz.value = false;
+    }
 };
 
 const formatTime = (isoString) => {
@@ -1206,8 +1212,18 @@ const openSessionReview = (id) => {
                         </div>
                     </div>
                     <div class="quiz-footer">
-                        <button class="btn btn-primary btn-full" @click="submitQuiz">제출</button>
-                        <button class="btn btn-secondary btn-full" style="margin-top:10px" @click="showQuiz=false">닫기</button>
+                        <button 
+                            class="btn btn-primary btn-full" 
+                            @click="submitQuiz" 
+                            :disabled="isSubmittingQuiz"
+                        >
+                            <span v-if="isSubmittingQuiz" class="submit-spinner-wrap">
+                                <span class="spinner-small"></span>
+                                AI가 채점 중...
+                            </span>
+                            <span v-else>제출</span>
+                        </button>
+                        <button class="btn btn-secondary btn-full" style="margin-top:10px" @click="showQuiz=false" :disabled="isSubmittingQuiz">닫기</button>
                     </div>
                 </div>
              </div>
@@ -1485,6 +1501,15 @@ const openSessionReview = (id) => {
 .question-item { .q-title { font-weight: bold; margin-bottom: 10px; } }
 .options-group { display: flex; flex-direction: column; gap: 8px; }
 .quiz-footer { padding: 20px; }
+.quiz-footer button:disabled { opacity: 0.6; cursor: not-allowed; }
+.submit-spinner-wrap {
+    display: inline-flex; align-items: center; gap: 8px;
+}
+.spinner-small {
+    width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white; border-radius: 50%;
+    animation: spin 0.8s linear infinite; display: inline-block;
+}
 
 /* Review Note */
 .review-note-section {
