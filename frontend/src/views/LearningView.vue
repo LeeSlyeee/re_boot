@@ -1442,6 +1442,20 @@ const openSessionReview = (id) => {
                 </div>
             </div>
 
+            <!-- 📝 교수자 실시간 자막 -->
+            <div v-if="liveSessionData.status === 'LIVE' || sttLogs.length > 0" class="glass-panel live-subtitle-panel">
+                <h3 class="subtitle-header">📝 실시간 자막 <span class="subtitle-count" v-if="sttLogs.length > 0">({{ sttLogs.length }})</span></h3>
+                <div class="subtitle-scroll" ref="subtitleScroll">
+                    <div v-if="sttLogs.length === 0" class="subtitle-empty">
+                        <p>🎙️ 교수자가 강의를 시작하면 여기에 내용이 표시됩니다...</p>
+                    </div>
+                    <div v-for="log in sttLogs" :key="log.id || log.seq" class="subtitle-bubble">
+                        <span class="subtitle-time">{{ log.timestamp }}</span>
+                        <p class="subtitle-text">{{ log.text_chunk }}</p>
+                    </div>
+                </div>
+            </div>
+
             <!-- 이해도 펄스 플로팅 버튼 (LIVE일 때만) -->
             <div v-if="liveSessionData.status === 'LIVE'" class="pulse-floating">
                 <button class="pulse-btn understand" :class="{ active: myPulse === 'UNDERSTAND' }" @click="sendPulse('UNDERSTAND')">
@@ -2543,6 +2557,16 @@ const openSessionReview = (id) => {
 .live-badge.WAITING { background: #fef3c7; color: #92400e; }
 .live-badge.ENDED { background: #e5e7eb; color: #6b7280; }
 @keyframes pulse-live { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
+
+/* 실시간 자막 패널 */
+.live-subtitle-panel { padding: 20px; margin-bottom: 20px; }
+.subtitle-header { margin: 0 0 12px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.subtitle-count { font-size: 12px; color: var(--accent); }
+.subtitle-scroll { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.subtitle-empty p { color: #9ca3af; font-size: 14px; text-align: center; padding: 40px 0; }
+.subtitle-bubble { display: flex; gap: 10px; align-items: flex-start; padding: 8px 12px; border-radius: 10px; background: rgba(59,130,246,0.06); }
+.subtitle-time { font-size: 11px; color: #6b7280; white-space: nowrap; padding-top: 2px; min-width: 55px; }
+.subtitle-text { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-primary); }
 
 .session-code-small { color: #888; font-size: 13px; margin: 0; }
 .session-ended-notice {
