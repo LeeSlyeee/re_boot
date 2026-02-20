@@ -105,6 +105,41 @@ const answerLiveQuiz = async (quizId, answer) => {
 
 const dismissQuizResult = () => { quizResult.value = null; };
 
+// --- Live Q&A State ---
+const liveQuestions = ref([]);
+const newQuestionText = ref('');
+const qaOpen = ref(false);
+
+const fetchLiveQuestions = async () => {
+    if (!liveSessionData.value) return;
+    try {
+        const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/questions/feed/`);
+        liveQuestions.value = data;
+    } catch {}
+};
+
+const askQuestion = async () => {
+    const text = newQuestionText.value.trim();
+    if (!text || !liveSessionData.value) return;
+    try {
+        await api.post(`/learning/live/${liveSessionData.value.session_id}/questions/ask/`, {
+            question: text,
+        });
+        newQuestionText.value = '';
+        await fetchLiveQuestions();
+    } catch (e) {
+        alert('질문 등록 실패: ' + (e.response?.data?.error || ''));
+    }
+};
+
+const upvoteQuestion = async (questionId) => {
+    if (!liveSessionData.value) return;
+    try {
+        await api.post(`/learning/live/${liveSessionData.value.session_id}/questions/${questionId}/upvote/`);
+        await fetchLiveQuestions();
+    } catch {}
+};
+
 const startLiveStatusPolling = () => {
     stopLiveStatusPolling();
     livePolling.value = setInterval(async () => {
@@ -131,6 +166,8 @@ const startLiveStatusPolling = () => {
                     }
                 } catch {}
             }
+            // Q&A 질문 목록 갱신
+            if (qaOpen.value) await fetchLiveQuestions();
         } catch {}
     }, 5000);
 };
@@ -1221,6 +1258,45 @@ const openSessionReview = (id) => {
                     <p><strong>정답:</strong> {{ quizResult.correct_answer }}</p>
                     <p v-if="quizResult.explanation" class="quiz-explanation">💡 {{ quizResult.explanation }}</p>
                     <button class="btn btn-primary" @click="dismissQuizResult">확인</button>
+                </div>
+            </div>
+
+            <!-- ═══ Q&A 패널 ═══ -->
+            <div v-if="liveSessionData.status === 'LIVE'" class="qa-panel">
+                <button class="qa-toggle" @click="qaOpen = !qaOpen; if(qaOpen) fetchLiveQuestions();">
+                    💬 Q&A ({{ liveQuestions.length }}) {{ qaOpen ? '▼' : '▲' }}
+                </button>
+
+                <div v-if="qaOpen" class="qa-body">
+                    <!-- 질문 입력 -->
+                    <div class="qa-input-row">
+                        <input v-model="newQuestionText" placeholder="궁금한 점을 익명으로 질문하세요..."
+                            @keyup.enter="askQuestion" class="qa-input" />
+                        <button class="qa-send-btn" @click="askQuestion" :disabled="!newQuestionText.trim()">전송</button>
+                    </div>
+
+                    <!-- 질문 목록 -->
+                    <div v-if="liveQuestions.length > 0" class="qa-list">
+                        <div v-for="q in liveQuestions" :key="q.id" class="qa-item" :class="{ answered: q.is_answered }">
+                            <div class="qa-vote">
+                                <button class="vote-btn" @click="upvoteQuestion(q.id)">👍</button>
+                                <span class="vote-count">{{ q.upvotes }}</span>
+                            </div>
+                            <div class="qa-content">
+                                <p class="qa-question-text">{{ q.question_text }}</p>
+                                <div v-if="q.instructor_answer" class="qa-answer instructor">
+                                    <span class="answer-badge">👨‍🏫 교수자</span>
+                                    {{ q.instructor_answer }}
+                                </div>
+                                <div v-else-if="q.ai_answer" class="qa-answer ai">
+                                    <span class="answer-badge">🤖 AI</span>
+                                    {{ q.ai_answer }}
+                                </div>
+                                <span v-else class="qa-pending">답변 대기 중...</span>
+                            </div>
+                        </div>
+                    </div>
+                    <p v-else class="qa-empty">아직 질문이 없습니다. 첫 질문을 남겨보세요!</p>
                 </div>
             </div>
 
@@ -2318,4 +2394,56 @@ const openSessionReview = (id) => {
 .note-body h4 { font-size: 14px; margin: 10px 0 4px; color: #475569; }
 .note-body li { margin-left: 16px; }
 .note-body strong { color: #1e40af; }
+
+/* ── Q&A Panel (학습자) ── */
+.qa-panel {
+    margin-top: 20px; border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px; overflow: hidden;
+    background: rgba(255,255,255,0.03);
+}
+.qa-toggle {
+    width: 100%; padding: 12px; background: rgba(59,130,246,0.15);
+    color: #93c5fd; border: none; font-size: 14px; font-weight: 600;
+    cursor: pointer; text-align: left;
+}
+.qa-toggle:hover { background: rgba(59,130,246,0.25); }
+
+.qa-body { padding: 12px; max-height: 400px; overflow-y: auto; }
+
+.qa-input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.qa-input {
+    flex: 1; padding: 10px 12px; background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 8px;
+    color: white; font-size: 13px;
+}
+.qa-input::placeholder { color: #64748b; }
+.qa-send-btn {
+    padding: 10px 18px; background: #3b82f6; color: white; border: none;
+    border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.qa-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.qa-list { display: flex; flex-direction: column; gap: 8px; }
+.qa-item {
+    display: flex; gap: 10px; padding: 10px;
+    background: rgba(255,255,255,0.04); border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+}
+.qa-item.answered { border-color: rgba(34,197,94,0.2); }
+
+.qa-vote { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.vote-btn { background: none; border: none; cursor: pointer; font-size: 18px; padding: 2px; }
+.vote-btn:hover { transform: scale(1.2); }
+.vote-count { font-size: 12px; font-weight: 700; color: #f59e0b; }
+
+.qa-content { flex: 1; }
+.qa-question-text { color: white; font-size: 13px; margin: 0 0 6px; line-height: 1.4; }
+.qa-answer {
+    padding: 6px 10px; border-radius: 6px; font-size: 12px; margin-top: 4px; line-height: 1.4;
+}
+.qa-answer.instructor { background: rgba(34,197,94,0.12); color: #86efac; }
+.qa-answer.ai { background: rgba(139,92,246,0.12); color: #c4b5fd; }
+.answer-badge { font-size: 10px; font-weight: 600; margin-right: 4px; }
+.qa-pending { font-size: 11px; color: #64748b; font-style: italic; }
+.qa-empty { text-align: center; color: #64748b; font-size: 13px; padding: 20px; }
 </style>

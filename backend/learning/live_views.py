@@ -657,24 +657,54 @@ class LiveSessionViewSet(viewsets.ViewSet):
     def question_feed(self, request, pk=None):
         """
         GET /api/learning/live/{id}/questions/feed/
-        학생용: 교수자 답변이 달린 질문 피드 (폴링)
+        학생용: 전체 질문 목록 (공감순, 답변 상태 포함)
         """
         session = get_object_or_404(LiveSession, id=pk)
         if not session.participants.filter(student=request.user).exists():
             return Response({'error': '참가자만 조회 가능합니다.'}, status=status.HTTP_403_FORBIDDEN)
 
-        answered = session.questions.filter(is_answered=True)
+        all_questions = session.questions.all()  # ordering은 모델에서 -upvotes
         data = [
             {
                 'id': q.id,
                 'question_text': q.question_text,
+                'ai_answer': q.ai_answer,
                 'instructor_answer': q.instructor_answer,
                 'upvotes': q.upvotes,
+                'is_answered': q.is_answered,
                 'created_at': q.created_at,
             }
-            for q in answered
+            for q in all_questions
         ]
         return Response(data)
+
+    @action(detail=True, methods=['post'], url_path='questions/ask')
+    def ask_question(self, request, pk=None):
+        """
+        POST /api/learning/live/{id}/questions/ask/
+        학생이 직접 Q&A 질문 등록 (익명)
+        """
+        session = get_object_or_404(LiveSession, id=pk, status='LIVE')
+        if not session.participants.filter(student=request.user).exists():
+            return Response({'error': '참가자만 질문할 수 있습니다.'}, status=status.HTTP_403_FORBIDDEN)
+
+        text = request.data.get('question', '').strip()
+        if not text:
+            return Response({'error': 'question은 필수입니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        question = LiveQuestion.objects.create(
+            live_session=session,
+            student=request.user,
+            question_text=text,
+        )
+
+        return Response({
+            'id': question.id,
+            'question_text': question.question_text,
+            'upvotes': 0,
+            'is_answered': False,
+            'created_at': question.created_at,
+        }, status=status.HTTP_201_CREATED)
 
 # ══════════════════════════════════════════════════════════
 # 학습자: 세션 입장
