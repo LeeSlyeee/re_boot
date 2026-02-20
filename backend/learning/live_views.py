@@ -14,7 +14,8 @@ from django.db.models import Count
 
 from .models import (
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog,
-    Lecture, LearningSession, PulseCheck, LiveQuiz, LiveQuizResponse
+    Lecture, LearningSession, PulseCheck, LiveQuiz, LiveQuizResponse,
+    LiveQuestion
 )
 
 import openai
@@ -464,6 +465,90 @@ class LiveSessionViewSet(viewsets.ViewSet):
             ],
         })
 
+    # ── Step 4: Q&A (기존 챗봇 자동 연동) ──
+
+    @action(detail=True, methods=['get'], url_path='questions')
+    def list_questions(self, request, pk=None):
+        """
+        GET /api/learning/live/{id}/questions/
+        교수자용: 익명 질문 목록 (공감순 정렬)
+        """
+        session = get_object_or_404(LiveSession, id=pk)
+        if session.instructor != request.user:
+            return Response({'error': '교수자만 조회 가능합니다.'}, status=status.HTTP_403_FORBIDDEN)
+
+        questions = session.questions.all()
+        data = [
+            {
+                'id': q.id,
+                'question_text': q.question_text,
+                'ai_answer': q.ai_answer,
+                'instructor_answer': q.instructor_answer,
+                'upvotes': q.upvotes,
+                'is_answered': q.is_answered,
+                'created_at': q.created_at,
+            }
+            for q in questions
+        ]
+        return Response(data)
+
+    @action(detail=True, methods=['post'], url_path=r'questions/(?P<question_id>\d+)/answer')
+    def answer_question(self, request, pk=None, question_id=None):
+        """
+        POST /api/learning/live/{id}/questions/{qid}/answer/
+        교수자가 질문에 답변
+        """
+        session = get_object_or_404(LiveSession, id=pk, instructor=request.user)
+        question = get_object_or_404(LiveQuestion, id=question_id, live_session=session)
+
+        answer_text = request.data.get('answer', '')
+        if not answer_text:
+            return Response({'error': 'answer는 필수입니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        question.instructor_answer = answer_text
+        question.is_answered = True
+        question.save()
+
+        return Response({'id': question.id, 'is_answered': True, 'instructor_answer': answer_text})
+
+    @action(detail=True, methods=['post'], url_path=r'questions/(?P<question_id>\d+)/upvote')
+    def upvote_question(self, request, pk=None, question_id=None):
+        """
+        POST /api/learning/live/{id}/questions/{qid}/upvote/
+        학생이 다른 학생의 질문에 공감
+        """
+        session = get_object_or_404(LiveSession, id=pk)
+        if not session.participants.filter(student=request.user).exists():
+            return Response({'error': '참가자만 공감할 수 있습니다.'}, status=status.HTTP_403_FORBIDDEN)
+
+        question = get_object_or_404(LiveQuestion, id=question_id, live_session=session)
+        question.upvotes += 1
+        question.save()
+
+        return Response({'id': question.id, 'upvotes': question.upvotes})
+
+    @action(detail=True, methods=['get'], url_path='questions/feed')
+    def question_feed(self, request, pk=None):
+        """
+        GET /api/learning/live/{id}/questions/feed/
+        학생용: 교수자 답변이 달린 질문 피드 (폴링)
+        """
+        session = get_object_or_404(LiveSession, id=pk)
+        if not session.participants.filter(student=request.user).exists():
+            return Response({'error': '참가자만 조회 가능합니다.'}, status=status.HTTP_403_FORBIDDEN)
+
+        answered = session.questions.filter(is_answered=True)
+        data = [
+            {
+                'id': q.id,
+                'question_text': q.question_text,
+                'instructor_answer': q.instructor_answer,
+                'upvotes': q.upvotes,
+                'created_at': q.created_at,
+            }
+            for q in answered
+        ]
+        return Response(data)
 
 # ══════════════════════════════════════════════════════════
 # 학습자: 세션 입장

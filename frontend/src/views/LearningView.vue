@@ -302,8 +302,10 @@ const sendChatMessage = async () => {
     try {
         const res = await api.post('/learning/rag/ask/', {
             q: userText,
-            session_id: sessionId.value, // 현재 세션 문맥 포함
-            lecture_id: currentLectureId.value // 현재 강의 범위 포함
+            session_id: sessionId.value,
+            lecture_id: currentLectureId.value,
+            // 라이브 세션 중이면 자동으로 교수자에게 익명 전달
+            live_session_id: liveSessionData.value?.session_id || null,
         });
 
         chatMessages.value.push({ role: 'ai', text: res.data.answer });

@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .rag import RAGService
-from .models import VectorStore
+from .models import VectorStore, LiveQuestion, LiveParticipant, LiveSession
 
 class RAGViewSet(viewsets.ViewSet):
     """
@@ -50,7 +50,7 @@ class RAGViewSet(viewsets.ViewSet):
             for res in results:
                 data.append({
                     "content": res.content,
-                    "distance": res.distance, # Lower is better
+                    "distance": res.distance,
                     "source": res.source_type,
                     "created_at": res.created_at,
                     "session_id": res.session_id
@@ -64,11 +64,14 @@ class RAGViewSet(viewsets.ViewSet):
     def ask(self, request):
         """
         [고도화된 RAG 질문]
-        Body: { "q": "질문", "session_id": 123 (선택), "lecture_id": 4 (선택) }
+        Body: { "q": "질문", "session_id": 123 (선택), "lecture_id": 4 (선택), "live_session_id": 5 (선택) }
+        
+        live_session_id가 있으면 → AI 답변 + 교수자 대시보드에 익명 자동 전달
         """
         query = request.data.get('q')
         session_id = request.data.get('session_id')
         lecture_id = request.data.get('lecture_id')
+        live_session_id = request.data.get('live_session_id')
         
         if not query:
              return Response({'error': 'Query is required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -76,4 +79,23 @@ class RAGViewSet(viewsets.ViewSet):
         rag_service = RAGService()
         answer = rag_service.generate_answer(query, session_id=session_id, lecture_id=lecture_id)
         
-        return Response({'answer': answer}, status=status.HTTP_200_OK)
+        # 라이브 세션 중이면 → 자동으로 LiveQuestion에 저장 (교수자에게 익명 전달)
+        live_question_id = None
+        if live_session_id and request.user.is_authenticated:
+            try:
+                live_session = LiveSession.objects.get(id=live_session_id, status='LIVE')
+                if live_session.participants.filter(student=request.user).exists():
+                    lq = LiveQuestion.objects.create(
+                        live_session=live_session,
+                        student=request.user,
+                        question_text=query,
+                        ai_answer=answer,
+                    )
+                    live_question_id = lq.id
+            except LiveSession.DoesNotExist:
+                pass  # 라이브 세션이 없거나 종료됨 → 무시, 기존 동작 유지
+        
+        return Response({
+            'answer': answer,
+            'live_question_id': live_question_id,
+        }, status=status.HTTP_200_OK)

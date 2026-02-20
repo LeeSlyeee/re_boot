@@ -284,6 +284,8 @@ const startLivePolling = () => {
             } catch {}
             // 퀴즈 결과 동시 조회
             await fetchQuizResult();
+            // Q&A 질문 동시 조회
+            await fetchLiveQuestions();
         } catch (e) { /* ignore */ }
     }, 5000);
 };
@@ -336,6 +338,30 @@ const fetchQuizResult = async () => {
         const { data } = await api.get(`/learning/live/${liveSession.value.id}/quiz/${lastActiveQuizId.value}/results/`);
         activeQuizResult.value = data;
     } catch { /* ignore */ }
+};
+
+// ── Q&A State ──
+const liveQuestions = ref([]);
+const qaReplyText = ref({});
+
+const fetchLiveQuestions = async () => {
+    if (!liveSession.value) return;
+    try {
+        const { data } = await api.get(`/learning/live/${liveSession.value.id}/questions/`);
+        liveQuestions.value = data;
+    } catch { /* ignore */ }
+};
+
+const replyToQuestion = async (questionId) => {
+    const text = qaReplyText.value[questionId];
+    if (!text || !text.trim()) return;
+    try {
+        await api.post(`/learning/live/${liveSession.value.id}/questions/${questionId}/answer/`, {
+            answer: text
+        });
+        qaReplyText.value[questionId] = '';
+        await fetchLiveQuestions();
+    } catch (e) { alert('답변 실패: ' + (e.response?.data?.error || '')); }
 };
 const copyLiveCode = async () => {
     if (!liveSession.value?.session_code) return;
@@ -1066,6 +1092,35 @@ onMounted(fetchDashboard);
                 </div>
             </div>
 
+                <!-- 실시간 Q&A 피드 (LIVE일 때만) -->
+                <div v-if="liveSession.status === 'LIVE'" class="qa-feed-section">
+                    <h3>💬 실시간 질문 ({{ liveQuestions.length }}건)</h3>
+                    <div v-if="liveQuestions.length === 0" class="qa-empty">
+                        학생들이 챗봇에 질문하면 여기에 익명으로 표시됩니다.
+                    </div>
+                    <div v-else class="qa-list">
+                        <div v-for="q in liveQuestions" :key="q.id" class="qa-item" :class="{ answered: q.is_answered }">
+                            <div class="qa-header">
+                                <span class="qa-badge">익명</span>
+                                <span class="qa-votes">👍 {{ q.upvotes }}</span>
+                            </div>
+                            <p class="qa-question">{{ q.question_text }}</p>
+                            <div v-if="q.ai_answer" class="qa-ai-ref">
+                                <span class="ai-tag">🤖 AI 답변</span>
+                                <p>{{ q.ai_answer.substring(0, 100) }}{{ q.ai_answer.length > 100 ? '...' : '' }}</p>
+                            </div>
+                            <div v-if="q.is_answered" class="qa-instructor-answer">
+                                <span class="instructor-tag">👨‍🏫 내 답변</span>
+                                <p>{{ q.instructor_answer }}</p>
+                            </div>
+                            <div v-else class="qa-reply-form">
+                                <input v-model="qaReplyText[q.id]" :placeholder="'답변 입력...'" class="qa-reply-input" @keyup.enter="replyToQuestion(q.id)" />
+                                <button class="btn-qa-reply" @click="replyToQuestion(q.id)">답변</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             <!-- 교안 업로드 영역 (항상 표시) -->
             <div class="materials-section">
                 <h3>📄 교안 관리</h3>
@@ -1472,4 +1527,43 @@ tr:hover td { background: #fafbfc; }
     border-radius: 8px; font-weight: 600; cursor: pointer;
 }
 .btn-quiz-submit:hover { background: #d97706; }
+
+/* ── Q&A Feed ── */
+.qa-feed-section {
+    margin-bottom: 24px; padding: 16px; background: #fafafa; border-radius: 12px;
+}
+.qa-feed-section h3 { font-size: 14px; margin: 0 0 12px; }
+.qa-empty { color: #aaa; font-size: 13px; text-align: center; padding: 20px; }
+
+.qa-list { display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto; }
+.qa-item {
+    padding: 12px; background: white; border-radius: 8px; border: 1px solid #e5e7eb;
+    transition: border-color 0.2s;
+}
+.qa-item.answered { border-color: #22c55e; background: #f0fdf4; }
+.qa-header { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.qa-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #f3e8ff; color: #7c3aed; }
+.qa-votes { font-size: 12px; color: #888; }
+.qa-question { font-size: 13px; color: #333; margin: 0 0 8px; font-weight: 500; }
+
+.qa-ai-ref {
+    padding: 8px; background: #eff6ff; border-radius: 6px; margin-bottom: 8px;
+}
+.ai-tag { font-size: 10px; color: #3b82f6; font-weight: 600; }
+.qa-ai-ref p { font-size: 11px; color: #666; margin: 4px 0 0; }
+
+.qa-instructor-answer { padding: 8px; background: #f0fdf4; border-radius: 6px; }
+.instructor-tag { font-size: 10px; color: #16a34a; font-weight: 600; }
+.qa-instructor-answer p { font-size: 12px; color: #333; margin: 4px 0 0; }
+
+.qa-reply-form { display: flex; gap: 8px; }
+.qa-reply-input {
+    flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px;
+    font-size: 12px;
+}
+.btn-qa-reply {
+    padding: 8px 16px; background: #3b82f6; color: white; border: none;
+    border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.btn-qa-reply:hover { background: #2563eb; }
 </style>

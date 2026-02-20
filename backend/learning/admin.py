@@ -3,7 +3,7 @@ from .models import (
     Lecture, LearningSession, STTLog, SessionSummary, 
     DailyQuiz, QuizQuestion, QuizAttempt, VectorStore,
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog, PulseCheck,
-    LiveQuiz, LiveQuizResponse
+    LiveQuiz, LiveQuizResponse, LiveQuestion
 )
 
 @admin.register(Lecture)
@@ -79,3 +79,11 @@ class LiveQuizAdmin(admin.ModelAdmin):
 class LiveQuizResponseAdmin(admin.ModelAdmin):
     list_display = ('id', 'quiz', 'student', 'answer', 'is_correct', 'responded_at')
     list_filter = ('is_correct',)
+
+@admin.register(LiveQuestion)
+class LiveQuestionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'live_session', 'question_preview', 'upvotes', 'is_answered', 'created_at')
+    list_filter = ('is_answered',)
+
+    def question_preview(self, obj):
+        return obj.question_text[:50] + '...' if len(obj.question_text) > 50 else obj.question_text

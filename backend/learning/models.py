@@ -367,3 +367,26 @@ class LiveQuizResponse(models.Model):
 
     def __str__(self):
         return f"{self.student.username}: {'✅' if self.is_correct else '❌'} @ Quiz #{self.quiz_id}"
+
+
+class LiveQuestion(models.Model):
+    """
+    라이브 세션 중 학생이 챗봇에 입력한 질문.
+    자동으로 교수자 대시보드에 익명 전달된다.
+    AI 답변은 즉시, 교수자 답변은 후속으로 제공.
+    """
+    live_session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name='questions')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='live_questions')
+    question_text = models.TextField()
+    ai_answer = models.TextField(blank=True, help_text="RAG AI가 즉시 생성한 답변")
+    instructor_answer = models.TextField(blank=True, help_text="교수자가 수동으로 작성한 답변")
+    upvotes = models.IntegerField(default=0, help_text="다른 학생들의 공감 수")
+    cluster_id = models.IntegerField(null=True, blank=True, help_text="유사 질문 그룹 ID")
+    is_answered = models.BooleanField(default=False, help_text="교수자가 답변 완료 여부")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-upvotes', '-created_at']
+
+    def __str__(self):
+        return f"[Q] {self.question_text[:40]}... ({self.upvotes}👍)"
