@@ -253,7 +253,7 @@ class ProfessorDiagnosticView(APIView):
         # 해당 강좌 수강생의 최신 진단 결과
         results = PlacementResult.objects.filter(
             Q(lecture=lecture) | Q(lecture__isnull=True),
-            student__in=lecture.enrolled_students.all()
+            student__in=lecture.students.all()
         ).order_by('student', '-created_at').distinct('student')
 
         level_dist = {1: 0, 2: 0, 3: 0}
@@ -264,13 +264,13 @@ class ProfessorDiagnosticView(APIView):
 
         # 2. 취약 역량 TOP 5
         all_skills = StudentSkill.objects.filter(
-            student__in=lecture.enrolled_students.all(),
+            student__in=lecture.students.all(),
             status='GAP'
         ).values('skill__name', 'skill__category').annotate(
             gap_count=Count('id')
         ).order_by('-gap_count')[:5]
 
-        enrolled_count = lecture.enrolled_students.count()
+        enrolled_count = lecture.students.count()
         weak_skills = [
             {
                 'skill_name': s['skill__name'],
