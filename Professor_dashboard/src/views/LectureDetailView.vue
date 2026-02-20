@@ -16,7 +16,7 @@ const lectureTitle = ref('');
 const lectureCode = ref('');
 
 // Tab Management
-const activeTab = ref('monitor'); // 'monitor' | 'attendance' | 'quiz' | 'recording' | 'live'
+const activeTab = ref('monitor'); // 'monitor' | 'attendance' | 'quiz' | 'recording' | 'live' | 'diagnostic'
 
 const copyCode = async () => {
     try {
@@ -206,6 +206,7 @@ const switchTab = (tab) => {
     if (tab === 'quiz') fetchQuizAnalytics();
     if (tab === 'recording') fetchRecordings();
     if (tab === 'live') fetchLiveStatus();
+    if (tab === 'diagnostic') fetchDiagnostics();
 };
 
 // ── Live Session State ──
@@ -394,6 +395,47 @@ const generateAIQuiz = async () => {
     } catch (e) {
         alert('AI 퀴즈 생성 실패: ' + (e.response?.data?.error || ''));
     } finally { quizGenerating.value = false; }
+};
+
+// ── Phase 1: 진단 분석 ──
+const diagnosticData = ref(null);
+const diagnosticLoading = ref(false);
+
+const fetchDiagnostics = async () => {
+    diagnosticLoading.value = true;
+    try {
+        const { data } = await api.get(`/learning/professor/${lectureId}/diagnostics/`);
+        diagnosticData.value = data;
+    } catch (e) { console.error('진단 데이터 로드 실패:', e); }
+    diagnosticLoading.value = false;
+};
+
+const levelDonutData = computed(() => {
+    if (!diagnosticData.value) return null;
+    const d = diagnosticData.value.level_distribution;
+    return {
+        labels: ['Level 1 (초보)', 'Level 2 (기초)', 'Level 3 (심화)'],
+        datasets: [{
+            data: [d.level_1, d.level_2, d.level_3],
+            backgroundColor: ['#f59e0b', '#3b82f6', '#8b5cf6'],
+            borderWidth: 0,
+        }]
+    };
+});
+
+const donutOptions = {
+    responsive: true,
+    plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 12 }, padding: 16 } },
+    },
+    cutout: '65%',
+};
+
+const weakSkillColor = (rate) => {
+    if (rate >= 70) return '#ef4444';
+    if (rate >= 50) return '#f59e0b';
+    if (rate >= 30) return '#eab308';
+    return '#22c55e';
 };
 
 const submitManualQuiz = async () => {
@@ -646,6 +688,11 @@ onMounted(fetchDashboard);
                 :class="['tab-btn live-tab', { active: activeTab === 'live' }]" 
                 @click="switchTab('live')">
                 🟢 라이브 세션
+            </button>
+            <button 
+                :class="['tab-btn', { active: activeTab === 'diagnostic' }]" 
+                @click="switchTab('diagnostic')">
+                📋 수준 진단
             </button>
         </div>
 
@@ -1276,6 +1323,79 @@ onMounted(fetchDashboard);
             </div>
         </div>
 
+        <!-- ══════════════════════════════════════ -->
+        <!-- 📋 수준 진단 탭                         -->
+        <!-- ══════════════════════════════════════ -->
+        <div v-if="activeTab === 'diagnostic'" class="diagnostic-tab-content">
+            <div v-if="diagnosticLoading" class="diagnostic-loading">
+                <p>진단 분석 데이터를 불러오는 중...</p>
+            </div>
+
+            <div v-else-if="diagnosticData">
+                <!-- 레벨 분포 -->
+                <div class="diagnostic-section">
+                    <h2 class="section-title">📊 학습자 수준 분포</h2>
+                    <div class="level-dist-row">
+                        <div class="donut-wrapper" v-if="levelDonutData">
+                            <Doughnut :data="levelDonutData" :options="donutOptions" />
+                            <div class="donut-center">
+                                <span class="center-num">{{ diagnosticData.diagnosed_count }}</span>
+                                <span class="center-lbl">명 진단</span>
+                            </div>
+                        </div>
+                        <div class="level-cards">
+                            <div class="level-card lv1">
+                                <span class="lv-icon">🌱</span>
+                                <span class="lv-count">{{ diagnosticData.level_distribution.level_1 }}명</span>
+                                <span class="lv-pct">{{ diagnosticData.level_percentages.level_1 }}%</span>
+                                <span class="lv-label">Level 1 · 초보</span>
+                            </div>
+                            <div class="level-card lv2">
+                                <span class="lv-icon">🌿</span>
+                                <span class="lv-count">{{ diagnosticData.level_distribution.level_2 }}명</span>
+                                <span class="lv-pct">{{ diagnosticData.level_percentages.level_2 }}%</span>
+                                <span class="lv-label">Level 2 · 기초</span>
+                            </div>
+                            <div class="level-card lv3">
+                                <span class="lv-icon">🌳</span>
+                                <span class="lv-count">{{ diagnosticData.level_distribution.level_3 }}명</span>
+                                <span class="lv-pct">{{ diagnosticData.level_percentages.level_3 }}%</span>
+                                <span class="lv-label">Level 3 · 심화</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 취약 역량 TOP 5 -->
+                <div class="diagnostic-section">
+                    <h2 class="section-title">🔥 공통 취약 역량 TOP 5</h2>
+                    <p class="section-subtitle">가장 많은 학습자에게 부족한 역량 (강의 우선순위 참고)</p>
+                    <div v-if="diagnosticData.weak_skills_top5.length > 0" class="weak-skills-list">
+                        <div v-for="(skill, i) in diagnosticData.weak_skills_top5" :key="i" class="weak-skill-row">
+                            <span class="ws-rank">{{ i + 1 }}</span>
+                            <div class="ws-info">
+                                <span class="ws-name">{{ skill.skill_name }}</span>
+                                <span class="ws-category">{{ skill.category }}</span>
+                            </div>
+                            <div class="ws-bar-track">
+                                <div class="ws-bar-fill" :style="{ width: skill.gap_rate + '%', background: weakSkillColor(skill.gap_rate) }"></div>
+                            </div>
+                            <span class="ws-rate" :style="{ color: weakSkillColor(skill.gap_rate) }">{{ skill.gap_rate }}%</span>
+                        </div>
+                    </div>
+                    <p v-else class="empty-text">아직 취약 역량 분석 데이터가 없습니다.</p>
+                </div>
+
+                <div class="diagnostic-footer">
+                    <p>총 수강생: {{ diagnosticData.enrolled_count }}명 | 진단 완료: {{ diagnosticData.diagnosed_count }}명</p>
+                </div>
+            </div>
+
+            <div v-else class="diagnostic-empty">
+                <p>진단 데이터가 없습니다. 학습자가 진단 테스트를 완료하면 여기에 표시됩니다.</p>
+            </div>
+        </div>
+
     </div>
 </template>
 
@@ -1769,4 +1889,52 @@ tr:hover td { background: #fafbfc; }
     border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;
 }
 .btn-qa-reply:hover { background: #2563eb; }
+
+/* ── Diagnostic Tab ── */
+.diagnostic-tab-content { padding: 20px 0; }
+.diagnostic-loading { text-align: center; padding: 40px 0; color: #aaa; }
+.diagnostic-empty { text-align: center; padding: 40px 0; color: #aaa; }
+.diagnostic-section { margin-bottom: 32px; }
+.section-subtitle { font-size: 13px; color: #888; margin: -12px 0 16px; }
+
+.level-dist-row { display: flex; gap: 32px; align-items: center; }
+.donut-wrapper { position: relative; width: 220px; height: 220px; flex-shrink: 0; }
+.donut-center {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; pointer-events: none;
+}
+.center-num { display: block; font-size: 28px; font-weight: 800; color: #333; }
+.center-lbl { font-size: 11px; color: #aaa; }
+
+.level-cards { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.level-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px; border-radius: 10px; background: #fafafa; border: 1px solid #eee;
+}
+.level-card.lv1 { border-left: 4px solid #f59e0b; }
+.level-card.lv2 { border-left: 4px solid #3b82f6; }
+.level-card.lv3 { border-left: 4px solid #8b5cf6; }
+.lv-icon { font-size: 24px; }
+.lv-count { font-size: 20px; font-weight: 700; color: #333; }
+.lv-pct { font-size: 14px; color: #888; margin-left: auto; }
+.lv-label { display: none; }
+
+.weak-skills-list { display: flex; flex-direction: column; gap: 10px; }
+.weak-skill-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; background: #fafafa; border-radius: 10px;
+}
+.ws-rank {
+    width: 28px; height: 28px; border-radius: 50%; background: #e5e7eb;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px; color: #555; flex-shrink: 0;
+}
+.ws-info { min-width: 140px; }
+.ws-name { display: block; font-size: 13px; font-weight: 600; color: #333; }
+.ws-category { font-size: 10px; color: #aaa; }
+.ws-bar-track { flex: 1; height: 10px; background: #e5e7eb; border-radius: 5px; overflow: hidden; }
+.ws-bar-fill { height: 100%; border-radius: 5px; transition: width 0.5s; }
+.ws-rate { font-size: 14px; font-weight: 700; width: 50px; text-align: right; flex-shrink: 0; }
+
+.diagnostic-footer { text-align: center; padding: 12px; color: #aaa; font-size: 12px; border-top: 1px solid #eee; }
 </style>

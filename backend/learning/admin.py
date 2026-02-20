@@ -3,7 +3,9 @@ from .models import (
     Lecture, LearningSession, STTLog, SessionSummary, 
     DailyQuiz, QuizQuestion, QuizAttempt, VectorStore,
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog, PulseCheck,
-    LiveQuiz, LiveQuizResponse, LiveQuestion, LiveSessionNote
+    LiveQuiz, LiveQuizResponse, LiveQuestion, LiveSessionNote,
+    Skill, CareerGoal, PlacementQuestion, PlacementResult,
+    StudentGoal, StudentSkill
 )
 
 @admin.register(Lecture)
@@ -92,3 +94,34 @@ class LiveQuestionAdmin(admin.ModelAdmin):
 class LiveSessionNoteAdmin(admin.ModelAdmin):
     list_display = ('id', 'live_session', 'status', 'created_at')
     list_filter = ('status',)
+
+
+# Phase 1
+@admin.register(Skill)
+class SkillAdmin(admin.ModelAdmin):
+    list_display = ('name', 'category', 'difficulty_level', 'order')
+    list_filter = ('category', 'difficulty_level')
+
+@admin.register(CareerGoal)
+class CareerGoalAdmin(admin.ModelAdmin):
+    list_display = ('title', 'icon', 'estimated_weeks')
+    filter_horizontal = ('required_skills',)
+
+@admin.register(PlacementQuestion)
+class PlacementQuestionAdmin(admin.ModelAdmin):
+    list_display = ('order', 'question_text', 'category', 'difficulty')
+    list_filter = ('category', 'difficulty')
+
+@admin.register(PlacementResult)
+class PlacementResultAdmin(admin.ModelAdmin):
+    list_display = ('student', 'level', 'score', 'total_questions', 'created_at')
+    list_filter = ('level',)
+
+@admin.register(StudentGoal)
+class StudentGoalAdmin(admin.ModelAdmin):
+    list_display = ('student', 'career_goal', 'created_at')
+
+@admin.register(StudentSkill)
+class StudentSkillAdmin(admin.ModelAdmin):
+    list_display = ('student', 'skill', 'status', 'progress', 'updated_at')
+    list_filter = ('status', 'skill__category')

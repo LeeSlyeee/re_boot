@@ -41,6 +41,18 @@ const router = createRouter({
       component: () => import('../views/InterviewChatView.vue'),
       meta: { requiresAuth: true }
     },
+    {
+      path: '/placement',
+      name: 'placement',
+      component: () => import('../views/PlacementView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/gapmap',
+      name: 'gapmap',
+      component: () => import('../views/GapMapView.vue'),
+      meta: { requiresAuth: true }
+    },
   ],
 });
 
