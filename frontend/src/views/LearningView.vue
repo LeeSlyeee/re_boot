@@ -215,6 +215,8 @@ const fetchLiveNote = async () => {
         liveNote.value = data;
         if (data.status === 'DONE' || data.status === 'FAILED') {
             if (notePolling.value) { clearInterval(notePolling.value); notePolling.value = null; }
+            // Phase 2-3: 노트 완료 시 복습 루트 자동 로드
+            if (data.status === 'DONE') fetchMyReviewRoutes();
         }
     } catch {}
 };
@@ -222,6 +224,46 @@ const fetchLiveNote = async () => {
 const startNotePolling = () => {
     fetchLiveNote();
     notePolling.value = setInterval(fetchLiveNote, 3000);
+};
+
+// --- Phase 2-3: Review Route + Spaced Rep ---
+const myReviewRoutes = ref([]);
+const srDueItems = ref([]);
+
+const fetchMyReviewRoutes = async () => {
+    try {
+        const { data } = await api.get('/learning/review-routes/my/');
+        myReviewRoutes.value = data.routes || [];
+    } catch (e) { /* silent */ }
+};
+
+const completeReviewItem = async (routeId, order) => {
+    try {
+        const { data } = await api.post(`/learning/review-routes/${routeId}/complete-item/`, { order });
+        // 해당 루트의 completed_items 업데이트
+        const route = myReviewRoutes.value.find(r => r.id === routeId);
+        if (route) {
+            route.completed_items = data.completed_items;
+            route.progress = data.progress;
+        }
+    } catch (e) { /* silent */ }
+};
+
+const fetchSRDue = async () => {
+    try {
+        const { data } = await api.get('/learning/spaced-repetition/due/');
+        srDueItems.value = data.due_items || [];
+    } catch (e) { /* silent */ }
+};
+
+const completeSR = async (itemId, answer) => {
+    try {
+        const { data } = await api.post(`/learning/spaced-repetition/${itemId}/complete/`, { answer });
+        if (data.is_correct) {
+            srDueItems.value = srDueItems.value.filter(i => i.id !== itemId);
+        }
+        return data;
+    } catch (e) { return null; }
 };
 
 const renderMarkdown = (text) => {
@@ -1259,6 +1301,26 @@ const openSessionReview = (id) => {
                                     <span class="lm-type">{{ m.file_type }}</span>
                                     <a v-if="m.file_url" :href="m.file_url" target="_blank" class="lm-link">{{ m.title }}</a>
                                     <span v-else>{{ m.title }}</span>
+                                </div>
+                            </div>
+
+                            <!-- Phase 2-3: 복습 루트 -->
+                            <div v-if="myReviewRoutes.length > 0" class="review-route-card">
+                                <h4>📚 오늘의 복습 루트</h4>
+                                <div v-for="route in myReviewRoutes.slice(0, 1)" :key="route.id">
+                                    <p class="rr-est">총 예상 시간: {{ route.total_est_minutes }}분 | 진행 {{ route.progress }}%</p>
+                                    <div class="rr-progress-bar"><div class="rr-progress-fill" :style="{ width: route.progress + '%' }"></div></div>
+                                    <div class="rr-items">
+                                        <div v-for="item in route.items" :key="item.order" class="rr-item" :class="{ completed: (route.completed_items || []).includes(item.order) }">
+                                            <button class="rr-check" @click="completeReviewItem(route.id, item.order)" :disabled="(route.completed_items || []).includes(item.order)">
+                                                {{ (route.completed_items || []).includes(item.order) ? '✅' : '⬜' }}
+                                            </button>
+                                            <div class="rr-item-info">
+                                                <span class="rr-item-title">{{ item.title }}</span>
+                                                <span class="rr-item-time">{{ item.est_minutes }}분</span>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2564,4 +2626,18 @@ const openSessionReview = (id) => {
     from { transform: translateX(-50%) translateY(100%); opacity: 0; }
     to { transform: translateX(-50%) translateY(0); opacity: 1; }
 }
+
+/* ── Phase 2-3: Review Route Card ── */
+.review-route-card { margin-top: 16px; padding: 16px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.2); border-radius: 12px; }
+.review-route-card h4 { margin: 0 0 10px; font-size: 15px; color: #60a5fa; }
+.rr-est { font-size: 12px; color: #94a3b8; margin: 0 0 8px; }
+.rr-progress-bar { height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; margin-bottom: 12px; }
+.rr-progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #60a5fa); border-radius: 3px; transition: width 0.3s; }
+.rr-items { display: flex; flex-direction: column; gap: 6px; }
+.rr-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: rgba(255,255,255,0.05); border-radius: 8px; transition: opacity 0.2s; }
+.rr-item.completed { opacity: 0.5; }
+.rr-check { background: none; border: none; font-size: 18px; cursor: pointer; padding: 0; }
+.rr-item-info { flex: 1; display: flex; justify-content: space-between; align-items: center; }
+.rr-item-title { font-size: 13px; color: #e2e8f0; }
+.rr-item-time { font-size: 11px; color: #64748b; }
 </style>

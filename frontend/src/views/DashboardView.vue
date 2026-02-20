@@ -137,7 +137,46 @@ onMounted(async () => {
     
     // 4. Fetch My Lectures
     fetchMyLectures();
+
+    // 5. Phase 2-3: 간격 반복 due 항목 로드
+    fetchSRDue();
 });
+
+// --- Phase 2-3: Spaced Repetition ---
+const srDueItems = ref([]);
+const srAnswering = ref(null); // 현재 답변 중인 SR item
+const srResult = ref(null);
+
+const fetchSRDue = async () => {
+    try {
+        const { data } = await api.get('/learning/spaced-repetition/due/');
+        srDueItems.value = data.due_items || [];
+    } catch (e) { /* silent */ }
+};
+
+const startSRQuiz = (item) => {
+    srAnswering.value = item;
+    srResult.value = null;
+};
+
+const submitSRAnswer = async (itemId, answer) => {
+    try {
+        const { data } = await api.post(`/learning/spaced-repetition/${itemId}/complete/`, { answer });
+        srResult.value = data;
+        if (data.is_correct) {
+            setTimeout(() => {
+                srDueItems.value = srDueItems.value.filter(i => i.id !== itemId);
+                srAnswering.value = null;
+                srResult.value = null;
+            }, 2000);
+        }
+    } catch (e) { /* silent */ }
+};
+
+const closeSRQuiz = () => {
+    srAnswering.value = null;
+    srResult.value = null;
+};
 
 const startLearning = () => {
     router.push('/learning');
@@ -265,6 +304,43 @@ const continueLearning = () => {
                     </div>
                 </div>
                 </section>
+
+                <!-- Phase 2-3: 간격 반복 알림 -->
+                <section v-if="srDueItems.length > 0" class="sr-section glass-panel mt-section">
+                    <div class="section-header">
+                        <h2>🔔 복습 알림 <span class="sr-badge">{{ srDueItems.length }}</span></h2>
+                    </div>
+                    <div class="sr-items">
+                        <div v-for="item in srDueItems" :key="item.id" class="sr-card">
+                            <div class="sr-card-info">
+                                <span class="sr-concept">{{ item.concept_name }}</span>
+                                <span class="sr-label">{{ item.label }}</span>
+                            </div>
+                            <button class="sr-quiz-btn" @click="startSRQuiz(item)">30초 퀴즈 →</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- SR 미니 퀴즈 모달 -->
+                <div v-if="srAnswering" class="sr-modal-overlay" @click.self="closeSRQuiz">
+                    <div class="sr-modal">
+                        <h3>📝 {{ srAnswering.concept_name }}</h3>
+                        <p class="sr-question">{{ srAnswering.review_question }}</p>
+                        <div v-if="srAnswering.review_options && srAnswering.review_options.length > 0" class="sr-options">
+                            <button v-for="(opt, idx) in srAnswering.review_options" :key="idx"
+                                class="sr-option-btn"
+                                :class="{ correct: srResult && srResult.correct_answer === opt, wrong: srResult && !srResult.is_correct && opt === srResult.correct_answer }"
+                                @click="submitSRAnswer(srAnswering.id, opt)"
+                                :disabled="!!srResult">
+                                {{ opt }}
+                            </button>
+                        </div>
+                        <div v-if="srResult" class="sr-result" :class="srResult.is_correct ? 'correct' : 'wrong'">
+                            {{ srResult.is_correct ? '🎉 정답!' : '❌ 오답 — 정답: ' + srResult.correct_answer }}
+                        </div>
+                        <button v-if="srResult && !srResult.is_correct" class="sr-close-btn" @click="closeSRQuiz">닫기</button>
+                    </div>
+                </div>
 
                 <!-- 1.5 My Courses -->
                 <section v-if="myLectures.length > 0" class="lectures-section glass-panel mt-section">
@@ -715,4 +791,28 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
 }
 
 .task-info { flex: 1; h3 { font-size: 16px; font-weight: 600; } p { font-size: 13px; color: #888; } }
+
+/* ── Phase 2-3: Spaced Repetition ── */
+.sr-section .section-header h2 { display: flex; align-items: center; gap: 8px; }
+.sr-badge { background: #ef4444; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
+.sr-items { display: flex; flex-direction: column; gap: 8px; }
+.sr-card { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); border-radius: 10px; }
+.sr-card-info { display: flex; flex-direction: column; gap: 4px; }
+.sr-concept { font-size: 14px; font-weight: 600; color: #e2e8f0; }
+.sr-label { font-size: 11px; color: #a78bfa; }
+.sr-quiz-btn { padding: 6px 14px; background: rgba(99,102,241,0.2); color: #a78bfa; border: 1px solid rgba(99,102,241,0.3); border-radius: 8px; font-size: 12px; cursor: pointer; }
+.sr-quiz-btn:hover { background: rgba(99,102,241,0.3); }
+.sr-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 2000; display: flex; align-items: center; justify-content: center; }
+.sr-modal { background: rgba(30,30,50,0.98); backdrop-filter: blur(12px); border: 1px solid rgba(99,102,241,0.3); border-radius: 16px; padding: 24px; max-width: 420px; width: 90%; }
+.sr-modal h3 { margin: 0 0 12px; color: #a78bfa; font-size: 16px; }
+.sr-question { color: #e2e8f0; font-size: 14px; line-height: 1.6; margin-bottom: 16px; }
+.sr-options { display: flex; flex-direction: column; gap: 8px; }
+.sr-option-btn { padding: 10px 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #e2e8f0; font-size: 13px; cursor: pointer; text-align: left; transition: all 0.2s; }
+.sr-option-btn:hover:not(:disabled) { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.4); }
+.sr-option-btn.correct { background: rgba(34,197,94,0.2); border-color: #22c55e; color: #22c55e; }
+.sr-option-btn.wrong { background: rgba(239,68,68,0.2); border-color: #ef4444; }
+.sr-result { margin-top: 12px; padding: 10px; border-radius: 8px; font-size: 14px; font-weight: 600; text-align: center; }
+.sr-result.correct { background: rgba(34,197,94,0.15); color: #22c55e; }
+.sr-result.wrong { background: rgba(239,68,68,0.15); color: #ef4444; }
+.sr-close-btn { margin-top: 12px; width: 100%; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #94a3b8; cursor: pointer; }
 </style>

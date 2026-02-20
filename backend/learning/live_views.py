@@ -1226,6 +1226,104 @@ def _generate_live_note(session_id, note_id):
         except Exception as ie:
             print(f"⚠️ [Insight] 인사이트 생성 실패 (노트는 정상): {ie}")
 
+        # ── 8. Phase 2-3: 복습 루트 + 간격 반복 자동 생성 ──
+        try:
+            from .models import ReviewRoute, SpacedRepetitionItem
+            from datetime import timedelta
+
+            participants = LiveParticipant.objects.filter(live_session=session)
+
+            for participant in participants:
+                student = participant.student
+
+                # 해당 학생의 오답 퀴즈 수집
+                wrong_responses = LiveQuizResponse.objects.filter(
+                    quiz__live_session=session,
+                    student=student,
+                    is_correct=False,
+                ).select_related('quiz')
+
+                # 복습 항목 구성
+                items = []
+                order = 1
+
+                # 1순위: 통합 노트
+                items.append({
+                    'order': order, 'type': 'note',
+                    'title': '오늘 수업 통합 노트',
+                    'note_id': note.id, 'est_minutes': 10,
+                })
+                order += 1
+
+                # 2순위: 오답 개념
+                wrong_concepts = []
+                for wr in wrong_responses:
+                    concept = wr.quiz.question_text[:60]
+                    items.append({
+                        'order': order, 'type': 'concept',
+                        'title': f'오답 복습: {concept}',
+                        'content': f"문제: {wr.quiz.question_text}\n정답: {wr.quiz.correct_answer}\n{wr.quiz.explanation or ''}",
+                        'est_minutes': 5,
+                    })
+                    wrong_concepts.append({
+                        'concept': concept,
+                        'quiz': wr.quiz,
+                        'response': wr,
+                    })
+                    order += 1
+
+                total_minutes = sum(i.get('est_minutes', 0) for i in items)
+
+                # ReviewRoute 생성
+                ReviewRoute.objects.update_or_create(
+                    live_session=session,
+                    student=student,
+                    defaults={
+                        'items': items,
+                        'total_est_minutes': total_minutes,
+                        'status': 'AUTO_APPROVED',
+                    }
+                )
+
+                # SpacedRepetitionItem: 오답 개념마다 생성 (5주기)
+                now = timezone.now()
+                for wc in wrong_concepts:
+                    # 중복 방지
+                    if SpacedRepetitionItem.objects.filter(
+                        student=student,
+                        concept_name=wc['concept'][:200],
+                        source_session=session,
+                    ).exists():
+                        continue
+
+                    schedule = [
+                        {'review_num': 1, 'label': '10분 후', 'due_at': (now + timedelta(minutes=10)).isoformat(), 'completed': False},
+                        {'review_num': 2, 'label': '1일 후', 'due_at': (now + timedelta(days=1)).isoformat(), 'completed': False},
+                        {'review_num': 3, 'label': '1주일 후', 'due_at': (now + timedelta(weeks=1)).isoformat(), 'completed': False},
+                        {'review_num': 4, 'label': '1개월 후', 'due_at': (now + timedelta(days=30)).isoformat(), 'completed': False},
+                        {'review_num': 5, 'label': '6개월 후', 'due_at': (now + timedelta(days=180)).isoformat(), 'completed': False},
+                    ]
+
+                    # AI로 복습 문항 생성
+                    review_q = wc['quiz'].question_text
+                    review_a = wc['quiz'].correct_answer
+                    review_opts = wc['quiz'].options if hasattr(wc['quiz'], 'options') and wc['quiz'].options else []
+
+                    SpacedRepetitionItem.objects.create(
+                        student=student,
+                        concept_name=wc['concept'][:200],
+                        source_session=session,
+                        source_quiz=wc['quiz'],
+                        review_question=review_q,
+                        review_answer=review_a,
+                        review_options=review_opts,
+                        schedule=schedule,
+                    )
+
+            print(f"✅ [ReviewRoute] 세션 #{session_id} - {participants.count()}명 복습 루트 생성 완료")
+        except Exception as rre:
+            print(f"⚠️ [ReviewRoute] 복습 루트 생성 실패 (노트는 정상): {rre}")
+
         print(f"✅ [LiveNote] 세션 #{session_id} 통합 노트 생성 완료 ({note.status})")
 
     except Exception as e:

@@ -4,7 +4,7 @@ from .models import (
     DailyQuiz, QuizQuestion, QuizAttempt, VectorStore,
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog, PulseCheck, PulseLog,
     LiveQuiz, LiveQuizResponse, LiveQuestion, LiveSessionNote,
-    WeakZoneAlert,
+    WeakZoneAlert, ReviewRoute, SpacedRepetitionItem,
     Skill, CareerGoal, PlacementQuestion, PlacementResult,
     StudentGoal, StudentSkill
 )
@@ -105,6 +105,16 @@ class PulseLogAdmin(admin.ModelAdmin):
 class WeakZoneAlertAdmin(admin.ModelAdmin):
     list_display = ('id', 'student', 'live_session', 'trigger_type', 'status', 'created_at')
     list_filter = ('trigger_type', 'status')
+
+@admin.register(ReviewRoute)
+class ReviewRouteAdmin(admin.ModelAdmin):
+    list_display = ('id', 'student', 'live_session', 'status', 'total_est_minutes', 'created_at')
+    list_filter = ('status',)
+
+@admin.register(SpacedRepetitionItem)
+class SpacedRepetitionItemAdmin(admin.ModelAdmin):
+    list_display = ('id', 'student', 'concept_name', 'current_review', 'created_at')
+    search_fields = ('concept_name', 'student__username')
 
 # Phase 1
 @admin.register(Skill)

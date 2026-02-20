@@ -470,6 +470,55 @@ class WeakZoneAlert(models.Model):
     def __str__(self):
         return f"[WZ] {self.student.username}: {self.trigger_type} @ {self.live_session.session_code}"
 
+# ══════════════════════════════════════════════════════════
+# Phase 2-3: AI 복습 루트 + 간격 반복
+# ══════════════════════════════════════════════════════════
+
+class ReviewRoute(models.Model):
+    """세션별 학생 맞춤 AI 복습 루트"""
+    STATUS_CHOICES = (
+        ('SUGGESTED', 'AI 제안'),
+        ('AUTO_APPROVED', '자동 승인'),
+        ('APPROVED', '교수자 수동 승인'),
+        ('MODIFIED', '교수자 수정'),
+        ('REJECTED', '교수자 거부'),
+    )
+
+    live_session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name='review_routes')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='review_routes')
+    items = models.JSONField(default=list, help_text="복습 항목 [{ order, type, title, content/note_id, est_minutes }]")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='AUTO_APPROVED')
+    total_est_minutes = models.IntegerField(default=0)
+    completed_items = models.JSONField(default=list, help_text="완료된 order 목록 [1, 2, ...]")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['live_session', 'student']
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[Review] {self.student.username} @ {self.live_session.session_code}"
+
+
+class SpacedRepetitionItem(models.Model):
+    """에빙하우스 5주기 간격 반복 스케줄"""
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='spaced_items')
+    concept_name = models.CharField(max_length=200, help_text="복습 개념명")
+    source_session = models.ForeignKey(LiveSession, on_delete=models.SET_NULL, null=True, blank=True, related_name='spaced_items')
+    source_quiz = models.ForeignKey('LiveQuiz', on_delete=models.SET_NULL, null=True, blank=True)
+    review_question = models.TextField(help_text="빠른 확인용 1문항")
+    review_answer = models.CharField(max_length=500)
+    review_options = models.JSONField(default=list, help_text="4지선다 보기")
+    schedule = models.JSONField(default=list, help_text="5주기 스케줄 [{ review_num, label, due_at, completed }]")
+    current_review = models.IntegerField(default=0, help_text="현재 몇 차 복습까지 완료")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[SR] {self.student.username}: {self.concept_name}"
+
 
 # ══════════════════════════════════════════════════════════
 # Phase 1: 수준 진단 + 갭 맵

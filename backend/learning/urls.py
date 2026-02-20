@@ -6,6 +6,11 @@ from .professor_views import LectureViewSet
 from .rag_views import RAGViewSet
 from .live_views import LiveSessionViewSet, JoinLiveSessionView, LectureMaterialViewSet, LiveNoteView, NoteApproveView, NoteMaterialLinkView, AbsentNoteListView
 from .placement_views import PlacementViewSet, GoalViewSet, GapMapViewSet, ProfessorDiagnosticView
+from .review_views import (
+    MyReviewRoutesView, CompleteReviewItemView, PendingReviewRoutesView,
+    ApproveReviewRouteView, EditReviewRouteView,
+    SpacedRepetitionDueView, CompleteSpacedRepView,
+)
 
 router = DefaultRouter()
 router.register(r'sessions', LearningSessionViewSet, basename='session')
@@ -35,5 +40,13 @@ urlpatterns = [
     path('absent-notes/<int:lecture_id>/', AbsentNoteListView.as_view(), name='absent-notes'),
     # Phase 1: 교수자 진단 분석
     path('professor/<int:lecture_id>/diagnostics/', ProfessorDiagnosticView.as_view(), name='professor-diagnostics'),
+    # Phase 2-3: 복습 루트 + 간격 반복
+    path('review-routes/my/', MyReviewRoutesView.as_view(), name='my-review-routes'),
+    path('review-routes/<int:pk>/complete-item/', CompleteReviewItemView.as_view(), name='complete-review-item'),
+    path('review-routes/pending/', PendingReviewRoutesView.as_view(), name='pending-review-routes'),
+    path('review-routes/<int:pk>/approve/', ApproveReviewRouteView.as_view(), name='approve-review-route'),
+    path('review-routes/<int:pk>/', EditReviewRouteView.as_view(), name='edit-review-route'),
+    path('spaced-repetition/due/', SpacedRepetitionDueView.as_view(), name='sr-due'),
+    path('spaced-repetition/<int:pk>/complete/', CompleteSpacedRepView.as_view(), name='sr-complete'),
     path('', include(router.urls)),
 ]
