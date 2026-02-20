@@ -11,10 +11,15 @@
 3. **Lecture.students (M2M)**: 수강생 목록 접근 가능 (현재 2명 등록 확인)
 4. **FormativeAssessment 데이터**: 아직 실제 데이터 0건 — 빈 데이터 처리 로직 필수
 5. **NoteViewLog 삽입 위치 2곳**: `live/<pk>/note/` (live_views.py @action) + `absent-notes/<lecture_id>/` (별도 APIView) — 둘 다에 삽입해야 결석생 열람 추적 정확
-6. **GroupMessage 읽음 추적 누락**: 원래 설계에 `read_by` 없음 → `MessageReadLog` 모델 추가 또는 `read_by = JSONField(default=list)` 필요
+6. **GroupMessage 읽음 추적 누락**: 원래 설계에 `read_by` 없음 → `read_by = JSONField(default=list)` 추가 완료
 7. **LiveQuiz에 concept 필드 없음**: `question_text`만 있음 → 취약 구간 분석 시 question_text 기반 그룹핑 또는 AI로 concept 추출 필요
 8. **PlacementResult unique 제약 없음**: 동 학생 복수 레코드 가능 → 항상 `order_by('-created_at').first()` 사용 필수
 9. **종료된 세션 0건일 때**: analytics 빈 화면 + "아직 종료된 강의가 없습니다" 안내 메시지 필수
+10. **결석 계산 시 수강등록 시점 비교 필수**: `EnrollLectureView`에서 `lecture.students.add()` 시점. 등록 이전 세션은 결석으로 카운트하면 안 됨 → 자동 through 테이블이라 시점 기록 없음 → `LiveSession.created_at > user.date_joined` 또는 첫 참여 세션 이후부터 카운트
+11. **analytics 탭 UI 구조**: 4개 패널 한 화면 스크롤 대신 **서브탭(현황판/취약구간/AI제안/리포트)** 사용 → 교수자 부담 최소화 원칙 준수
+12. **LiveSession.status='ENDED'만 분석 대상**: WAITING, LIVE 세션은 출석/퀴즈 집계에서 제외
+13. **AI 제안 "교체" = PATCH 처리**: ReviewRoute.items 수정, WeakZoneAlert.supplement_material 변경, AdaptiveContent.content 수정으로 구현 가능 확인됨
+14. **스킬블록 연계**: Phase 3 이후 별도 구현이지만, Phase 3-4 품질 리포트에서 `StudentSkill` 진행률 데이터를 미리 집계해두면 스킬블록 자동 생성의 기반이 됨
 
 ---
 
