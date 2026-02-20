@@ -13,8 +13,8 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'reboot_db',
-        'USER': 'slyeee',
-        'PASSWORD': '',
+        'USER': 'tig1179',
+        'PASSWORD': 'password',
         'HOST': 'localhost',
         'PORT': '5432',
     }

@@ -1,2 +1,3 @@
 Watching for file changes with StatReloader
-[09/Feb/2026 18:38:03] "GET /admin/ HTTP/1.1" 302 0
+Not Found: /
+[20/Feb/2026 12:02:31] "HEAD / HTTP/1.1" 404 0
