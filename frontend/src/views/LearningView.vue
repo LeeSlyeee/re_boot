@@ -27,6 +27,7 @@ const isCompletedSession = ref(false);
 const liveSessionData = ref(null);
 const liveSessionCode = ref('');
 const livePolling = ref(null);
+const lastSttSeq = ref(0);
 const myPulse = ref(null); // 'UNDERSTAND' | 'CONFUSED' | null
 const livePulseStats = ref({ understand: 0, confused: 0, total: 0, understand_rate: 0 });
 
@@ -202,23 +203,29 @@ const startLiveStatusPolling = () => {
             await fetchWeakZoneAlerts();
             // 교수자 STT 실시간 자막 수신
             try {
-                const lastSeq = sttLogs.value.length > 0
-                    ? Math.max(...sttLogs.value.map(l => l.seq || 0))
-                    : 0;
-                const sttRes = await api.get(`/learning/live/${liveSessionData.value.session_id}/stt-feed/?after_seq=${lastSeq}`);
+                const sttRes = await api.get(`/learning/live/${liveSessionData.value.session_id}/stt-feed/?after_seq=${lastSttSeq.value}`);
                 if (sttRes.data.length > 0) {
+                    const existingIds = new Set(sttLogs.value.map(l => l.id));
                     for (const log of sttRes.data) {
-                        sttLogs.value.push({
-                            id: log.id,
-                            seq: log.seq,
-                            text_chunk: log.text,
-                            timestamp: log.timestamp,
-                        });
+                        if (!existingIds.has(log.id)) {
+                            sttLogs.value.push({
+                                id: log.id,
+                                seq: log.seq,
+                                text_chunk: log.text,
+                                timestamp: log.timestamp,
+                            });
+                        }
+                        if (log.seq > lastSttSeq.value) lastSttSeq.value = log.seq;
                     }
+                    // 자동 스크롤
+                    nextTick(() => {
+                        const el = document.querySelector('.subtitle-scroll');
+                        if (el) el.scrollTop = el.scrollHeight;
+                    });
                 }
             } catch {}
         } catch {}
-    }, 3000);
+    }, 2000);
 };
 
 const stopLiveStatusPolling = () => {
