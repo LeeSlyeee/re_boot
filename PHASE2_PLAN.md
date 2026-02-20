@@ -1,12 +1,13 @@
-# Phase 2: 강의 기능 고도화 — 구현 계획서 (v2 점검 완료)
+# Phase 2: 강의 기능 고도화 — 구현 계획서 (v3 최종 점검)
 
 > 작성일: 2026-02-20  
 > v2 점검: 2026-02-20 18:25 — 기존 코드베이스 교차 검증 완료  
+> v3 점검: 2026-02-20 18:33 — API 라우팅 구조 + 코드 삽입 지점 검증 완료  
 > 전제: Phase 0 (라이브 세션 인프라) + Phase 1 (수준 진단 + 갭 맵) 완료
 
 ---
 
-## 🔍 점검 완료 — 발견된 이슈 8건
+## 🔍 점검 완료 — 발견된 이슈 11건
 
 ### ⚠️ 즉시 수정 필요 (Phase 2 구현 전 전처리)
 
@@ -25,6 +26,14 @@
 | **6** | `DashboardView.vue` 복습 알림 통합 위치      | 기존 대시보드에 간격 반복 알림을 어디에 넣을지 구체적 위치 미결정                      | 상단 헤더 아래 "오늘의 할 일" 섹션에 배치                     |
 | **7** | Weak Zone `ai_suggested_content` 생성 타이밍 | 교수자 푸시 전에 AI가 보충 설명을 미리 생성해야 하는지, 푸시 시점에 생성하는지         | 감지 시점에 AI 미리 생성 → 교수자가 확인 후 푸시              |
 | **8** | ReviewRoute 교수자 승인 병목                 | 모든 복습 루트에 교수자 승인 필수 → 학생 N명 × 세션 M개 = 승인 폭발                    | 자동 승인 기본값 → 교수자가 "수동 승인 모드" 선택 시에만 대기 |
+
+### 🔧 v3 추가 발견 (API 라우팅 + 삽입 지점)
+
+| #      | 이슈                                | 설명                                                                                                                           | 대응                                                                                                            |
+| ------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| **9**  | Weak Zone API 라우팅 구조 충돌 위험 | `live/` prefix는 `LiveSessionViewSet`(router 등록)이 관리. 별도 path로 `live/{id}/weak-zones/` 추가하면 router URL과 충돌 가능 | `LiveSessionViewSet`에 `@action`으로 추가 (기존 패턴 유지). 별도 `weak_zone_views.py`는 헬퍼 함수만 (View 아님) |
+| **10** | ReviewRoute 생성 삽입 지점 불명확   | `_generate_live_note()` 내부 어디에 ReviewRoute 생성을 넣을지                                                                  | `live_views.py:1102` (인사이트 생성 완료 후, `print(✅ [LiveNote])` 직전)에 삽입                                |
+| **11** | 10분 후 1차 복습의 실제 의미        | 명세 "10분 후 학습 직후 간단히 정리" — 세션이 끝난 직후 복습 루트가 곧 1차 복습                                                | ReviewRoute items[0](통합 노트)가 곧 1차 복습. SR 스케줄의 1차=10분 후는 실질적으로 "세션 종료 직후"            |
 
 ---
 
@@ -502,13 +511,14 @@ class FormativeResponse(models.Model):
 
 ```
 backend/learning/
-├── models.py              # +5 모델 (PulseLog, WeakZone, AdaptiveContent, ReviewRoute, SR, Formative×2)
-├── live_views.py          # pulse API 수정 (PulseLog 추가), answer_quiz 수정 (WeakZone 트리거)
-├── weak_zone_views.py     # Phase 2-1 API (NEW)
-├── adaptive_views.py      # Phase 2-2 API (NEW)
-├── review_views.py        # Phase 2-3 API (NEW)
-├── formative_views.py     # Phase 2-4 API (NEW)
-├── urls.py                # URL 등록 추가
+├── models.py              # +7 모델 (PulseLog, WeakZoneAlert, AdaptiveContent, ReviewRoute, SpacedRepetitionItem, FormativeAssessment, FormativeResponse)
+├── live_views.py          # pulse 수정 (PulseLog), answer_quiz 수정 (WeakZone 트리거), _generate_live_note 수정 (ReviewRoute 생성 삽입 @line 1102)
+│                          # + @action 추가: weak_zones, push_weak_zone, dismiss_weak_zone, my_alerts, resolve_alert
+├── weak_zone_utils.py     # WeakZone 감지/AI생성 헬퍼 함수 (View 아님, live_views에서 호출)
+├── adaptive_views.py      # Phase 2-2 API (NEW — 별도 APIView, router 미사용)
+├── review_views.py        # Phase 2-3 API (NEW — 별도 APIView, router 미사용)
+├── formative_views.py     # Phase 2-4 API (NEW — 별도 APIView, router 미사용)
+├── urls.py                # URL 등록: review-routes/*, spaced-repetition/*, formative/*, adaptive/* (path 등록)
 └── admin.py               # Admin 등록 추가
 ```
 
