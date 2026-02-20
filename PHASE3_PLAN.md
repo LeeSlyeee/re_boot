@@ -86,7 +86,9 @@ GET /api/learning/professor/{lecture_id}/analytics/overview/
   "level_distribution": { "BEGINNER": 8, "INTERMEDIATE": 15, "ADVANCED": 5 },
   "total_students": 28,
   "avg_attendance_rate": 87.5,
+  "avg_progress_rate": 68.3,
   "avg_quiz_accuracy": 72.3,
+  "avg_checkpoint_pass_rate": 74.1,
   "session_count": 6,
   "at_risk_students": [
     {
@@ -122,6 +124,18 @@ GET /api/learning/professor/{lecture_id}/analytics/overview/
 2. 최근 세션 퀴즈 정답률 50% 미만
 3. 펄스 CONFUSED 비율 60% 이상
 4. 형성평가 미완료
+5. 학습 목표 달성률(StudentChecklist) 40% 미만
+
+### 진도율 정의
+
+```
+avg_progress_rate = 학습 목표(StudentChecklist) 체크 완료 수 / 전체 학습 목표 수 × 100
+- Syllabus → LearningObjective → StudentChecklist(is_checked=True) 기반
+- 전체 수강생 평균으로 표시
+
+avg_checkpoint_pass_rate = 세션별 체크포인트(LiveQuiz) 통과 학생 수 / 참여 학생 수 × 100
+- LiveQuizResponse(is_correct=True) 기준
+```
 
 ### 결석생 보충 학습 확인
 
@@ -288,6 +302,7 @@ GET /api/learning/professor/{lecture_id}/analytics/quality-report/
         "understand_rate": 85.0,
         "participation_rate": 92.5,
         "quiz_accuracy": 78.0,
+        "checkpoint_pass_rate": 81.0,
         "formative_completion_rate": 65.0,
         "weak_zone_count": 3,
         "avg_pulse_confused": 15.0
@@ -330,6 +345,7 @@ GET /api/learning/professor/{lecture_id}/analytics/quality-report/
   - 형성평가 점수 <= 40%
   - WeakZone 연속 3건 이상
   - 펄스 혼란 비율 >= 70%
+  - 학습 목표 달성률(StudentChecklist) <= 30%
 
 → 교수자에게 '제안'으로 표시, 교수자 승인 후 반영
 → PlacementResult 새 레코드 생성 (level 변경)
