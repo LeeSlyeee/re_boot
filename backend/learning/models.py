@@ -390,3 +390,24 @@ class LiveQuestion(models.Model):
 
     def __str__(self):
         return f"[Q] {self.question_text[:40]}... ({self.upvotes}👍)"
+
+
+class LiveSessionNote(models.Model):
+    """
+    라이브 세션 종료 후 AI가 생성하는 통합 노트.
+    STT + 퀴즈 결과 + Q&A + 이해도 데이터를 포함.
+    """
+    STATUS_CHOICES = (
+        ('PENDING', '생성 중'),
+        ('DONE', '완료'),
+        ('FAILED', '실패'),
+    )
+
+    live_session = models.OneToOneField(LiveSession, on_delete=models.CASCADE, related_name='note')
+    content = models.TextField(blank=True, help_text="AI 생성 통합 노트 (Markdown)")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
+    stats = models.JSONField(default=dict, help_text="세션 통계 (참가자수, 정답률 등)")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"[Note] {self.live_session.session_code} ({self.status})"

@@ -3,7 +3,7 @@ from .models import (
     Lecture, LearningSession, STTLog, SessionSummary, 
     DailyQuiz, QuizQuestion, QuizAttempt, VectorStore,
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog, PulseCheck,
-    LiveQuiz, LiveQuizResponse, LiveQuestion
+    LiveQuiz, LiveQuizResponse, LiveQuestion, LiveSessionNote
 )
 
 @admin.register(Lecture)
@@ -87,3 +87,8 @@ class LiveQuestionAdmin(admin.ModelAdmin):
 
     def question_preview(self, obj):
         return obj.question_text[:50] + '...' if len(obj.question_text) > 50 else obj.question_text
+
+@admin.register(LiveSessionNote)
+class LiveSessionNoteAdmin(admin.ModelAdmin):
+    list_display = ('id', 'live_session', 'status', 'created_at')
+    list_filter = ('status',)

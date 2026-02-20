@@ -4,7 +4,7 @@ from .views import LearningSessionViewSet, EnrollLectureView, PublicLectureListV
 from .views_assessment import AssessmentViewSet
 from .professor_views import LectureViewSet
 from .rag_views import RAGViewSet
-from .live_views import LiveSessionViewSet, JoinLiveSessionView, LectureMaterialViewSet
+from .live_views import LiveSessionViewSet, JoinLiveSessionView, LectureMaterialViewSet, LiveNoteView
 
 router = DefaultRouter()
 router.register(r'sessions', LearningSessionViewSet, basename='session')
@@ -23,5 +23,6 @@ urlpatterns = [
     path('lectures/my/', MyLectureListView.as_view(), name='my-lectures'),
     # 라이브 세션 입장 (학생용)
     path('live/join/', JoinLiveSessionView.as_view(), name='live-join'),
+    path('live/<int:pk>/note/', LiveNoteView.as_view(), name='live-note'),
     path('', include(router.urls)),
 ]

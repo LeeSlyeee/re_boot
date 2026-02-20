@@ -15,12 +15,13 @@ from django.db.models import Count
 from .models import (
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog,
     Lecture, LearningSession, PulseCheck, LiveQuiz, LiveQuizResponse,
-    LiveQuestion
+    LiveQuestion, LiveSessionNote
 )
 
 import openai
 import os
 import json
+import threading
 openai.api_key = os.getenv('OPENAI_API_KEY')
 
 
@@ -119,11 +120,21 @@ class LiveSessionViewSet(viewsets.ViewSet):
         # 참가자 전원 비활성화
         session.participants.update(is_active=False)
 
+        # 활성 퀴즈 비활성화
+        session.quizzes.filter(is_active=True).update(is_active=False)
+
+        # 통합 노트 생성 시작 (비동기)
+        note = LiveSessionNote.objects.create(live_session=session, status='PENDING')
+        thread = threading.Thread(target=_generate_live_note, args=(session.id, note.id))
+        thread.daemon = True
+        thread.start()
+
         return Response({
             'id': session.id,
             'status': session.status,
             'ended_at': session.ended_at,
             'total_participants': session.participants.count(),
+            'note_status': 'PENDING',
         })
 
     @action(detail=True, methods=['get'], url_path='status')
@@ -711,3 +722,182 @@ class LectureMaterialViewSet(viewsets.ViewSet):
         material.file.delete(save=False)  # 파일 삭제
         material.delete()
         return Response({'message': '교안이 삭제되었습니다.'}, status=status.HTTP_204_NO_CONTENT)
+
+
+# ══════════════════════════════════════════════════════════
+# 통합 노트 생성 (백그라운드)
+# ══════════════════════════════════════════════════════════
+
+def _generate_live_note(session_id, note_id):
+    """
+    세션 종료 후 백그라운드에서 실행.
+    STT + 퀴즈 + Q&A + 이해도 데이터를 수집하여 GPT-4o로 통합 노트 생성.
+    """
+    import django
+    django.setup()
+
+    try:
+        session = LiveSession.objects.get(id=session_id)
+        note = LiveSessionNote.objects.get(id=note_id)
+
+        # ── 1. STT 전문 수집 ──
+        stt_logs = session.stt_logs.order_by('sequence_order')
+        stt_text = '\n'.join([log.text_chunk for log in stt_logs])
+
+        # ── 2. 퀴즈 결과 수집 ──
+        quizzes = session.quizzes.all()
+        quiz_summary = []
+        for q in quizzes:
+            total = q.responses.count()
+            correct = q.responses.filter(is_correct=True).count()
+            quiz_summary.append({
+                'question': q.question_text,
+                'options': q.options,
+                'correct_answer': q.correct_answer,
+                'total_responses': total,
+                'correct_count': correct,
+                'accuracy': round((correct / total) * 100, 1) if total > 0 else 0,
+            })
+
+        # ── 3. Q&A 수집 ──
+        questions = session.questions.all()
+        qa_summary = [
+            {'question': q.question_text, 'ai_answer': q.ai_answer, 'instructor_answer': q.instructor_answer, 'upvotes': q.upvotes}
+            for q in questions
+        ]
+
+        # ── 4. 이해도 통계 ──
+        pulse_understand = session.pulses.filter(pulse_type='UNDERSTAND').count()
+        pulse_confused = session.pulses.filter(pulse_type='CONFUSED').count()
+        pulse_total = pulse_understand + pulse_confused
+        understand_rate = round((pulse_understand / pulse_total) * 100, 1) if pulse_total > 0 else 0
+
+        # ── 5. 통계 저장 ──
+        stats = {
+            'total_participants': session.participants.count(),
+            'stt_chunks': stt_logs.count(),
+            'quiz_count': len(quiz_summary),
+            'question_count': len(qa_summary),
+            'understand_rate': understand_rate,
+            'duration_minutes': 0,
+        }
+        if session.started_at and session.ended_at:
+            stats['duration_minutes'] = int((session.ended_at - session.started_at).total_seconds() / 60)
+
+        note.stats = stats
+        note.save()
+
+        # ── 6. AI 통합 노트 생성 ──
+        quiz_text = ''
+        for i, q in enumerate(quiz_summary, 1):
+            quiz_text += f"\n퀴즈 {i}: {q['question']}\n정답: {q['correct_answer']} | 정답률: {q['accuracy']}%\n"
+
+        qa_text = ''
+        for i, q in enumerate(qa_summary, 1):
+            qa_text += f"\n질문 {i} (공감 {q['upvotes']}): {q['question']}\n"
+            if q['instructor_answer']:
+                qa_text += f"교수자 답변: {q['instructor_answer']}\n"
+            elif q['ai_answer']:
+                qa_text += f"AI 답변: {q['ai_answer'][:200]}\n"
+
+        prompt_content = f"""[강의 시간: 약 {stats['duration_minutes']}분 | 참가자: {stats['total_participants']}명 | 이해도: {understand_rate}%]
+
+=== 강의 STT 전문 ===
+{stt_text[:8000]}
+
+=== 체크포인트 퀴즈 결과 ({len(quiz_summary)}건) ===
+{quiz_text if quiz_text else '(퀴즈 없음)'}
+
+=== 학생 질문 ({len(qa_summary)}건) ===
+{qa_text if qa_text else '(질문 없음)'}
+"""
+
+        try:
+            client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+            response = client.chat.completions.create(
+                model='gpt-4o',
+                messages=[
+                    {'role': 'system', 'content': (
+                        '당신은 대학 강의를 전문적으로 정리하는 AI 어시스턴트입니다.\n'
+                        '아래 강의 데이터(STT 전문, 퀴즈 결과, 학생 질문)를 기반으로\n'
+                        '학생들이 복습하기 좋은 통합 노트를 작성하세요.\n\n'
+                        '형식:\n'
+                        '# 📚 강의 통합 노트\n\n'
+                        '## 📋 수업 개요\n- 시간, 참가자, 이해도 등\n\n'
+                        '## 📖 핵심 내용 정리\n### 1. 주제별 정리\n\n'
+                        '## ✅ 체크포인트 퀴즈 복습\n- 문제, 정답, 해설\n\n'
+                        '## ❓ 주요 질의응답\n- 학생 질문과 답변 정리\n\n'
+                        '## 🔑 핵심 키워드\n- 중요 용어\n\n'
+                        '## 📝 복습 포인트\n- 추가 학습 추천 사항'
+                    )},
+                    {'role': 'user', 'content': prompt_content}
+                ],
+                temperature=0.3,
+                max_tokens=4000,
+            )
+            note.content = response.choices[0].message.content
+            note.status = 'DONE'
+
+        except Exception as e:
+            # Fallback: 원문 기반 간이 노트
+            note.content = (
+                f"# 📚 강의 통합 노트 (자동 생성 대기중)\n\n"
+                f"## 📋 수업 개요\n"
+                f"- 시간: 약 {stats['duration_minutes']}분\n"
+                f"- 참가자: {stats['total_participants']}명\n"
+                f"- 이해도: {understand_rate}%\n\n"
+                f"## 📖 강의 내용 (원문)\n{stt_text[:3000]}\n\n"
+                f"## ✅ 퀴즈 ({len(quiz_summary)}건)\n{quiz_text}\n\n"
+                f"## ❓ 질의응답 ({len(qa_summary)}건)\n{qa_text}\n"
+            )
+            note.status = 'DONE'  # Fallback이라도 DONE 처리
+            print(f"⚠️ [LiveNote] GPT 실패, Fallback 사용: {e}")
+
+        note.save()
+        print(f"✅ [LiveNote] 세션 #{session_id} 통합 노트 생성 완료 ({note.status})")
+
+    except Exception as e:
+        print(f"❌ [LiveNote] 노트 생성 실패: {e}")
+        try:
+            note = LiveSessionNote.objects.get(id=note_id)
+            note.status = 'FAILED'
+            note.content = f"노트 생성 실패: {str(e)}"
+            note.save()
+        except:
+            pass
+
+
+# ══════════════════════════════════════════════════════════
+# 통합 노트 조회
+# ══════════════════════════════════════════════════════════
+
+class LiveNoteView(APIView):
+    """
+    GET /api/learning/live/{id}/note/
+    통합 노트 조회 (교수자 + 참가자 모두)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        session = get_object_or_404(LiveSession, id=pk)
+
+        # 권한: 교수자이거나 참가자
+        is_instructor = session.instructor == request.user
+        is_participant = session.participants.filter(student=request.user).exists()
+        if not is_instructor and not is_participant:
+            return Response({'error': '접근 권한이 없습니다.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            note = session.note
+        except LiveSessionNote.DoesNotExist:
+            return Response({'error': '아직 노트가 생성되지 않았습니다.', 'status': 'NOT_STARTED'},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            'session_id': session.id,
+            'status': note.status,
+            'content': note.content if note.status == 'DONE' else '',
+            'stats': note.stats,
+            'created_at': note.created_at,
+        })
+

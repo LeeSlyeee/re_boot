@@ -34,6 +34,8 @@ const livePulseStats = ref({ understand: 0, confused: 0, total: 0, understand_ra
 const pendingQuiz = ref(null);
 const quizResult = ref(null);
 const quizAnswering = ref(false);
+const liveNote = ref(null);
+const notePolling = ref(null);
 
 const joinLiveSession = async () => {
     const code = liveSessionCode.value.trim().toUpperCase();
@@ -87,6 +89,8 @@ const startLiveStatusPolling = () => {
             liveSessionData.value = { ...liveSessionData.value, ...data };
             if (data.status === 'ENDED') {
                 stopLiveStatusPolling();
+                // 노트 폴링 시작
+                startNotePolling();
             }
             // 펄스 통계
             try {
@@ -110,12 +114,41 @@ const stopLiveStatusPolling = () => {
     if (livePolling.value) { clearInterval(livePolling.value); livePolling.value = null; }
 };
 
+const fetchLiveNote = async () => {
+    if (!liveSessionData.value) return;
+    try {
+        const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/note/`);
+        liveNote.value = data;
+        if (data.status === 'DONE' || data.status === 'FAILED') {
+            if (notePolling.value) { clearInterval(notePolling.value); notePolling.value = null; }
+        }
+    } catch {}
+};
+
+const startNotePolling = () => {
+    fetchLiveNote();
+    notePolling.value = setInterval(fetchLiveNote, 3000);
+};
+
+const renderMarkdown = (text) => {
+    if (!text) return '';
+    return text
+        .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+        .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/^- (.+)$/gm, '<li>$1</li>')
+        .replace(/\n/g, '<br/>');
+};
+
 const leaveLiveSession = () => {
     stopLiveStatusPolling();
+    if (notePolling.value) { clearInterval(notePolling.value); notePolling.value = null; }
     liveSessionData.value = null;
     myPulse.value = null;
     pendingQuiz.value = null;
     quizResult.value = null;
+    liveNote.value = null;
     mode.value = null;
     liveSessionCode.value = '';
 };
@@ -1095,10 +1128,22 @@ const openSessionReview = (id) => {
                 </div>
                 <p class="session-code-small">세션 코드: <strong>{{ liveSessionData.session_code }}</strong></p>
                 
-                <!-- 세션 종료 알림 -->
+                <!-- 세션 종료 + 통합 노트 -->
                 <div v-if="liveSessionData.status === 'ENDED'" class="session-ended-notice">
-                    <p>📋 수업이 종료되었습니다. 요약 노트가 곧 제공됩니다.</p>
-                    <button class="btn btn-secondary" @click="leaveLiveSession">나가기</button>
+                    <p v-if="!liveNote">📋 수업이 종료되었습니다. 통합 노트를 생성하고 있습니다...</p>
+                    <div v-else-if="liveNote.status === 'PENDING'" class="note-loading">
+                        <p>📝 AI가 통합 노트를 작성하고 있습니다... 잠시만 기다려주세요.</p>
+                    </div>
+                    <div v-else-if="liveNote.status === 'DONE'" class="note-content">
+                        <h3>📚 통합 노트</h3>
+                        <div class="note-stats" v-if="liveNote.stats">
+                            <span>⏱ {{ liveNote.stats.duration_minutes }}분</span>
+                            <span>👥 {{ liveNote.stats.total_participants }}명</span>
+                            <span>📊 이해도 {{ liveNote.stats.understand_rate }}%</span>
+                        </div>
+                        <div class="note-body" v-html="renderMarkdown(liveNote.content)"></div>
+                    </div>
+                    <button class="btn btn-secondary" @click="leaveLiveSession" style="margin-top:16px;">나가기</button>
                 </div>
             </div>
 
@@ -2199,4 +2244,23 @@ const openSessionReview = (id) => {
 
 .quiz-modal.result h3 { font-size: 28px; }
 .quiz-explanation { color: #1e40af; background: #eff6ff; padding: 12px; border-radius: 8px; font-size: 13px; margin: 12px 0; }
+
+/* ── Live Note ── */
+.note-loading { text-align: center; padding: 20px; }
+.note-loading p { color: #6b7280; animation: pulse-live 2s infinite; }
+.note-content h3 { margin: 0 0 12px; font-size: 18px; }
+.note-stats { display: flex; gap: 16px; margin-bottom: 16px; }
+.note-stats span {
+    padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+    background: #f0f9ff; color: #0369a1;
+}
+.note-body {
+    padding: 16px; background: white; border-radius: 12px; border: 1px solid #e5e7eb;
+    font-size: 14px; line-height: 1.8; max-height: 600px; overflow-y: auto;
+}
+.note-body h2 { font-size: 18px; margin: 16px 0 8px; color: #1e293b; }
+.note-body h3 { font-size: 15px; margin: 12px 0 6px; color: #334155; }
+.note-body h4 { font-size: 14px; margin: 10px 0 4px; color: #475569; }
+.note-body li { margin-left: 16px; }
+.note-body strong { color: #1e40af; }
 </style>
