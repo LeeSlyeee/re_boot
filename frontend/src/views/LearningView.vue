@@ -485,7 +485,7 @@ const nextSequenceOrder = ref(1); // [FIX] Top-level ref for sequence tracking
 const quizData = ref(null);
 const showQuiz = ref(false);
 const quizAnswers = ref({});
-const quizResult = ref(null);
+// quizResult는 line 35에서 이미 선언됨
 const isGeneratingQuiz = ref(false);
 const isSubmittingQuiz = ref(false);
 
