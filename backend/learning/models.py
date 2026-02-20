@@ -306,3 +306,25 @@ class LiveSTTLog(models.Model):
 
     def __str__(self):
         return f"[{self.sequence_order}] {self.text_chunk[:30]}..."
+
+
+class PulseCheck(models.Model):
+    """
+    학생의 실시간 이해도 펄스 (✅ 이해 / ❓ 혼란).
+    동일 학생은 세션당 최신 1건만 유지 (unique_together + update_or_create).
+    """
+    PULSE_CHOICES = (
+        ('UNDERSTAND', '이해'),
+        ('CONFUSED', '혼란'),
+    )
+
+    live_session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name='pulses')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='pulse_checks')
+    pulse_type = models.CharField(max_length=12, choices=PULSE_CHOICES)
+    created_at = models.DateTimeField(auto_now=True)  # auto_now: 매번 갱신
+
+    class Meta:
+        unique_together = ['live_session', 'student']  # 세션당 학생 1건만
+
+    def __str__(self):
+        return f"{self.student.username}: {self.pulse_type} @ {self.live_session.session_code}"

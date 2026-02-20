@@ -215,6 +215,7 @@ const liveParticipants = ref([]);
 const livePollingTimer = ref(null);
 const materials = ref([]);
 const materialUploading = ref(false);
+const pulseStats = ref({ understand: 0, confused: 0, total: 0, understand_rate: 0 });
 
 const fetchLiveStatus = async () => {
     try {
@@ -276,6 +277,11 @@ const startLivePolling = () => {
             const { data } = await api.get(`/learning/live/${liveSession.value.id}/status/`);
             liveSession.value = { ...liveSession.value, ...data };
             liveParticipants.value = data.participants || [];
+            // 펄스 통계 동시 조회
+            try {
+                const pulse = await api.get(`/learning/live/${liveSession.value.id}/pulse-stats/`);
+                pulseStats.value = pulse.data;
+            } catch {}
         } catch (e) { /* ignore */ }
     }, 5000);
 };
@@ -944,6 +950,24 @@ onMounted(fetchDashboard);
                     </button>
                 </div>
 
+                <!-- 이해도 펄스 게이지 (LIVE일 때만) -->
+                <div v-if="liveSession.status === 'LIVE' && pulseStats.total > 0" class="pulse-gauge-section">
+                    <h3>📊 실시간 이해도</h3>
+                    <div class="pulse-gauge">
+                        <div class="gauge-bar">
+                            <div class="gauge-fill understand" :style="{ width: pulseStats.understand_rate + '%' }"></div>
+                            <div class="gauge-fill confused" :style="{ width: (100 - pulseStats.understand_rate) + '%' }"></div>
+                        </div>
+                        <div class="gauge-labels">
+                            <span class="label-understand">✅ 이해 {{ pulseStats.understand }}명 ({{ pulseStats.understand_rate }}%)</span>
+                            <span class="label-confused">❓ 혼란 {{ pulseStats.confused }}명 ({{ (100 - pulseStats.understand_rate).toFixed(1) }}%)</span>
+                        </div>
+                    </div>
+                </div>
+                <div v-else-if="liveSession.status === 'LIVE'" class="pulse-gauge-section empty">
+                    <p class="pulse-waiting">📊 아직 학생들의 이해도 응답이 없습니다...</p>
+                </div>
+
                 <!-- 참가자 목록 -->
                 <div v-if="liveParticipants.length > 0" class="participants-list">
                     <h3>참가자 ({{ liveParticipants.length }}명)</h3>
@@ -1303,4 +1327,22 @@ tr:hover td { background: #fafbfc; }
 }
 .btn-material-delete:hover { color: #ef4444; }
 .empty-text { color: #aaa; font-size: 13px; }
+
+/* ── Pulse Gauge ── */
+.pulse-gauge-section { margin-bottom: 24px; padding: 16px; background: #fafafa; border-radius: 12px; }
+.pulse-gauge-section h3 { font-size: 14px; margin: 0 0 12px; color: #333; }
+.pulse-gauge-section.empty { text-align: center; }
+.pulse-waiting { color: #aaa; font-size: 13px; margin: 0; }
+
+.gauge-bar {
+    display: flex; height: 28px; border-radius: 14px; overflow: hidden;
+    background: #e5e7eb; margin-bottom: 8px;
+}
+.gauge-fill { transition: width 0.5s ease; }
+.gauge-fill.understand { background: linear-gradient(90deg, #22c55e, #4ade80); }
+.gauge-fill.confused { background: linear-gradient(90deg, #f87171, #ef4444); }
+
+.gauge-labels { display: flex; justify-content: space-between; font-size: 12px; }
+.label-understand { color: #16a34a; font-weight: 600; }
+.label-confused { color: #dc2626; font-weight: 600; }
 </style>

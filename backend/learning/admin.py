@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     Lecture, LearningSession, STTLog, SessionSummary, 
     DailyQuiz, QuizQuestion, QuizAttempt, VectorStore,
-    LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog
+    LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog, PulseCheck
 )
 
 @admin.register(Lecture)
@@ -60,3 +60,8 @@ class LiveSTTLogAdmin(admin.ModelAdmin):
 
     def text_preview(self, obj):
         return obj.text_chunk[:50] + "..." if len(obj.text_chunk) > 50 else obj.text_chunk
+
+@admin.register(PulseCheck)
+class PulseCheckAdmin(admin.ModelAdmin):
+    list_display = ('id', 'student', 'live_session', 'pulse_type', 'created_at')
+    list_filter = ('pulse_type',)

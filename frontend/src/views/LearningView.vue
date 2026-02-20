@@ -23,6 +23,66 @@ const isUrlSubmitted = ref(false);
 const pendingSessionId = ref(null); 
 const isCompletedSession = ref(false); 
 
+// --- Live Session State ---
+const liveSessionData = ref(null);
+const liveSessionCode = ref('');
+const livePolling = ref(null);
+const myPulse = ref(null); // 'UNDERSTAND' | 'CONFUSED' | null
+const livePulseStats = ref({ understand: 0, confused: 0, total: 0, understand_rate: 0 });
+
+const joinLiveSession = async () => {
+    const code = liveSessionCode.value.trim().toUpperCase();
+    if (code.length !== 6) { alert('6자리 코드를 입력해주세요.'); return; }
+    try {
+        const { data } = await api.post('/learning/live/join/', { session_code: code });
+        liveSessionData.value = data;
+        mode.value = 'live';
+        startLiveStatusPolling();
+    } catch (e) {
+        alert(e.response?.data?.error || '세션 입장 실패');
+    }
+};
+
+const sendPulse = async (pulseType) => {
+    if (!liveSessionData.value) return;
+    try {
+        await api.post(`/learning/live/${liveSessionData.value.session_id}/pulse/`, { pulse_type: pulseType });
+        myPulse.value = pulseType;
+    } catch (e) { console.error('Pulse error:', e); }
+};
+
+const startLiveStatusPolling = () => {
+    stopLiveStatusPolling();
+    livePolling.value = setInterval(async () => {
+        if (!liveSessionData.value) return;
+        try {
+            const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/status/`);
+            liveSessionData.value = { ...liveSessionData.value, ...data };
+            // 세션 종료 감지
+            if (data.status === 'ENDED') {
+                stopLiveStatusPolling();
+            }
+            // 펄스 통계
+            try {
+                const pulse = await api.get(`/learning/live/${liveSessionData.value.session_id}/pulse-stats/`);
+                livePulseStats.value = pulse.data;
+            } catch {}
+        } catch {}
+    }, 5000);
+};
+
+const stopLiveStatusPolling = () => {
+    if (livePolling.value) { clearInterval(livePolling.value); livePolling.value = null; }
+};
+
+const leaveLiveSession = () => {
+    stopLiveStatusPolling();
+    liveSessionData.value = null;
+    myPulse.value = null;
+    mode.value = null;
+    liveSessionCode.value = '';
+};
+
 // --- Lecture Mode State ---
 const currentLectureId = ref(null);
 const sessions = ref([]); // Renamed from lectureSessions
@@ -912,7 +972,7 @@ const openSessionReview = (id) => {
         
         <!-- [FIX] 1. Mode Selection Modal -->
         <!-- youtubeEmbedUrl이 있어도 isUrlSubmitted가 false면 계속 떠 있음 (버튼 클릭 유도) -->
-        <div v-if="!mode || (mode === 'youtube' && !isUrlSubmitted)" class="mode-overlay">
+        <div v-if="!mode || (mode === 'youtube' && !isUrlSubmitted) || (mode === 'live' && !liveSessionData)" class="mode-overlay">
             <div class="glass-panel mode-card">
                 <!-- Select Button Group -->
                 <div v-if="!mode">
@@ -950,6 +1010,25 @@ const openSessionReview = (id) => {
                             <MonitorPlay size="36" class="icon" /> <h3>모든 인강</h3>
                             <p class="desc">PC 소리 캡처</p>
                         </div>
+
+                        <!-- Row 3: 라이브 세션 -->
+                        <div class="mode-item live-mode" @click="selectMode('live')" style="grid-column: 1 / -1;">
+                            <span style="font-size:36px;">🟢</span> <h3>라이브 세션 참여</h3>
+                            <p class="desc">교수자가 발급한 6자리 코드로 실시간 수업 참여</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: 라이브 세션 코드 입력 -->
+                <div v-else-if="mode === 'live' && !liveSessionData">
+                    <div class="back-link" @click="mode = null">← 뒤로가기</div>
+                    <h2 class="text-headline">라이브 세션 입장</h2>
+                    <p style="text-align:center; color:#aaa; margin-bottom:20px;">교수자가 알려준 6자리 코드를 입력하세요.</p>
+                    <div class="input-group">
+                        <input type="text" v-model="liveSessionCode" placeholder="코드 입력 (예: A3F2K9)" maxlength="6" 
+                            style="text-align:center; font-size:24px; letter-spacing:8px; font-weight:700; text-transform:uppercase;" 
+                            @keyup.enter="joinLiveSession" />
+                        <button class="btn btn-primary" @click="joinLiveSession">입장하기</button>
                     </div>
                 </div>
 
@@ -964,6 +1043,39 @@ const openSessionReview = (id) => {
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- ═══ LIVE SESSION VIEW ═══ -->
+        <div v-if="mode === 'live' && liveSessionData" class="live-session-view">
+            <div class="glass-panel live-info-panel">
+                <div class="live-header">
+                    <h2>🟢 {{ liveSessionData.title }}</h2>
+                    <span class="live-badge" :class="liveSessionData.status">
+                        {{ liveSessionData.status === 'LIVE' ? '진행 중' : liveSessionData.status === 'WAITING' ? '대기 중' : '종료됨' }}
+                    </span>
+                </div>
+                <p class="session-code-small">세션 코드: <strong>{{ liveSessionData.session_code }}</strong></p>
+                
+                <!-- 세션 종료 알림 -->
+                <div v-if="liveSessionData.status === 'ENDED'" class="session-ended-notice">
+                    <p>📋 수업이 종료되었습니다. 요약 노트가 곧 제공됩니다.</p>
+                    <button class="btn btn-secondary" @click="leaveLiveSession">나가기</button>
+                </div>
+            </div>
+
+            <!-- 이해도 펄스 플로팅 버튼 (LIVE일 때만) -->
+            <div v-if="liveSessionData.status === 'LIVE'" class="pulse-floating">
+                <button class="pulse-btn understand" :class="{ active: myPulse === 'UNDERSTAND' }" @click="sendPulse('UNDERSTAND')">
+                    ✅ 이해했어요
+                </button>
+                <button class="pulse-btn confused" :class="{ active: myPulse === 'CONFUSED' }" @click="sendPulse('CONFUSED')">
+                    ❓ 잘 모르겠어요
+                </button>
+            </div>
+
+            <button v-if="liveSessionData.status !== 'ENDED'" class="btn btn-secondary" style="margin-top:20px;" @click="leaveLiveSession">
+                ← 나가기
+            </button>
         </div>
 
         <!-- [NEW] Lecture List View -->
@@ -1945,5 +2057,52 @@ const openSessionReview = (id) => {
     padding: 10px; border-radius: 8px; font-size: 11px;
     font-family: monospace; z-index: 9999;
     max-width: 400px;
+}
+
+/* ── Live Session (학습자) ── */
+.live-session-view { padding: 20px 0; }
+.live-info-panel { padding: 24px; margin-bottom: 20px; }
+.live-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.live-header h2 { margin: 0; font-size: 20px; }
+.live-badge {
+    padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+}
+.live-badge.LIVE { background: #fee2e2; color: #991b1b; animation: pulse-live 2s infinite; }
+.live-badge.WAITING { background: #fef3c7; color: #92400e; }
+.live-badge.ENDED { background: #e5e7eb; color: #6b7280; }
+@keyframes pulse-live { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
+
+.session-code-small { color: #888; font-size: 13px; margin: 0; }
+.session-ended-notice {
+    margin-top: 16px; padding: 16px; background: #f0fdf4; border-radius: 8px;
+    text-align: center;
+}
+.session-ended-notice p { margin: 0 0 12px; font-size: 14px; }
+
+.pulse-floating {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 16px; z-index: 800;
+}
+.pulse-btn {
+    padding: 16px 28px; border-radius: 50px; font-size: 16px; font-weight: 700;
+    border: 2px solid transparent; cursor: pointer; transition: all 0.2s;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.pulse-btn.understand {
+    background: #f0fdf4; color: #166534; border-color: #22c55e;
+}
+.pulse-btn.understand.active {
+    background: #22c55e; color: white; transform: scale(1.05);
+}
+.pulse-btn.confused {
+    background: #fef2f2; color: #991b1b; border-color: #ef4444;
+}
+.pulse-btn.confused.active {
+    background: #ef4444; color: white; transform: scale(1.05);
+}
+
+.mode-item.live-mode {
+    background: linear-gradient(135deg, #f0fdf4, #ecfdf5) !important;
+    border: 1px solid #22c55e33 !important;
 }
 </style>

@@ -1,6 +1,6 @@
 """
 라이브 세션 API Views
-Phase 0: 세션 생성/입장/종료 + 교안 업로드
+Phase 0: 세션 생성/입장/종료 + 교안 업로드 + 이해도 펄스
 """
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
@@ -10,10 +10,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from django.db.models import Count
 
 from .models import (
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog,
-    Lecture, LearningSession
+    Lecture, LearningSession, PulseCheck
 )
 
 
@@ -191,6 +192,70 @@ class LiveSessionViewSet(viewsets.ViewSet):
         ]
 
         return Response(data)
+
+    # ── Step 2: 이해도 펄스 ──
+
+    @action(detail=True, methods=['post'], url_path='pulse')
+    def send_pulse(self, request, pk=None):
+        """
+        POST /api/learning/live/{id}/pulse/
+        학생이 이해도 펄스 전송 (✅ UNDERSTAND / ❓ CONFUSED)
+        동일 학생은 update_or_create로 최신 1건만 유지
+        """
+        session = get_object_or_404(LiveSession, id=pk, status='LIVE')
+
+        # 참가자 확인
+        if not session.participants.filter(student=request.user).exists():
+            return Response({'error': '이 세션에 참가하지 않았습니다.'}, status=status.HTTP_403_FORBIDDEN)
+
+        pulse_type = request.data.get('pulse_type', '').upper()
+        if pulse_type not in ('UNDERSTAND', 'CONFUSED'):
+            return Response({'error': 'pulse_type은 UNDERSTAND 또는 CONFUSED여야 합니다.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        pulse, created = PulseCheck.objects.update_or_create(
+            live_session=session,
+            student=request.user,
+            defaults={'pulse_type': pulse_type}
+        )
+
+        return Response({
+            'pulse_type': pulse.pulse_type,
+            'updated': not created,
+        })
+
+    @action(detail=True, methods=['get'], url_path='pulse-stats')
+    def pulse_stats(self, request, pk=None):
+        """
+        GET /api/learning/live/{id}/pulse-stats/
+        교수자용: 실시간 이해도 비율 조회
+        """
+        session = get_object_or_404(LiveSession, id=pk)
+
+        # 권한: 교수자이거나 참가자
+        is_instructor = session.instructor == request.user
+        if not is_instructor and not session.participants.filter(student=request.user).exists():
+            return Response({'error': '접근 권한이 없습니다.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # 전체 펄스 통계
+        stats = session.pulses.values('pulse_type').annotate(count=Count('id'))
+        understand = 0
+        confused = 0
+        for s in stats:
+            if s['pulse_type'] == 'UNDERSTAND':
+                understand = s['count']
+            elif s['pulse_type'] == 'CONFUSED':
+                confused = s['count']
+
+        total = understand + confused
+        understand_rate = round((understand / total) * 100, 1) if total > 0 else 0
+
+        return Response({
+            'understand': understand,
+            'confused': confused,
+            'total': total,
+            'understand_rate': understand_rate,
+        })
 
 
 # ══════════════════════════════════════════════════════════
