@@ -14,8 +14,13 @@ from django.db.models import Count
 
 from .models import (
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog,
-    Lecture, LearningSession, PulseCheck
+    Lecture, LearningSession, PulseCheck, LiveQuiz, LiveQuizResponse
 )
+
+import openai
+import os
+import json
+openai.api_key = os.getenv('OPENAI_API_KEY')
 
 
 # ══════════════════════════════════════════════════════════
@@ -255,6 +260,208 @@ class LiveSessionViewSet(viewsets.ViewSet):
             'confused': confused,
             'total': total,
             'understand_rate': understand_rate,
+        })
+
+    # ── Step 3: 체크포인트 퀴즈 ──
+
+    @action(detail=True, methods=['post'], url_path='quiz/create')
+    def create_quiz(self, request, pk=None):
+        """
+        POST /api/learning/live/{id}/quiz/create/
+        교수자가 퀴즈 직접 입력하여 발동
+        """
+        session = get_object_or_404(LiveSession, id=pk, instructor=request.user, status='LIVE')
+
+        question_text = request.data.get('question_text', '')
+        options = request.data.get('options', [])
+        correct_answer = request.data.get('correct_answer', '')
+        explanation = request.data.get('explanation', '')
+
+        if not question_text or not options or not correct_answer:
+            return Response({'error': 'question_text, options, correct_answer는 필수입니다.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # 기존 활성 퀴즈 비활성화
+        session.quizzes.filter(is_active=True).update(is_active=False)
+
+        quiz = LiveQuiz.objects.create(
+            live_session=session,
+            question_text=question_text,
+            options=options,
+            correct_answer=correct_answer,
+            explanation=explanation,
+            is_ai_generated=False,
+        )
+
+        return Response({
+            'id': quiz.id,
+            'question_text': quiz.question_text,
+            'options': quiz.options,
+            'is_active': quiz.is_active,
+            'triggered_at': quiz.triggered_at,
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='quiz/generate')
+    def generate_quiz(self, request, pk=None):
+        """
+        POST /api/learning/live/{id}/quiz/generate/
+        최근 STT 내용 기반 AI 퀴즈 자동 생성
+        """
+        session = get_object_or_404(LiveSession, id=pk, instructor=request.user, status='LIVE')
+
+        # 최근 STT 로그 가져오기 (최근 10건)
+        recent_stt = session.stt_logs.order_by('-sequence_order')[:10]
+        stt_text = ' '.join([log.text_chunk for log in reversed(recent_stt)])
+
+        if not stt_text.strip():
+            return Response({'error': 'STT 데이터가 부족합니다. 조금 더 강의한 후 시도해주세요.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            response = openai.chat.completions.create(
+                model='gpt-4o-mini',
+                messages=[
+                    {'role': 'system', 'content': (
+                        '당신은 교육 전문가입니다. '
+                        '주어진 강의 내용을 바탕으로 객관식 4지선다 퀴즈 1문제를 생성하세요. '
+                        '반드시 JSON 형식으로 응답하세요:\n'
+                        '{"question": "문제", "options": ["A", "B", "C", "D"], "correct_answer": "정답", "explanation": "해설"}'
+                    )},
+                    {'role': 'user', 'content': f'강의 내용:\n{stt_text[:2000]}'}
+                ],
+                temperature=0.7,
+                max_tokens=500,
+            )
+
+            content = response.choices[0].message.content.strip()
+            # JSON 파싱 (코드 블록 제거)
+            if '```' in content:
+                content = content.split('```')[1]
+                if content.startswith('json'):
+                    content = content[4:]
+            quiz_data = json.loads(content)
+
+        except Exception as e:
+            return Response({'error': f'AI 퀴즈 생성 실패: {str(e)}'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # 기존 활성 퀴즈 비활성화
+        session.quizzes.filter(is_active=True).update(is_active=False)
+
+        quiz = LiveQuiz.objects.create(
+            live_session=session,
+            question_text=quiz_data.get('question', ''),
+            options=quiz_data.get('options', []),
+            correct_answer=quiz_data.get('correct_answer', ''),
+            explanation=quiz_data.get('explanation', ''),
+            is_ai_generated=True,
+        )
+
+        return Response({
+            'id': quiz.id,
+            'question_text': quiz.question_text,
+            'options': quiz.options,
+            'correct_answer': quiz.correct_answer,
+            'explanation': quiz.explanation,
+            'is_ai_generated': True,
+            'triggered_at': quiz.triggered_at,
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'], url_path='quiz/pending')
+    def pending_quiz(self, request, pk=None):
+        """
+        GET /api/learning/live/{id}/quiz/pending/
+        학생용: 미응답 활성 퀴즈 조회 (폴링 엔드포인트)
+        """
+        session = get_object_or_404(LiveSession, id=pk)
+        if not session.participants.filter(student=request.user).exists():
+            return Response({'error': '이 세션에 참가하지 않았습니다.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # 활성 퀴즈 중 내가 아직 응답하지 않은 것
+        active_quizzes = session.quizzes.filter(is_active=True)
+        pending = []
+        for q in active_quizzes:
+            if not q.responses.filter(student=request.user).exists():
+                pending.append({
+                    'id': q.id,
+                    'question_text': q.question_text,
+                    'options': q.options,
+                    'triggered_at': q.triggered_at,
+                })
+
+        return Response(pending)
+
+    @action(detail=True, methods=['post'], url_path=r'quiz/(?P<quiz_id>\d+)/answer')
+    def answer_quiz(self, request, pk=None, quiz_id=None):
+        """
+        POST /api/learning/live/{id}/quiz/{quiz_id}/answer/
+        학생 퀴즈 응답 + 즉시 채점
+        """
+        session = get_object_or_404(LiveSession, id=pk)
+        quiz = get_object_or_404(LiveQuiz, id=quiz_id, live_session=session)
+
+        if not session.participants.filter(student=request.user).exists():
+            return Response({'error': '이 세션에 참가하지 않았습니다.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # 중복 제출 방지
+        if quiz.responses.filter(student=request.user).exists():
+            return Response({'error': '이미 응답한 퀴즈입니다.'}, status=status.HTTP_409_CONFLICT)
+
+        answer = request.data.get('answer', '')
+        if not answer:
+            return Response({'error': 'answer는 필수입니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        is_correct = answer.strip() == quiz.correct_answer.strip()
+
+        response_obj = LiveQuizResponse.objects.create(
+            quiz=quiz,
+            student=request.user,
+            answer=answer,
+            is_correct=is_correct,
+        )
+
+        return Response({
+            'is_correct': is_correct,
+            'correct_answer': quiz.correct_answer,
+            'explanation': quiz.explanation,
+            'your_answer': answer,
+        })
+
+    @action(detail=True, methods=['get'], url_path=r'quiz/(?P<quiz_id>\d+)/results')
+    def quiz_results(self, request, pk=None, quiz_id=None):
+        """
+        GET /api/learning/live/{id}/quiz/{quiz_id}/results/
+        교수자용: 퀴즈 결과 통계
+        """
+        session = get_object_or_404(LiveSession, id=pk)
+        quiz = get_object_or_404(LiveQuiz, id=quiz_id, live_session=session)
+
+        if session.instructor != request.user:
+            return Response({'error': '교수자만 조회 가능합니다.'}, status=status.HTTP_403_FORBIDDEN)
+
+        responses = quiz.responses.select_related('student').all()
+        total = responses.count()
+        correct = responses.filter(is_correct=True).count()
+        total_participants = session.participants.filter(is_active=True).count()
+
+        return Response({
+            'quiz_id': quiz.id,
+            'question_text': quiz.question_text,
+            'correct_answer': quiz.correct_answer,
+            'total_responses': total,
+            'correct_count': correct,
+            'accuracy': round((correct / total) * 100, 1) if total > 0 else 0,
+            'total_participants': total_participants,
+            'response_rate': round((total / total_participants) * 100, 1) if total_participants > 0 else 0,
+            'responses': [
+                {
+                    'username': r.student.username,
+                    'answer': r.answer,
+                    'is_correct': r.is_correct,
+                    'responded_at': r.responded_at,
+                }
+                for r in responses
+            ],
         })
 
 

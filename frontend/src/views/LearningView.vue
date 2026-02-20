@@ -30,6 +30,11 @@ const livePolling = ref(null);
 const myPulse = ref(null); // 'UNDERSTAND' | 'CONFUSED' | null
 const livePulseStats = ref({ understand: 0, confused: 0, total: 0, understand_rate: 0 });
 
+// --- Live Quiz State ---
+const pendingQuiz = ref(null);
+const quizResult = ref(null);
+const quizAnswering = ref(false);
+
 const joinLiveSession = async () => {
     const code = liveSessionCode.value.trim().toUpperCase();
     if (code.length !== 6) { alert('6자리 코드를 입력해주세요.'); return; }
@@ -51,6 +56,28 @@ const sendPulse = async (pulseType) => {
     } catch (e) { console.error('Pulse error:', e); }
 };
 
+const answerLiveQuiz = async (quizId, answer) => {
+    if (!liveSessionData.value || quizAnswering.value) return;
+    quizAnswering.value = true;
+    try {
+        const { data } = await api.post(
+            `/learning/live/${liveSessionData.value.session_id}/quiz/${quizId}/answer/`,
+            { answer }
+        );
+        quizResult.value = data;
+        pendingQuiz.value = null;
+    } catch (e) {
+        if (e.response?.status === 409) {
+            // 이미 응답함
+            pendingQuiz.value = null;
+        } else {
+            alert('응답 실패: ' + (e.response?.data?.error || ''));
+        }
+    } finally { quizAnswering.value = false; }
+};
+
+const dismissQuizResult = () => { quizResult.value = null; };
+
 const startLiveStatusPolling = () => {
     stopLiveStatusPolling();
     livePolling.value = setInterval(async () => {
@@ -58,7 +85,6 @@ const startLiveStatusPolling = () => {
         try {
             const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/status/`);
             liveSessionData.value = { ...liveSessionData.value, ...data };
-            // 세션 종료 감지
             if (data.status === 'ENDED') {
                 stopLiveStatusPolling();
             }
@@ -67,6 +93,15 @@ const startLiveStatusPolling = () => {
                 const pulse = await api.get(`/learning/live/${liveSessionData.value.session_id}/pulse-stats/`);
                 livePulseStats.value = pulse.data;
             } catch {}
+            // 미응답 퀴즈 체크
+            if (!pendingQuiz.value && !quizResult.value) {
+                try {
+                    const qr = await api.get(`/learning/live/${liveSessionData.value.session_id}/quiz/pending/`);
+                    if (qr.data.length > 0) {
+                        pendingQuiz.value = qr.data[0]; // 가장 최신 1개
+                    }
+                } catch {}
+            }
         } catch {}
     }, 5000);
 };
@@ -79,6 +114,8 @@ const leaveLiveSession = () => {
     stopLiveStatusPolling();
     liveSessionData.value = null;
     myPulse.value = null;
+    pendingQuiz.value = null;
+    quizResult.value = null;
     mode.value = null;
     liveSessionCode.value = '';
 };
@@ -1071,6 +1108,33 @@ const openSessionReview = (id) => {
                 <button class="pulse-btn confused" :class="{ active: myPulse === 'CONFUSED' }" @click="sendPulse('CONFUSED')">
                     ❓ 잘 모르겠어요
                 </button>
+            </div>
+
+            <!-- 퀴즈 팝업 모달 -->
+            <div v-if="pendingQuiz" class="quiz-modal-overlay">
+                <div class="quiz-modal">
+                    <h3>📝 체크포인트 퀴즈!</h3>
+                    <p class="quiz-question">{{ pendingQuiz.question_text }}</p>
+                    <div class="quiz-options">
+                        <button v-for="(opt, idx) in pendingQuiz.options" :key="idx"
+                            class="quiz-option-btn"
+                            :disabled="quizAnswering"
+                            @click="answerLiveQuiz(pendingQuiz.id, opt)">
+                            {{ opt }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 퀴즈 결과 표시 -->
+            <div v-if="quizResult" class="quiz-modal-overlay">
+                <div class="quiz-modal result">
+                    <h3>{{ quizResult.is_correct ? '🎉 정답!' : '😅 오답...' }}</h3>
+                    <p><strong>내 답:</strong> {{ quizResult.your_answer }}</p>
+                    <p><strong>정답:</strong> {{ quizResult.correct_answer }}</p>
+                    <p v-if="quizResult.explanation" class="quiz-explanation">💡 {{ quizResult.explanation }}</p>
+                    <button class="btn btn-primary" @click="dismissQuizResult">확인</button>
+                </div>
             </div>
 
             <button v-if="liveSessionData.status !== 'ENDED'" class="btn btn-secondary" style="margin-top:20px;" @click="leaveLiveSession">
@@ -2105,4 +2169,32 @@ const openSessionReview = (id) => {
     background: linear-gradient(135deg, #f0fdf4, #ecfdf5) !important;
     border: 1px solid #22c55e33 !important;
 }
+
+/* ── Quiz Modal (학습자) ── */
+.quiz-modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6); display: flex; align-items: center;
+    justify-content: center; z-index: 900;
+}
+.quiz-modal {
+    background: white; border-radius: 16px; padding: 32px;
+    max-width: 480px; width: 90%; text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    animation: quiz-pop 0.3s ease-out;
+}
+@keyframes quiz-pop { from { transform: scale(0.8); opacity:0; } to { transform: scale(1); opacity:1; } }
+
+.quiz-modal h3 { font-size: 22px; margin: 0 0 16px; }
+.quiz-question { font-size: 15px; color: #333; margin-bottom: 20px; line-height: 1.6; }
+.quiz-options { display: flex; flex-direction: column; gap: 10px; }
+.quiz-option-btn {
+    padding: 14px 20px; border: 2px solid #e5e7eb; border-radius: 12px;
+    font-size: 14px; cursor: pointer; transition: all 0.2s;
+    background: white; text-align: left;
+}
+.quiz-option-btn:hover { border-color: #3b82f6; background: #eff6ff; }
+.quiz-option-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.quiz-modal.result h3 { font-size: 28px; }
+.quiz-explanation { color: #1e40af; background: #eff6ff; padding: 12px; border-radius: 8px; font-size: 13px; margin: 12px 0; }
 </style>

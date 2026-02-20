@@ -282,6 +282,8 @@ const startLivePolling = () => {
                 const pulse = await api.get(`/learning/live/${liveSession.value.id}/pulse-stats/`);
                 pulseStats.value = pulse.data;
             } catch {}
+            // 퀴즈 결과 동시 조회
+            await fetchQuizResult();
         } catch (e) { /* ignore */ }
     }, 5000);
 };
@@ -290,6 +292,51 @@ const stopLivePolling = () => {
     if (livePollingTimer.value) { clearInterval(livePollingTimer.value); livePollingTimer.value = null; }
 };
 
+// ── Quiz Control State ──
+const activeQuizResult = ref(null);
+const quizGenerating = ref(false);
+const showManualQuizForm = ref(false);
+const manualQuiz = ref({ question: '', options: ['', '', '', ''], correctIndex: '', explanation: '' });
+const lastActiveQuizId = ref(null);
+
+const generateAIQuiz = async () => {
+    if (!liveSession.value) return;
+    quizGenerating.value = true;
+    try {
+        const { data } = await api.post(`/learning/live/${liveSession.value.id}/quiz/generate/`);
+        lastActiveQuizId.value = data.id;
+        alert(`AI 퀴즈 발동! (문제: ${data.question_text.substring(0, 40)}...)`);
+    } catch (e) {
+        alert('AI 퀴즈 생성 실패: ' + (e.response?.data?.error || ''));
+    } finally { quizGenerating.value = false; }
+};
+
+const submitManualQuiz = async () => {
+    if (!liveSession.value) return;
+    const q = manualQuiz.value;
+    if (!q.question || q.options.some(o => !o) || q.correctIndex === '') {
+        alert('모제와 보기 4개, 정답을 모두 입력해주세요.'); return;
+    }
+    try {
+        const { data } = await api.post(`/learning/live/${liveSession.value.id}/quiz/create/`, {
+            question_text: q.question,
+            options: q.options,
+            correct_answer: q.options[q.correctIndex],
+            explanation: q.explanation,
+        });
+        lastActiveQuizId.value = data.id;
+        showManualQuizForm.value = false;
+        manualQuiz.value = { question: '', options: ['', '', '', ''], correctIndex: '', explanation: '' };
+    } catch (e) { alert('퀴즈 생성 실패: ' + (e.response?.data?.error || '')); }
+};
+
+const fetchQuizResult = async () => {
+    if (!liveSession.value || !lastActiveQuizId.value) return;
+    try {
+        const { data } = await api.get(`/learning/live/${liveSession.value.id}/quiz/${lastActiveQuizId.value}/results/`);
+        activeQuizResult.value = data;
+    } catch { /* ignore */ }
+};
 const copyLiveCode = async () => {
     if (!liveSession.value?.session_code) return;
     try { await navigator.clipboard.writeText(liveSession.value.session_code); alert('코드 복사 완료!'); } catch {}
@@ -968,6 +1015,45 @@ onMounted(fetchDashboard);
                     <p class="pulse-waiting">📊 아직 학생들의 이해도 응답이 없습니다...</p>
                 </div>
 
+                <!-- 체크포인트 퀴즈 컨트롤 (LIVE일 때만) -->
+                <div v-if="liveSession.status === 'LIVE'" class="quiz-control-section">
+                    <h3>📝 체크포인트 퀴즈</h3>
+                    
+                    <!-- 퀴즈 결과 표시 (활성 퀴즈 있을 때) -->
+                    <div v-if="activeQuizResult" class="quiz-result-card">
+                        <div class="quiz-result-header">
+                            <span class="quiz-tag">{{ activeQuizResult.is_ai_generated ? '🤖 AI' : '✏️ 수동' }}</span>
+                            <span class="quiz-accuracy">정답률 {{ activeQuizResult.accuracy }}%</span>
+                        </div>
+                        <p class="quiz-q">{{ activeQuizResult.question_text }}</p>
+                        <div class="quiz-result-bar">
+                            <div class="result-fill" :style="{ width: activeQuizResult.response_rate + '%' }"></div>
+                        </div>
+                        <p class="quiz-meta">{{ activeQuizResult.total_responses }}/{{ activeQuizResult.total_participants }}명 응답</p>
+                    </div>
+
+                    <!-- 퀴즈 발동 버튼 -->
+                    <div class="quiz-action-row">
+                        <button class="btn-quiz-ai" @click="generateAIQuiz" :disabled="quizGenerating">
+                            {{ quizGenerating ? '🤖 생성 중...' : '🤖 AI 퀴즈 생성' }}
+                        </button>
+                        <button class="btn-quiz-manual" @click="showManualQuizForm = !showManualQuizForm">
+                            ✏️ 직접 입력
+                        </button>
+                    </div>
+
+                    <!-- 수동 입력 폼 -->
+                    <div v-if="showManualQuizForm" class="manual-quiz-form">
+                        <input v-model="manualQuiz.question" placeholder="문제를 입력하세요" class="quiz-input" />
+                        <input v-for="(_, i) in 4" :key="i" v-model="manualQuiz.options[i]" :placeholder="'보기 ' + (i+1)" class="quiz-input small" />
+                        <select v-model="manualQuiz.correctIndex" class="quiz-input small">
+                            <option disabled value="">정답 선택</option>
+                            <option v-for="(opt, i) in manualQuiz.options" :key="i" :value="i">{{ opt || '보기 ' + (i+1) }}</option>
+                        </select>
+                        <input v-model="manualQuiz.explanation" placeholder="해설 (선택)" class="quiz-input" />
+                        <button class="btn-quiz-submit" @click="submitManualQuiz">퀴즈 발동!</button>
+                    </div>
+                </div>
                 <!-- 참가자 목록 -->
                 <div v-if="liveParticipants.length > 0" class="participants-list">
                     <h3>참가자 ({{ liveParticipants.length }}명)</h3>
@@ -1345,4 +1431,45 @@ tr:hover td { background: #fafbfc; }
 .gauge-labels { display: flex; justify-content: space-between; font-size: 12px; }
 .label-understand { color: #16a34a; font-weight: 600; }
 .label-confused { color: #dc2626; font-weight: 600; }
+
+/* ── Quiz Control ── */
+.quiz-control-section {
+    margin-bottom: 24px; padding: 16px; background: #fafafa; border-radius: 12px;
+}
+.quiz-control-section h3 { font-size: 14px; margin: 0 0 12px; }
+
+.quiz-result-card {
+    padding: 12px; background: white; border-radius: 8px; border: 1px solid #e5e7eb;
+    margin-bottom: 12px;
+}
+.quiz-result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.quiz-tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #dbeafe; color: #1e40af; }
+.quiz-accuracy { font-size: 14px; font-weight: 700; color: #166534; }
+.quiz-q { font-size: 13px; margin: 0 0 8px; color: #333; }
+.quiz-result-bar { height: 8px; border-radius: 4px; background: #e5e7eb; }
+.result-fill { height: 100%; border-radius: 4px; background: #3b82f6; transition: width 0.5s; }
+.quiz-meta { font-size: 11px; color: #888; margin: 4px 0 0; }
+
+.quiz-action-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.btn-quiz-ai, .btn-quiz-manual {
+    flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 13px;
+    font-weight: 600; cursor: pointer; transition: background 0.2s;
+}
+.btn-quiz-ai { background: #eef2ff; color: #4338ca; }
+.btn-quiz-ai:hover { background: #e0e7ff; }
+.btn-quiz-ai:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-quiz-manual { background: #f3f4f6; color: #374151; }
+.btn-quiz-manual:hover { background: #e5e7eb; }
+
+.manual-quiz-form { display: flex; flex-direction: column; gap: 8px; }
+.quiz-input {
+    padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px;
+    font-size: 13px; width: 100%; box-sizing: border-box;
+}
+.quiz-input.small { padding: 8px 12px; }
+.btn-quiz-submit {
+    padding: 10px; background: #f59e0b; color: white; border: none;
+    border-radius: 8px; font-weight: 600; cursor: pointer;
+}
+.btn-quiz-submit:hover { background: #d97706; }
 </style>

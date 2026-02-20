@@ -2,7 +2,8 @@ from django.contrib import admin
 from .models import (
     Lecture, LearningSession, STTLog, SessionSummary, 
     DailyQuiz, QuizQuestion, QuizAttempt, VectorStore,
-    LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog, PulseCheck
+    LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog, PulseCheck,
+    LiveQuiz, LiveQuizResponse
 )
 
 @admin.register(Lecture)
@@ -65,3 +66,16 @@ class LiveSTTLogAdmin(admin.ModelAdmin):
 class PulseCheckAdmin(admin.ModelAdmin):
     list_display = ('id', 'student', 'live_session', 'pulse_type', 'created_at')
     list_filter = ('pulse_type',)
+
+@admin.register(LiveQuiz)
+class LiveQuizAdmin(admin.ModelAdmin):
+    list_display = ('id', 'live_session', 'question_text_preview', 'is_ai_generated', 'is_active', 'triggered_at')
+    list_filter = ('is_ai_generated', 'is_active')
+
+    def question_text_preview(self, obj):
+        return obj.question_text[:50] + '...' if len(obj.question_text) > 50 else obj.question_text
+
+@admin.register(LiveQuizResponse)
+class LiveQuizResponseAdmin(admin.ModelAdmin):
+    list_display = ('id', 'quiz', 'student', 'answer', 'is_correct', 'responded_at')
+    list_filter = ('is_correct',)

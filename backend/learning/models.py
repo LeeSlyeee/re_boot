@@ -328,3 +328,42 @@ class PulseCheck(models.Model):
 
     def __str__(self):
         return f"{self.student.username}: {self.pulse_type} @ {self.live_session.session_code}"
+
+
+class LiveQuiz(models.Model):
+    """
+    교수자가 라이브 세션 중 발동하는 체크포인트 퀴즈.
+    AI가 자동 생성하거나, 교수자가 직접 입력할 수 있다.
+    """
+    live_session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name='quizzes')
+    question_text = models.TextField(help_text="퀴즈 문제")
+    options = models.JSONField(help_text="객관식 보기 리스트 (예: ['A답', 'B답', 'C답', 'D답'])")
+    correct_answer = models.CharField(max_length=255, help_text="정답")
+    explanation = models.TextField(blank=True, help_text="해설")
+    is_ai_generated = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True, help_text="현재 활성 퀴즈 여부")
+    triggered_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-triggered_at']
+
+    def __str__(self):
+        return f"[Quiz #{self.id}] {self.question_text[:40]}..."
+
+
+class LiveQuizResponse(models.Model):
+    """
+    학생의 라이브 퀴즈 응답.
+    unique_together로 동일 퀴즈 중복 제출 방지.
+    """
+    quiz = models.ForeignKey(LiveQuiz, on_delete=models.CASCADE, related_name='responses')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='live_quiz_responses')
+    answer = models.CharField(max_length=255)
+    is_correct = models.BooleanField()
+    responded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['quiz', 'student']
+
+    def __str__(self):
+        return f"{self.student.username}: {'✅' if self.is_correct else '❌'} @ Quiz #{self.quiz_id}"
