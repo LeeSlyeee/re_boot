@@ -13,7 +13,10 @@ const stats = ref({
     totalHours: 0,
     finishedSessions: 0,
     quizScore: 0,
-    todayHours: 0 
+    todayHours: 0,
+    attendanceRate: 0,
+    attendedDays: 0,
+    totalClassDays: 0
 });
 
 // --- Join Class State ---
@@ -224,6 +227,14 @@ const continueLearning = () => {
                     <div class="stat-info">
                         <h3>최근 퀴즈 점수</h3>
                         <p class="value">{{ stats.quizScore }}점</p>
+                    </div>
+                </div>
+                <div class="stat-card glass-panel">
+                    <div class="icon-box orange"><BarChart2 /></div>
+                    <div class="stat-info">
+                        <h3>출석률</h3>
+                        <p class="value">{{ stats.attendanceRate }}%</p>
+                        <p class="sub-value" v-if="stats.totalClassDays > 0">{{ stats.attendedDays }} / {{ stats.totalClassDays }}일</p>
                     </div>
                 </div>
             </div>
@@ -450,7 +461,7 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
 
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 24px;
     margin-bottom: 40px;
 }
@@ -468,11 +479,13 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
         &.blue { color: #4facfe; background: rgba(79, 172, 254, 0.1); }
         &.purple { color: #a18cd1; background: rgba(161, 140, 209, 0.1); }
         &.green { color: #00f260; background: rgba(0, 242, 96, 0.1); }
+        &.orange { color: #ff9800; background: rgba(255, 152, 0, 0.1); }
     }
     
     .stat-info {
         h3 { font-size: 14px; color: #888; margin-bottom: 4px; }
         .value { font-size: 24px; font-weight: 700; }
+        .sub-value { font-size: 12px; color: #666; margin-top: 2px; }
     }
 }
 

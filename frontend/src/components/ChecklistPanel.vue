@@ -1,7 +1,10 @@
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue';
-import { CheckCircle, Circle, ChevronDown, ChevronRight, ListChecks } from 'lucide-vue-next';
+import { useRouter } from 'vue-router';
+import { CheckCircle, Circle, ChevronDown, ChevronRight, ListChecks, Search, ExternalLink } from 'lucide-vue-next';
 import api from '../api/axios';
+
+const router = useRouter();
 
 const props = defineProps({
     lectureId: { type: [String, Number], required: true }
@@ -9,7 +12,9 @@ const props = defineProps({
 
 const syllabi = ref([]);
 const isLoading = ref(true);
-const openWeeks = ref({}); // { week_number: boolean }
+const openWeeks = ref({});
+const searchQuery = ref('');
+const sortMode = ref('all'); // 'all' | 'incomplete'
 
 // Computed: 전체 진도율
 const progress = computed(() => {
@@ -23,6 +28,37 @@ const progress = computed(() => {
     });
     return total === 0 ? 0 : Math.round((checked / total) * 100);
 });
+
+// 검색 및 정렬된 실라버스
+const filteredSyllabi = computed(() => {
+    const q = searchQuery.value.trim().toLowerCase();
+    return syllabi.value.map(week => {
+        let objs = week.objectives;
+        
+        // 검색 필터
+        if (q) {
+            objs = objs.filter(o => o.content.toLowerCase().includes(q));
+        }
+        
+        // 정렬: 미완료 우선
+        if (sortMode.value === 'incomplete') {
+            objs = [...objs].sort((a, b) => (a.is_checked === b.is_checked ? 0 : a.is_checked ? 1 : -1));
+        }
+        
+        return { ...week, objectives: objs };
+    }).filter(week => {
+        // 검색 시 결과가 없는 주차는 숨김
+        return q ? week.objectives.length > 0 : true;
+    });
+});
+
+// 스킬 클릭 시 해당 주차 학습 세션으로 이동
+const goToLecture = (weekNumber) => {
+    router.push({ 
+        path: '/learning', 
+        query: { lectureId: props.lectureId } 
+    });
+};
 
 const fetchChecklist = async () => {
     if (!props.lectureId) return;
@@ -77,6 +113,22 @@ watch(() => props.lectureId, fetchChecklist);
             </div>
         </div>
 
+        <!-- 검색 및 정렬 -->
+        <div class="filter-bar">
+            <div class="search-box">
+                <Search size="14" class="search-icon" />
+                <input type="text" v-model="searchQuery" placeholder="스킬 검색..." class="search-input" />
+            </div>
+            <div class="sort-toggle">
+                <button 
+                    :class="['sort-btn', { active: sortMode === 'all' }]" 
+                    @click="sortMode = 'all'">전체</button>
+                <button 
+                    :class="['sort-btn', { active: sortMode === 'incomplete' }]" 
+                    @click="sortMode = 'incomplete'">미완료 우선</button>
+            </div>
+        </div>
+
         <div v-if="isLoading" class="loading-state">
             로딩 중...
         </div>
@@ -85,11 +137,18 @@ watch(() => props.lectureId, fetchChecklist);
             <p>등록된 강의 계획서가 없습니다.</p>
         </div>
 
+        <div v-else-if="filteredSyllabi.length === 0" class="empty-state">
+            <p>검색 결과가 없습니다.</p>
+        </div>
+
         <div v-else class="syllabus-list">
-            <div v-for="week in syllabi" :key="week.id" class="week-item">
+            <div v-for="week in filteredSyllabi" :key="week.id" class="week-item">
                 <div class="week-header" @click="toggleWeek(week.week_number)">
                     <component :is="openWeeks[week.week_number] ? ChevronDown : ChevronRight" size="16" class="arrow" />
                     <span class="week-title">{{ week.week_number }}주차: {{ week.title }}</span>
+                    <button class="go-lecture-btn" @click.stop="goToLecture(week.week_number)" title="해당 주차 학습으로 이동">
+                        <ExternalLink size="14" />
+                    </button>
                 </div>
                 
                 <div v-if="openWeeks[week.week_number]" class="objective-list">
@@ -124,11 +183,45 @@ watch(() => props.lectureId, fetchChecklist);
 }
 
 .checklist-header {
-    margin-bottom: 20px;
+    margin-bottom: 12px;
     h3 { 
         display: flex; align-items: center; gap: 8px;
         font-size: 18px; color: white; margin: 0 0 12px 0;
     }
+}
+
+.filter-bar {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 16px;
+}
+
+.search-box {
+    flex: 1; display: flex; align-items: center; gap: 6px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; padding: 6px 10px;
+    .search-icon { color: #666; flex-shrink: 0; }
+    .search-input {
+        flex: 1; background: none; border: none; outline: none;
+        color: white; font-size: 13px;
+        &::placeholder { color: #555; }
+    }
+}
+
+.sort-toggle {
+    display: flex; gap: 2px; background: rgba(255,255,255,0.05); border-radius: 6px; overflow: hidden;
+    .sort-btn {
+        background: none; border: none; color: #777; font-size: 11px;
+        padding: 5px 10px; cursor: pointer; transition: all 0.2s;
+        white-space: nowrap;
+        &.active { background: rgba(79, 172, 254, 0.15); color: #4facfe; font-weight: 600; }
+        &:hover:not(.active) { color: #aaa; }
+    }
+}
+
+.go-lecture-btn {
+    background: none; border: none; color: #555; cursor: pointer;
+    padding: 2px 4px; border-radius: 4px; margin-left: auto;
+    transition: all 0.2s; display: flex; align-items: center;
+    &:hover { color: #4facfe; background: rgba(79, 172, 254, 0.1); }
 }
 
 .progress-container {

@@ -138,38 +138,20 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             file_name = audio_file.name or "chunk.webm"
             audio_data = (file_name, audio_file.read(), audio_file.content_type or "audio/webm")
 
+            # [UPGRADE] gpt-4o-transcribe: GPT-4o 언어 이해력 결합으로 환각 구조적 억제
             transcript = client.audio.transcriptions.create(
-                model="whisper-1", 
+                model="gpt-4o-transcribe", 
                 file=audio_data, 
                 language="ko",
-                response_format="verbose_json", # [CRITICAL] Request Metadata
-                prompt=f"이것은 강의 자막입니다. 이전 내용: {previous_context}", 
+                prompt=f"이것은 한국어 IT 부트캠프 강의 자막입니다. 이전 내용: {previous_context}" if previous_context else "이것은 한국어 IT 부트캠프 강의 자막입니다.",
             )
             
-            # verbose_json returns an object with 'text' and 'segments'
             stt_text = transcript.text
-            segments = getattr(transcript, 'segments', [])
-            
-            # [SILENCE DETECTION] Use Whisper's internal confidence
-            if segments:
-                # Use the first segment's probability (since we send small chunks)
-                first_seg = segments[0]
-                no_speech_prob = getattr(first_seg, 'no_speech_prob', 0)
-                avg_logprob = getattr(first_seg, 'avg_logprob', 0)
-                
-                with open("debug_stt.log", "a") as f:
-                    f.write(f"[{sequence_order}] PROBS: NoSpeech={no_speech_prob:.4f}, LogProb={avg_logprob:.4f}\n")
-
-                # If Whisper is 50% sure it's silence, trust it.
-                if no_speech_prob > 0.5:
-                     with open("debug_stt.log", "a") as f:
-                         f.write(f"⚠️ Filtered by NoSpeechProb: {no_speech_prob}\n")
-                     return Response({'status': 'silence_skipped', 'text': '', 'reason': 'High No Speech Prob'}, status=status.HTTP_200_OK)
 
             with open("debug_stt.log", "a") as f:
-                f.write(f"[{sequence_order}] RAW WHISPER: {stt_text}\n")
+                f.write(f"[{sequence_order}] RAW GPT-4o-TRANSCRIBE: {stt_text}\n")
             
-            print(f"📝 Whisper Raw Output: [{stt_text}]")
+            print(f"📝 GPT-4o-Transcribe Output: [{stt_text}]")
             
             # [CRITICAL FIX] Hallucination & Valid Content Filter
             # 1. Hallucination List (Updated from user logs)
@@ -412,13 +394,45 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
         # 소수점 시간은 유지 (다른 곳에서 쓸 수도 있음)
         total_hours = round(total_seconds / 3600, 1)
 
+        # [New] 출석률 계산
+        # 사용자가 등록한 강의들의 전체 수업일 대비 출석 비율
+        from .models import Lecture # Import Lecture model
+        enrolled_lectures = Lecture.objects.filter(students=user)
+        total_class_dates = 0
+        attended_dates_count = 0
+        
+        for lec in enrolled_lectures:
+            # 이 강의에서 수업이 진행된 모든 날짜
+            all_dates = (
+                LearningSession.objects
+                .filter(lecture=lec)
+                .values_list('session_date', flat=True)
+                .distinct()
+            )
+            dates_set = set(all_dates)
+            total_class_dates += len(dates_set)
+            
+            # 이 학생이 출석한 날짜
+            my_dates = (
+                LearningSession.objects
+                .filter(lecture=lec, student=user)
+                .values_list('session_date', flat=True)
+                .distinct()
+            )
+            attended_dates_count += len(set(my_dates) & dates_set)
+        
+        attendance_rate = round((attended_dates_count / total_class_dates * 100), 1) if total_class_dates > 0 else 0
+
         return Response({
             "finishedSessions": finished_count,
             "totalHours": total_hours,
-            "totalHoursInt": total_hours_int,  # [New]
-            "totalMinutesInt": total_minutes_int, # [New]
+            "totalHoursInt": total_hours_int,
+            "totalMinutesInt": total_minutes_int,
             "todayHours": today_hours, 
             "quizScore": quiz_score,
+            "attendanceRate": attendance_rate,
+            "attendedDays": attended_dates_count,
+            "totalClassDays": total_class_dates,
             "lastSessionDate": last_session_date,
             "lastSessionId": last_session.id if last_session else None,
             "lastSessionUrl": last_session.youtube_url if last_session else None

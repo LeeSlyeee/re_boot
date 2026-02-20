@@ -15,7 +15,7 @@ const lectureTitle = ref('');
 const lectureCode = ref('');
 
 // Tab Management
-const activeTab = ref('monitor'); // 'monitor' | 'attendance' | 'quiz'
+const activeTab = ref('monitor'); // 'monitor' | 'attendance' | 'quiz' | 'recording'
 
 const copyCode = async () => {
     try {
@@ -203,6 +203,101 @@ const switchTab = (tab) => {
     activeTab.value = tab;
     if (tab === 'attendance') fetchAttendance();
     if (tab === 'quiz') fetchQuizAnalytics();
+    if (tab === 'recording') fetchRecordings();
+};
+
+// ── Recording Upload Data ──
+const recordings = ref([]);
+const recordingsLoading = ref(false);
+const isUploading = ref(false);
+const uploadProgress = ref(0);
+const uploadError = ref('');
+const uploadResult = ref(null);
+const isDragOver = ref(false);
+const showSummaryModal = ref(false);
+const selectedSummary = ref('');
+
+const fetchRecordings = async () => {
+    recordingsLoading.value = true;
+    try {
+        const res = await api.get(`/learning/lectures/${lectureId}/recordings/`);
+        recordings.value = res.data;
+    } catch (e) {
+        console.error('녹음 이력 조회 실패', e);
+    } finally {
+        recordingsLoading.value = false;
+    }
+};
+
+const handleDrop = (e) => {
+    isDragOver.value = false;
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) uploadFile(files[0]);
+};
+
+const handleFileSelect = (e) => {
+    const files = e.target.files;
+    if (files && files.length > 0) uploadFile(files[0]);
+};
+
+const uploadFile = async (file) => {
+    // 파일 검증
+    const validTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/webm'];
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(mp3|wav|m4a|webm|ogg)$/i)) {
+        uploadError.value = '지원하지 않는 파일 형식입니다. (mp3, wav, m4a 지원)';
+        return;
+    }
+    
+    const maxSize = 150 * 1024 * 1024; // 150MB
+    if (file.size > maxSize) {
+        uploadError.value = `파일 크기가 150MB를 초과합니다. (현재: ${Math.round(file.size / 1024 / 1024)}MB)`;
+        return;
+    }
+    
+    isUploading.value = true;
+    uploadError.value = '';
+    uploadResult.value = null;
+    uploadProgress.value = 10;
+    
+    const formData = new FormData();
+    formData.append('audio_file', file);
+    
+    try {
+        uploadProgress.value = 30;
+        const res = await api.post(
+            `/learning/lectures/${lectureId}/upload_recording/`,
+            formData,
+            {
+                headers: { 'Content-Type': 'multipart/form-data' },
+                timeout: 600000, // 10분 타임아웃 (1시간 강의 처리)
+            }
+        );
+        uploadProgress.value = 100;
+        uploadResult.value = res.data;
+        
+        // 이력 갱신
+        await fetchRecordings();
+    } catch (e) {
+        console.error('녹음 업로드 실패', e);
+        uploadError.value = e.response?.data?.error || '업로드 중 오류가 발생했습니다.';
+    } finally {
+        isUploading.value = false;
+    }
+};
+
+const viewSummary = async (sessionId) => {
+    try {
+        const res = await api.get(`/learning/sessions/${sessionId}/`);
+        const summaries = res.data.summaries || [];
+        if (summaries.length > 0) {
+            selectedSummary.value = summaries[0].content_text;
+        } else {
+            selectedSummary.value = '(요약본이 아직 생성되지 않았습니다)';
+        }
+        showSummaryModal.value = true;
+    } catch (e) {
+        alert('요약본을 불러올 수 없습니다.');
+    }
 };
 
 const attendanceChartOptions = {
@@ -263,6 +358,11 @@ onMounted(fetchDashboard);
                 :class="['tab-btn', { active: activeTab === 'quiz' }]" 
                 @click="switchTab('quiz')">
                 📝 퀴즈 분석
+            </button>
+            <button 
+                :class="['tab-btn', { active: activeTab === 'recording' }]" 
+                @click="switchTab('recording')">
+                🎤 녹음 업로드
             </button>
         </div>
 
@@ -569,6 +669,126 @@ onMounted(fetchDashboard);
                 <p>퀴즈 데이터를 불러올 수 없습니다.</p>
             </div>
         </div>
+
+        <!-- ══════════════════════════════════════════ -->
+        <!-- Tab 4: 녹음 업로드 -->
+        <!-- ══════════════════════════════════════════ -->
+        <div v-if="activeTab === 'recording'">
+            <!-- 업로드 영역 -->
+            <div 
+                class="upload-zone"
+                :class="{ 'drag-over': isDragOver, 'uploading': isUploading }"
+                @dragover.prevent="isDragOver = true"
+                @dragleave="isDragOver = false"
+                @drop.prevent="handleDrop"
+                @click="!isUploading && $refs.fileInput.click()"
+            >
+                <input 
+                    ref="fileInput" 
+                    type="file" 
+                    accept=".mp3,.wav,.m4a,.webm,.ogg" 
+                    style="display:none" 
+                    @change="handleFileSelect" 
+                />
+                
+                <div v-if="isUploading" class="upload-progress">
+                    <div class="spinner"></div>
+                    <p class="upload-status">🔄 강의 녹음 처리 중... (오디오 분할 → STT 변환 → AI 요약)</p>
+                    <p class="upload-hint">⏳ 1시간 강의 기준 약 3~5분 소요</p>
+                    <div class="progress-bar-upload">
+                        <div class="fill-upload" :style="{ width: uploadProgress + '%' }"></div>
+                    </div>
+                </div>
+                
+                <div v-else>
+                    <div class="upload-icon">🎤</div>
+                    <p class="upload-text">강의 녹음 파일을 드래그하거나 클릭하여 업로드</p>
+                    <p class="upload-hint">mp3, wav, m4a 지원 · 최대 150MB (1시간 강의 기준)</p>
+                </div>
+            </div>
+            
+            <!-- 업로드 결과 -->
+            <div v-if="uploadError" class="upload-error">
+                ❌ {{ uploadError }}
+            </div>
+            
+            <div v-if="uploadResult" class="upload-success">
+                <div class="success-header">
+                    ✅ 처리 완료!
+                </div>
+                <div class="success-detail">
+                    <span>🕛 강의 시간: {{ uploadResult.duration_minutes }}분</span>
+                    <span>📝 STT 문자 수: {{ uploadResult.stt_length?.toLocaleString() }}자</span>
+                    <span>🧩 처리 청크: {{ uploadResult.total_chunks }}개</span>
+                </div>
+            </div>
+            
+            <!-- 녹음 이력 -->
+            <div class="table-container" style="margin-top: 24px;">
+                <h3 class="section-title" style="padding: 20px 20px 0;">📎 처리된 녹음 이력</h3>
+                <div v-if="recordingsLoading" class="loading-state">
+                    <div class="spinner"></div>
+                    <p>로딩 중...</p>
+                </div>
+                <table v-else>
+                    <thead>
+                        <tr>
+                            <th style="width: 30%">파일명</th>
+                            <th style="width: 10%">크기</th>
+                            <th style="width: 10%">길이</th>
+                            <th style="width: 15%">상태</th>
+                            <th style="width: 15%">업로드 일시</th>
+                            <th style="width: 20%">액션</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="rec in recordings" :key="rec.id">
+                            <td class="filename-cell">{{ rec.filename }}</td>
+                            <td>{{ rec.file_size_mb }}MB</td>
+                            <td>{{ rec.duration_minutes ? rec.duration_minutes + '분' : '-' }}</td>
+                            <td>
+                                <span class="status-badge" :class="{
+                                    good: rec.status === 'COMPLETED',
+                                    warning: rec.status === 'PROCESSING' || rec.status === 'TRANSCRIBING' || rec.status === 'SUMMARIZING' || rec.status === 'SPLITTING',
+                                    critical: rec.status === 'FAILED'
+                                }">
+                                    {{ rec.status === 'COMPLETED' ? '✅ 완료' : 
+                                       rec.status === 'FAILED' ? '❌ 실패' : 
+                                       '⏳ ' + rec.status }}
+                                </span>
+                            </td>
+                            <td class="count-cell">{{ rec.created_at }}</td>
+                            <td>
+                                <button 
+                                    v-if="rec.status === 'COMPLETED' && rec.session_id"
+                                    class="btn-micro" 
+                                    @click="viewSummary(rec.session_id)"
+                                >📝 요약 보기</button>
+                                <span v-else-if="rec.status === 'FAILED'" class="error-hint" :title="rec.error_message">{{ rec.error_message?.substring(0, 30) }}...</span>
+                            </td>
+                        </tr>
+                        <tr v-if="recordings.length === 0">
+                            <td colspan="6" style="text-align:center; color:#888; padding:40px;">
+                                업로드된 녹음이 없습니다.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- 요약 보기 모달 -->
+        <div v-if="showSummaryModal" class="modal-overlay" @click.self="showSummaryModal = false">
+            <div class="modal-card summary-modal">
+                <div class="modal-header">
+                    <h2>📚 강의 요약</h2>
+                    <button class="close-btn" @click="showSummaryModal = false">×</button>
+                </div>
+                <div class="modal-body">
+                    <pre class="summary-content">{{ selectedSummary }}</pre>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
@@ -729,4 +949,72 @@ tr:hover td { background: #fafbfc; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .empty-state { text-align: center; padding: 60px; color: #999; }
+
+/* ── Recording Upload Zone ── */
+.upload-zone {
+    border: 2px dashed #ccc; border-radius: 16px;
+    padding: 60px 40px; text-align: center; cursor: pointer;
+    transition: all 0.3s ease; background: #fafafa;
+    margin-bottom: 20px;
+}
+.upload-zone:hover { border-color: #4facfe; background: #f0f7ff; }
+.upload-zone.drag-over { border-color: #4facfe; background: #e3f2fd; transform: scale(1.01); }
+.upload-zone.uploading { cursor: wait; border-color: #ff9800; background: #fff8e1; }
+
+.upload-icon { font-size: 48px; margin-bottom: 12px; }
+.upload-text { font-size: 16px; font-weight: 600; color: #333; margin-bottom: 6px; }
+.upload-hint { font-size: 13px; color: #999; }
+.upload-status { font-size: 15px; font-weight: 600; color: #ef6c00; margin-bottom: 4px; }
+
+.upload-progress { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.progress-bar-upload {
+    width: 60%; height: 8px; background: #eee; border-radius: 4px;
+    overflow: hidden; margin-top: 8px;
+}
+.fill-upload {
+    height: 100%; background: linear-gradient(90deg, #4facfe, #00f2fe);
+    border-radius: 4px; transition: width 0.5s ease;
+}
+
+.upload-error {
+    background: #ffebee; border: 1px solid #ef9a9a; color: #c62828;
+    padding: 14px 18px; border-radius: 10px; font-size: 14px; margin-bottom: 16px;
+}
+.upload-success {
+    background: #e8f5e9; border: 1px solid #a5d6a7;
+    padding: 18px 22px; border-radius: 12px; margin-bottom: 16px;
+}
+.success-header { font-size: 18px; font-weight: 700; color: #2e7d32; margin-bottom: 10px; }
+.success-detail { display: flex; gap: 20px; font-size: 13px; color: #555; flex-wrap: wrap; }
+
+.filename-cell { font-size: 13px; color: #444; word-break: break-all; }
+.error-hint { font-size: 11px; color: #c62828; cursor: help; }
+
+/* ── Summary Modal ── */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0,0,0,0.5); z-index: 2000;
+    display: flex; align-items: center; justify-content: center;
+}
+.modal-card.summary-modal {
+    background: white; border-radius: 16px; width: 800px; max-width: 90vw;
+    max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+}
+.modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 20px 24px; border-bottom: 1px solid #eee;
+}
+.modal-header h2 { margin: 0; font-size: 20px; }
+.close-btn {
+    background: none; border: none; font-size: 28px; color: #999;
+    cursor: pointer; padding: 0 4px; line-height: 1;
+}
+.close-btn:hover { color: #333; }
+.modal-body { padding: 24px; overflow-y: auto; flex: 1; }
+.summary-content {
+    white-space: pre-wrap; word-break: break-word;
+    font-family: 'Pretendard', sans-serif; font-size: 14px;
+    line-height: 1.8; color: #333; margin: 0;
+}
 </style>

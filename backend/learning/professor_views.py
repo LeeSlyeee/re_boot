@@ -5,7 +5,8 @@ from django.db.models import Avg, Count, Q, F
 from django.db.models.functions import TruncDate
 from .models import (
     Lecture, QuizAttempt, LearningSession, LearningObjective,
-    StudentChecklist, DailyQuiz, QuizQuestion, AttemptDetail
+    StudentChecklist, DailyQuiz, QuizQuestion, AttemptDetail,
+    RecordingUpload
 )
 from .serializers import LectureSerializer
 
@@ -295,3 +296,95 @@ class LectureViewSet(viewsets.ModelViewSet):
             'students': student_stats,
             'question_accuracy': question_accuracy
         })
+
+    # ──────────────────────────────────────────
+    # [NEW] 녹음 파일 업로드 → 가공 파이프라인
+    # ──────────────────────────────────────────
+    @action(detail=True, methods=['post'], url_path='upload_recording')
+    def upload_recording(self, request, pk=None):
+        """
+        강의 녹음 파일 업로드 및 가공 파이프라인 실행
+        
+        1시간 강의 기준 설계 (mp3 ~60MB, wav ~600MB → 변환 후 처리)
+        
+        Request:
+            FILES: { "audio_file": <UploadedFile> }
+        
+        Response (성공):
+            {
+                "recording_id": 1,
+                "session_id": 42,
+                "summary": "# 📚 강의 요약 ...",
+                "duration_minutes": 60,
+                "total_chunks": 4
+            }
+        """
+        lecture = self.get_object()
+        audio_file = request.FILES.get('audio_file')
+        
+        if not audio_file:
+            return Response(
+                {"error": "오디오 파일이 제공되지 않았습니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # 파일 크기 제한 (150MB — 1시간 wav도 커버)
+        MAX_SIZE = 150 * 1024 * 1024
+        if audio_file.size > MAX_SIZE:
+            return Response(
+                {"error": f"파일 크기가 {MAX_SIZE // (1024*1024)}MB를 초과합니다. 현재: {audio_file.size // (1024*1024)}MB"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # RecordingUpload 레코드 생성
+        recording = RecordingUpload.objects.create(
+            lecture=lecture,
+            uploaded_by=request.user,
+            audio_file=audio_file,
+            original_filename=audio_file.name,
+            file_size=audio_file.size,
+        )
+        
+        # 동기 처리 (선택지 A)
+        from .recording_pipeline import process_recording
+        result = process_recording(recording.id)
+        
+        if result.get('success'):
+            return Response({
+                'recording_id': recording.id,
+                'session_id': result['session_id'],
+                'summary': result['summary'],
+                'duration_minutes': result.get('duration_minutes', 0),
+                'total_chunks': result.get('total_chunks', 0),
+                'stt_length': result.get('stt_length', 0),
+            }, status=status.HTTP_201_CREATED)
+        else:
+            return Response({
+                'recording_id': recording.id,
+                'error': result.get('error', '알 수 없는 오류가 발생했습니다.'),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['get'], url_path='recordings')
+    def recordings(self, request, pk=None):
+        """
+        해당 강의의 녹음 업로드 이력 조회
+        """
+        lecture = self.get_object()
+        uploads = RecordingUpload.objects.filter(lecture=lecture)
+        
+        data = []
+        for r in uploads:
+            data.append({
+                'id': r.id,
+                'filename': r.original_filename,
+                'file_size_mb': round(r.file_size / (1024 * 1024), 1),
+                'duration_minutes': (r.duration_seconds // 60) if r.duration_seconds else None,
+                'status': r.status,
+                'progress': r.progress,
+                'session_id': r.session_id,
+                'error_message': r.error_message,
+                'created_at': r.created_at.strftime('%Y-%m-%d %H:%M'),
+                'completed_at': r.completed_at.strftime('%Y-%m-%d %H:%M') if r.completed_at else None,
+            })
+        
+        return Response(data)

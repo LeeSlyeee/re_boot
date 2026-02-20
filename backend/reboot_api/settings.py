@@ -69,6 +69,14 @@ WSGI_APPLICATION = 'reboot_api.wsgi.application'
 
 STATIC_URL = '/static/'
 
+# Media Files (녹음 파일 업로드 등)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# 파일 업로드 크기 제한 (1시간 강의 녹음 대응)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 200 * 1024 * 1024   # 200MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 200 * 1024 * 1024    # 200MB
+
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware', # Add CORS
     'django.middleware.security.SecurityMiddleware',
