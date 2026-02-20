@@ -2,6 +2,14 @@
 
 > 작성일: 2026-02-20
 > 전제: Phase 0 (라이브 인프라) + Phase 1 (수준 진단 + 갭 맵) + Phase 2 (강의 고도화) 완료
+> **코드 검증: 2026-02-20 20:02 완료** — 14개 모델/필드 존재 확인, 12개 핵심 쿼리 실행 성공, URL 무충돌, 프론트 의존성(chart.js/vue-chartjs) 확인
+
+### ⚠️ 구현 시 주의사항
+
+1. **Line 차트**: `vue-chartjs`의 `Line` import + `chart.js`에 `LineElement`, `PointElement` 레지스터 필요
+2. **LectureMaterial → Lecture FK**: `source_material__lecture_id` 역참조 가능 확인됨 (uploaded_by는 있지만 lecture FK는 lecture\_\_materials)
+3. **Lecture.students (M2M)**: 수강생 목록 접근 가능 (현재 2명 등록 확인)
+4. **FormativeAssessment 데이터**: 아직 실제 데이터 0건 — 빈 데이터 처리 로직 필수
 
 ---
 
