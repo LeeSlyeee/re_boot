@@ -101,11 +101,17 @@ class LearningSession(models.Model):
     start_time = models.DateTimeField(auto_now_add=True)
     end_time = models.DateTimeField(null=True, blank=True)
     is_completed = models.BooleanField(default=False)
+    is_analyzing = models.BooleanField(default=False) # [New] Background processing status
+    ai_status = models.CharField(max_length=50, default='pending', help_text="AI 처리 상태")
     youtube_url = models.URLField(max_length=500, blank=True, null=True, help_text="유튜브 학습 시 영상 URL")
     
     # [New] 대화 압축 (Conversation Compression)
     context_summary = models.TextField(blank=True, null=True, help_text="현재까지의 대화/자막 압축 요약본")
     last_compressed_at = models.DateTimeField(default=timezone.now, help_text="마지막 압축 시점")
+    
+    # [Ghost Fields] Sync with DB
+    script_segments = models.JSONField(default=list, help_text="자막 세그먼트 데이터")
+    processing_error = models.TextField(null=True, blank=True)
 
     def __str__(self):
         title = self.section.title if self.section else "자율학습"
@@ -115,6 +121,8 @@ class STTLog(models.Model):
     session = models.ForeignKey(LearningSession, on_delete=models.CASCADE, related_name='stt_logs')
     sequence_order = models.IntegerField()
     text_chunk = models.TextField()
+    start_time = models.FloatField(null=True, blank=True, help_text="자막 시작 시간 (초)")
+    end_time = models.FloatField(null=True, blank=True, help_text="자막 종료 시간 (초)")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

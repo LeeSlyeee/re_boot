@@ -1,6 +1,7 @@
 <script setup>
 import { ref, nextTick, computed, watch, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router'; // useRoute added
+import axios from 'axios';
 
 // Debug Refs
 const debugLastChunkSize = ref(0);
@@ -17,11 +18,159 @@ const route = useRoute(); // Route access
 // --- State Variables ---
 const mode = ref(null); 
 const youtubeUrl = ref('');
+const isProcessing = ref(false); // [New] for YouTube processing
+const player = ref(null); // [New] for YouTube Player
+const playerInterval = ref(null); // [New] for Sync
+const currentSubtitle = ref(''); // [New] for Sync
+const pollInterval = ref(null); // [New] for Background Polling
+const isAnalyzing = ref(false); // [New] Background Analysis Status
+
+// ... existing refs ...
 const watchHistory = ref([]); 
 const isLoadingSession = ref(true); 
 const isUrlSubmitted = ref(false); 
 const pendingSessionId = ref(null); 
 const isCompletedSession = ref(false); 
+
+// ... (Rest of existing state) ...
+
+// [New] YouTube Processing Logic
+const processYouTubeVideo = async () => {
+    if (!sessionId.value || sessionId.value === 'null' || !youtubeUrl.value) {
+        console.warn("⚠️ Cannot process YouTube: Missing sessionId or youtubeUrl");
+        return;
+    }
+    
+    isProcessing.value = true;
+    try {
+        console.log("🎬 Starting YouTube Processing...");
+        const res = await api.post(`/learning/sessions/${sessionId.value}/process-youtube/`, {
+            youtube_url: youtubeUrl.value
+        }, {
+            timeout: 300000 // 5 minutes
+        });
+        
+        // [CHANGE] Handle Background Processing Start - Immediate Feedback
+        if (res.status === 202 || res.data.status === 'started') {
+             console.log("⏳ Background Processing Started. Polling for updates...");
+             isAnalyzing.value = true; // Set status immediately
+             activeTab.value = 'stt';  // Switch to subtitle tab
+             startPolling();
+        } else if (res.data.status === 'processed' || res.data.message === 'Already processed') {
+            console.log("✅ YouTube Processed. Reloading logs...");
+            await loadSTTLogs(sessionId.value);
+        }
+    } catch (e) {
+        console.error("Processing Error:", e);
+        if (e.response && e.response.status === 200 && e.response.data.status === 'started') {
+             // Sometimes 202 might be caught here depending on axios config, but usually not.
+             startPolling();
+        } else {
+             alert("영상 분석 시작 중 오류가 발생했습니다.");
+        }
+    } finally {
+        // [CHANGE] Don't turn off isProcessing immediately if polling
+        // But for UI "Loading Spinner", maybe we turn it off and show a different indicator?
+        // For now, keep isProcessing=true until first logs arrive? 
+        // Or better: Use isProcessing only for the initial API call.
+        isProcessing.value = false; 
+    }
+};
+
+const startPolling = () => {
+    if (pollInterval.value) clearInterval(pollInterval.value);
+    
+    // Poll every 5 seconds
+    pollInterval.value = setInterval(async () => {
+        if (!sessionId.value || sessionId.value === 'null') {
+            console.warn("⚠️ Polling stopped: sessionId is null");
+            if (pollInterval.value) clearInterval(pollInterval.value);
+            return;
+        }
+        try {
+            // 1. Check Session Status
+            const sessionRes = await api.get(`/learning/sessions/${sessionId.value}/`);
+            isAnalyzing.value = sessionRes.data.is_analyzing;
+            
+            // 2. Fetch Logs (Incremental)
+            // Just fetching all logs for now is simplest.
+            await loadSTTLogs(sessionId.value);
+            
+            if (sttLogs.value.length > 0) {
+                 // If we have logs, user can start learning.
+            }
+
+            // 3. Stop conditions
+            if (!isAnalyzing.value) {
+                console.log("✅ Analysis Finished. Stopping Poll.");
+                clearInterval(pollInterval.value);
+                pollInterval.value = null;
+            }
+        } catch (e) {
+            console.error("Polling Error:", e);
+            // Optionally stop polling on error
+        }
+    }, 5000);
+};
+
+const loadSTTLogs = async (id) => {
+    try {
+        const res = await api.get(`/learning/sessions/${id}/logs/`);
+        if (res.data && Array.isArray(res.data)) {
+            // [FIX] Sort by start_time for sequential display
+            sttLogs.value = res.data.sort((a, b) => (a.start_time || 0) - (b.start_time || 0));
+        }
+    } catch (e) {
+        console.error("Load Logs Error:", e);
+    }
+};
+
+// [New] YouTube Sync Logic
+const onPlayerReady = (event) => {
+    player.value = event.target;
+    startSyncLoop();
+};
+
+const startSyncLoop = () => {
+    if (playerInterval.value) clearInterval(playerInterval.value);
+    playerInterval.value = setInterval(() => {
+        if (player.value && player.value.getCurrentTime) {
+            const currentTime = player.value.getCurrentTime();
+            highlightSubtitle(currentTime);
+        }
+    }, 500);
+};
+
+const highlightSubtitle = (time) => {
+    const match = sttLogs.value.find(log => {
+        return time >= (log.start_time || 0) && time <= (log.end_time || 99999);
+    });
+
+    if (match) {
+        currentSubtitle.value = match.text_chunk;
+        const el = document.getElementById(`log-${match.id}`);
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+};
+
+const formatVideoTime = (seconds) => {
+    if (!seconds && seconds !== 0) return '--:--';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
+const seekTo = (startTime) => {
+    if (player.value && player.value.seekTo) {
+        player.value.seekTo(startTime, true);
+        player.value.playVideo();
+    }
+};
+ 
 
 // --- Lecture Mode State ---
 const currentLectureId = ref(null);
@@ -330,24 +479,25 @@ onMounted(async () => {
              console.log(`ℹ️ Opening Lecture Mode: ${queryLectureId}`);
              currentLectureId.value = queryLectureId;
              await fetchLectureSessions(queryLectureId);
-             await fetchMissedSessions(queryLectureId); // Fetch missed sessions when entering lecture mode
+             await fetchMissedSessions(queryLectureId); 
              
-             // [FIX] Ensure analysis runs on entry
              analyzeChecklist(queryLectureId);
              
              mode.value = 'lecture';
-             // Don't auto-resume session unless user picks one
+             
+             // [New] Check for YouTube URL in Query (Direct Start)
+             if (route.query.youtubeUrl) {
+                 youtubeUrl.value = route.query.youtubeUrl;
+                 // Create Session & Start Process
+                 await startRecording(); // Reuse startRecording logic but for YouTube
+             }
+
         } else if (querySessionId) {
              console.log(`ℹ️ Resuming Session from Query: ${querySessionId}`);
              await resumeSessionById(querySessionId);
-             // [TODO] If resuming session, we might want to analyze its parent lecture too
-             // But for now, analysis is main feature of Lecture List View
         } else if (savedSessionId) {
-            // [CHANGE] 자동 복구 시도 (isAutoRestore=true)
             await resumeSession(true); 
         } else {
-            // [FIX] 저장된 세션이 없으면 전체 상태 클린 리셋
-            // → 이전 학습 완료 후 재진입 시 모드 선택 화면이 뜨도록 보장
             mode.value = null;
             sessionId.value = null;
             pendingSessionId.value = null;
@@ -519,24 +669,13 @@ const resumeSession = async (isAutoRestore = false) => {
                  localStorage.setItem('currentYoutubeUrl', youtubeUrl.value);
              }
              isUrlSubmitted.value = !!sessionRes.data.youtube_url;
-        } 
+        }
         // 2. 유튜브 URL만 있으면 -> Youtube 모드
         else if (sessionRes.data.youtube_url) {
             youtubeUrl.value = sessionRes.data.youtube_url;
             mode.value = 'youtube';
             isUrlSubmitted.value = true;
             localStorage.setItem('currentYoutubeUrl', youtubeUrl.value);
-        } 
-        // 3. 그 외 (localStorage fallback)
-        else {
-             if (savedUrl) {
-                youtubeUrl.value = savedUrl;
-                mode.value = 'youtube';
-                isUrlSubmitted.value = true; 
-            } else {
-                const restoredMode = localStorage.getItem('restoredMode');
-                mode.value = restoredMode || 'universal';
-            }
         }
         
         // 2. 로그 복구
@@ -544,7 +683,21 @@ const resumeSession = async (isAutoRestore = false) => {
         if (logRes.data && Array.isArray(logRes.data)) {
             sttLogs.value = logRes.data;
         }
-        
+
+        // [New] If YouTube Mode & No Logs -> Trigger Processing
+        if ((mode.value === 'youtube' || youtubeUrl.value) && sttLogs.value.length === 0) {
+            // Check if already analyzing (from sessionRes)
+             if (sessionRes.data.is_analyzing) {
+                 console.log("🔄 Session is analyzing. Resuming polling...");
+                 startPolling();
+             } else {
+                 await processYouTubeVideo();
+             }
+        } else if (sessionRes.data.is_analyzing) {
+             // Even if logs exist, if still analyzing, resume poll
+             startPolling();
+        }
+
     } catch(e) {
         console.error("Resume Failed", e);
         
@@ -613,7 +766,8 @@ const selectMode = (selectedMode) => {
 };
 
 // [FIX] URL 제출 로직 개선
-const submitYoutube = () => {
+// [FIX] URL 제출 로직 개선 - 세션 생성 및 영상 분석 자동 시작
+const submitYoutube = async () => {
     if (!youtubeEmbedUrl.value) {
         alert("올바른 유튜브 링크를 입력해주세요 (예: https://youtube.com/watch?v=...)");
         return;
@@ -626,20 +780,42 @@ const submitYoutube = () => {
     localStorage.setItem('currentYoutubeUrl', youtubeUrl.value);
     addToHistory(youtubeUrl.value);
     
-    // Update Backend
-    if (sessionId.value) {
+    // [NEW] 세션이 없으면 새로 생성, 있으면 URL 업데이트
+    if (!sessionId.value) {
+        try {
+            console.log("🆕 Creating NEW YouTube Session...");
+            const response = await api.post('/learning/sessions/', { 
+                youtube_url: youtubeUrl.value,
+                session_order: 1, // [FIX] Required field
+                lecture: currentLectureId.value || null
+            });
+            sessionId.value = response.data.id;
+            localStorage.setItem('currentSessionId', sessionId.value);
+            console.log("✅ Session Created:", sessionId.value);
+            
+            // 영상 분석 프로세스 즉시 시작
+            await processYouTubeVideo();
+        } catch (e) {
+            console.error("Session creation failed:", e);
+            alert("세션 시작에 실패했습니다.");
+            isUrlSubmitted.value = false;
+        }
+    } else {
+        // 기존 세션 URL 업데이트 및 분석 재시작 (필요시)
         let urlToSave = youtubeUrl.value.trim();
         if (!urlToSave.startsWith('http')) urlToSave = 'https://' + urlToSave;
 
-        api.post(`/learning/sessions/${sessionId.value}/update-url/`, {
-            youtube_url: urlToSave
-        }).then(() => {
-            console.log("✅ URL Saved to Backend");
-        }).catch(err => {
+        try {
+            await api.post(`/learning/sessions/${sessionId.value}/update-url/`, {
+                youtube_url: urlToSave
+            });
+            console.log("✅ URL Updated. Triggering Analysis...");
+            await processYouTubeVideo();
+        } catch (err) {
             console.error("URL Save Failed:", err);
             alert("저장 실패 (서버 오류)");
-            isUrlSubmitted.value = false; // 실패 시 다시 열어줌
-        });
+            isUrlSubmitted.value = false; 
+        }
     }
 };
 
@@ -1140,13 +1316,17 @@ const openSessionReview = (id) => {
                 <!-- 1. STT View -->
                 <div v-show="activeTab === 'stt'" class="stt-container" ref="logsContainer">
                     <div v-if="sttLogs.length === 0" class="empty-state"><p>AI가 내용을 받아적습니다.</p></div>
-                    <div v-for="log in sttLogs" :key="log.id" class="stt-bubble">
-                        <span class="time">{{ log.timestamp }}</span>
+                    <div v-for="log in sttLogs" :key="log.id" :id="`log-${log.id}`" class="stt-bubble clickable" @click="seekTo(log.start_time)">
+                        <span class="vid-time">{{ formatVideoTime(log.start_time) }}</span>
                         <p>{{ log.text_chunk }}</p>
                     </div>
                     <!-- Processing Indicator -->
                     <div v-if="isProcessingAudio" class="stt-bubble processing">
                         <span class="typing-dots">AI가 내용을 듣고 있습니다...</span>
+                    </div>
+                    <!-- [New] YouTube Analysis Indicator -->
+                    <div v-if="isAnalyzing" class="stt-bubble processing" style="border-color: var(--color-accent); color: var(--color-accent);">
+                        <span class="typing-dots">영상 분석 중... (자막이 순차적으로 생성됩니다)</span>
                     </div>
                 </div>
 
@@ -1409,11 +1589,24 @@ const openSessionReview = (id) => {
         &::-webkit-scrollbar-track { background: #222; }
     }
     
-    .stt-log {
+    .stt-log, .stt-bubble {
         margin-bottom: 12px; font-size: 15px; line-height: 1.6; color: rgba(255,255,255,0.9);
         padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 8px;
         border-left: 3px solid var(--color-accent);
         animation: fadeIn 0.3s ease-out;
+        transition: all 0.2s;
+        
+        &.clickable { cursor: pointer; }
+        &.clickable:hover { 
+            background: rgba(255,255,255,0.1); 
+            transform: translateX(4px);
+            border-left-width: 5px;
+        }
+
+        .vid-time {
+            font-size: 11px; color: var(--color-accent); font-weight: bold;
+            margin-bottom: 4px; display: block;
+        }
     }
     .stt-log:last-child {
         margin-bottom: 20px; /* 마지막 아이템 여백 */

@@ -1,0 +1,18 @@
+Column                         | Type                 | Null?      | Default
+--------------------------------------------------------------------------------
+id                             | bigint               | NO         | None
+session_date                   | date                 | NO         | None
+session_order                  | integer              | NO         | None
+start_time                     | timestamp with time zone | NO         | None
+end_time                       | timestamp with time zone | YES        | None
+is_completed                   | boolean              | NO         | None
+section_id                     | bigint               | YES        | None
+student_id                     | bigint               | NO         | None
+youtube_url                    | character varying    | YES        | None
+lecture_id                     | bigint               | YES        | None
+context_summary                | text                 | YES        | None
+last_compressed_at             | timestamp with time zone | NO         | None
+ai_status                      | character varying    | NO         | None
+processing_error               | text                 | YES        | None
+script_segments                | jsonb                | NO         | None
+is_analyzing                   | boolean              | NO         | None

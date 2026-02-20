@@ -54,7 +54,7 @@ class LearningSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = LearningSession
         # Removed 'course' from fields
-        fields = ['id', 'student', 'section', 'lecture', 'session_order', 'start_time', 'end_time', 'is_completed', 'youtube_url', 'latest_summary']
+        fields = ['id', 'student', 'section', 'lecture', 'session_order', 'start_time', 'end_time', 'is_completed', 'is_analyzing', 'youtube_url', 'latest_summary']
         read_only_fields = ['student', 'start_time', 'end_time', 'is_completed']
         
     def create(self, validated_data):
@@ -68,7 +68,7 @@ class LearningSessionSerializer(serializers.ModelSerializer):
 class STTLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = STTLog
-        fields = ['session', 'sequence_order', 'text_chunk', 'created_at']
+        fields = ['id', 'session', 'sequence_order', 'text_chunk', 'start_time', 'end_time', 'created_at']
 
 class SessionSummarySerializer(serializers.ModelSerializer):
     class Meta:

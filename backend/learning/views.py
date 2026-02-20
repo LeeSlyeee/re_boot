@@ -1,5 +1,5 @@
 from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework.decorators import action, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.utils import timezone
@@ -11,7 +11,10 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 from django.conf import settings
+from django.conf import settings
 from rest_framework import generics
+import yt_dlp
+import uuid
 
 # OpenAI API Key Setup
 openai.api_key = settings.OPENAI_API_KEY
@@ -134,18 +137,12 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             stt_logger.debug(f"[{sequence_order}] Size: {audio_file.size}, Type: {audio_file.content_type}")
 
             # [CONTEXT IMPROVEMENT] Use last 3 logs as prompt to guide Whisper
-            # This significantly reduces "silence hallucinations" by providing context.
             previous_context = ""
-            # Must evaluate QuerySet to list because reversed() on sliced QuerySet is not supported by DB
             recent_logs = list(STTLog.objects.filter(session=session).order_by('-sequence_order')[:3])
             
             if recent_logs:
-                # Reverse to get chronological order: Oldest -> Newest
-                # recent_logs is now a list, so reversed() is safe
                 previous_context = " ".join([log.text_chunk for log in reversed(recent_logs)])
             
-            # Limit prompt length (OpenAI limit is ~224 tokens, keep it safe)
-            # Python slice handles chars, safe for unicode
             if len(previous_context) > 200:
                 previous_context = previous_context[-200:]
 
@@ -167,7 +164,6 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             print(f"📝 GPT-4o-Transcribe Output: [{stt_text}]")
             
             # [CRITICAL FIX] Hallucination & Valid Content Filter
-            # 1. Hallucination List (Updated from user logs)
             HALLUCINATIONS = [
                 "시청해주셔서 감사합니다", "시청해 주셔서 감사합니다",
                 "구독과 좋아요", "좋아요와 구독", "구독&좋아요", "♥", 
@@ -189,59 +185,46 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             is_hallucination = False
             skip_reason = ""
 
-            # 2. Empty Check
             if not cleaned_text:
                 return Response({'status': 'silence_skipped', 'text': '', 'reason': 'Empty'}, status=status.HTTP_200_OK)
 
-            # [NEW] Prompt Echo Check (Prevent looping previous context)
-            # If current text is just a subset of previous context, it's a loop.
             if len(cleaned_text) > 5 and cleaned_text in previous_context:
                  is_hallucination = True
                  skip_reason = "Prompt Echo Loop"
 
-            # [NEW] Internal Repetition Check (e.g., "Hello Hello")
-            # Simple check: if first half equals second half
             mid = len(cleaned_text) // 2
             if len(cleaned_text) > 10 and cleaned_text[:mid].strip() == cleaned_text[mid:].strip():
                  is_hallucination = True
                  skip_reason = "Internal Repetition"
 
-            # 3. Phrase Matching (Keyword Ban)
             if not is_hallucination:
                 for phrase in HALLUCINATIONS:
-                    # Remove spaces for robust checking
                     if phrase.replace(" ", "").lower() in cleaned_text.replace(" ", "").lower():
                         is_hallucination = True
                         skip_reason = f"Banned Phrase: {phrase}"
                         break
             
-            # 4. Strict Repetition Filter (Prevent Looping)
             if not is_hallucination:
-                # Check last 3 logs
                 recent_logs = STTLog.objects.filter(session=session).order_by('-sequence_order')[:3]
                 
                 for log in recent_logs:
                     prev = log.text_chunk.strip()
                     curr = cleaned_text
                     
-                    # A. Exact Match
                     if prev == curr:
                         is_hallucination = True
                         skip_reason = "Exact Duplicate"
                         break
                     
-                    # B. Jaccard Similarity for longer text
                     set_prev = set(prev.split())
                     set_curr = set(curr.split())
                     if len(set_curr) > 0:
                         overlap = len(set_prev & set_curr) / len(set_curr)
-                        if overlap > 0.9: # 90% word overlap (Stricter)
+                        if overlap > 0.9:
                             is_hallucination = True
                             skip_reason = "High Word Overlap"
                             break
 
-                    # C. Substring Inclusion (Short Phrase Echo)
-                    # If current (short) is contained in previous (long), it's likely an echo
                     if len(curr) < 20 and len(curr) < len(prev) and curr in prev:
                         is_hallucination = True
                         skip_reason = "Short Substring Echo"
@@ -271,6 +254,182 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             import traceback
             traceback.print_exc()
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='process-youtube', permission_classes=[AllowAny])
+    def process_youtube(self, request, pk=None):
+        """
+        YouTube 영상 처리 (Background Chunking)
+        Requested by User: 60s Refresh
+        """
+        session = self.get_object()
+        youtube_url = request.data.get('youtube_url')
+        
+        if not youtube_url:
+            if session.youtube_url:
+                youtube_url = session.youtube_url
+            else:
+                return Response({'error': 'YouTube URL is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # URL Update
+        if session.youtube_url != youtube_url:
+            session.youtube_url = youtube_url
+            session.save()
+
+        # Check if already processing
+        if session.is_analyzing:
+             return Response({'status': 'started', 'message': 'Already analyzing...'}, status=status.HTTP_200_OK)
+
+        # Start Background Thread
+        import threading
+        session.is_analyzing = True
+        session.save()
+        
+        print(f"🚀 Starting Background Processing for Session {pk}: {youtube_url}")
+        
+        thread = threading.Thread(target=self._process_youtube_task, args=(session.id, youtube_url))
+        thread.daemon = True
+        thread.start()
+
+        return Response({'status': 'started', 'message': 'Background processing started'}, status=status.HTTP_202_ACCEPTED)
+
+    def _process_youtube_task(self, session_id, youtube_url):
+        stt_logger.debug(f"🧵 [Thread] Processing started for Session {session_id}")
+        
+        import os
+        import uuid
+        import yt_dlp
+        from pydub import AudioSegment
+        from openai import OpenAI
+        from .models import LearningSession, STTLog
+        import shutil 
+
+        # [FIX] Explicitly check FFmpeg availability
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+             # Try common Windows paths or assume strict path if needed
+             # For now, just log error
+             stt_logger.error("❌ [Thread] FFmpeg not found in PATH")
+             # Try to force path if known (User has it installed)
+             # AudioSegment.converter = r"C:\ffmpeg\bin\ffmpeg.exe" 
+        else:
+             stt_logger.debug(f"✅ FFmpeg found at: {ffmpeg_path}")
+             AudioSegment.converter = ffmpeg_path
+
+        try:
+            # Re-fetch session to ensure fresh state
+            session = LearningSession.objects.get(id=session_id)
+            client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            
+            # 1. Download Audio (Entire Video)
+            # Use a unique temp filename
+            temp_id = uuid.uuid4().hex[:8]
+            download_path = f"temp_full_{session_id}_{temp_id}" # No extension yet
+            
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '128',
+                }],
+                'outtmpl': download_path,
+                'quiet': True,
+            }
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([youtube_url])
+            
+            # Find the actual file (yt-dlp adds extension)
+            full_audio_path = f"{download_path}.mp3"
+            if not os.path.exists(full_audio_path):
+                 stt_logger.error(f"❌ [Thread] Download failed: {full_audio_path} not found")
+                 session.is_analyzing = False
+                 session.save()
+                 return
+
+            stt_logger.debug(f"✅ [Thread] Audio Downloaded: {full_audio_path}")
+
+            # 2. Load Audio with Pydub
+            try:
+                audio = AudioSegment.from_mp3(full_audio_path)
+            except Exception as e:
+                stt_logger.error(f"❌ [Thread] Pydub Load Error: {e}")
+                raise e
+
+            duration_ms = len(audio)
+            chunk_length_ms = 60 * 1000 # 60 seconds
+            
+            stt_logger.debug(f"ℹ️ [Thread] Audio Duration: {duration_ms}ms, Chunk Size: {chunk_length_ms}ms")
+
+            # 3. Process Chunks
+            for i in range(0, duration_ms, chunk_length_ms):
+                chunk = audio[i:i + chunk_length_ms]
+                
+                # Export chunk to temp file
+                chunk_filename = f"temp_chunk_{session_id}_{i // chunk_length_ms}.mp3"
+                chunk.export(chunk_filename, format="mp3")
+                
+                # Check for existing log (resume support)
+                sequence = (i // chunk_length_ms) + 1
+                if STTLog.objects.filter(session=session, sequence_order=sequence).exists():
+                    print(f"⏭️ [Thread] Skipping Chunk {sequence} (Already exists)")
+                    if os.path.exists(chunk_filename): os.remove(chunk_filename)
+                    continue
+
+                print(f"🎤 [Thread] Transcribing Chunk {sequence}...")
+                
+                try:
+                    with open(chunk_filename, "rb") as audio_file:
+                        transcript = client.audio.transcriptions.create(
+                            model="whisper-1", 
+                            file=audio_file, 
+                            response_format="verbose_json",
+                            timestamp_granularities=["segment"]
+                        )
+                    
+                    # Calculate global time offset
+                    offset_seconds = i / 1000.0
+                    
+                    new_logs = []
+                    for segment in transcript.segments:
+                        new_logs.append(STTLog(
+                            session=session,
+                            sequence_order=sequence, # Store chunk index as major order? OR refine this
+                            # NOTE: Using sequence_order for CHUNK ID might be confusing if we want strict sentence order.
+                            # But for now, let's use a float or just rely on start_time for sorting in frontend.
+                            # Let's stick to simple append for now.
+                            text_chunk=segment.text,
+                            start_time=segment.start + offset_seconds,
+                            end_time=segment.end + offset_seconds
+                        ))
+                    
+                    STTLog.objects.bulk_create(new_logs)
+                    print(f"✅ [Thread] Chunk {sequence} Saved ({len(new_logs)} segments)")
+                    
+                except Exception as e:
+                    print(f"❌ [Thread] Error processing chunk {sequence}: {e}")
+                finally:
+                    if os.path.exists(chunk_filename):
+                        os.remove(chunk_filename)
+
+            # 4. Cleanup & Finish
+            if os.path.exists(full_audio_path):
+                os.remove(full_audio_path)
+            
+            print(f"🎉 [Thread] Processing Completed for Session {session_id}")
+            session.is_analyzing = False
+            session.save()
+
+        except Exception as e:
+            print(f"❌ [Thread] CRITICAL ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                session = LearningSession.objects.get(id=session_id)
+                session.is_analyzing = False
+                session.save()
+            except:
+                pass
 
     @action(detail=False, methods=['get'], url_path='debug-openai')
     def debug_openai(self, request):
