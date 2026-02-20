@@ -407,6 +407,7 @@ class LiveSessionNote(models.Model):
 
     live_session = models.OneToOneField(LiveSession, on_delete=models.CASCADE, related_name='note')
     content = models.TextField(blank=True, help_text="AI 생성 통합 노트 (Markdown)")
+    instructor_insight = models.TextField(blank=True, help_text="교수자용 인사이트 리포트 (Markdown)")
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
     stats = models.JSONField(default=dict, help_text="세션 통계 (참가자수, 정답률 등)")
     created_at = models.DateTimeField(auto_now_add=True)

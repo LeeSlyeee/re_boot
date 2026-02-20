@@ -1057,6 +1057,48 @@ def _generate_live_note(session_id, note_id):
             print(f"⚠️ [LiveNote] GPT 실패, Fallback 사용: {e}")
 
         note.save()
+
+        # ── 7. 교수자 인사이트 리포트 생성 ──
+        try:
+            insight_prompt = f"""[세션 통계]
+- 참가자: {stats['total_participants']}명, 시간: {stats['duration_minutes']}분
+- 이해도: {understand_rate}%, 퀴즈 {len(quiz_summary)}건, 질문 {len(qa_summary)}건
+
+[퀴즈 결과]
+{quiz_text if quiz_text else '(퀴즈 없음)'}
+
+[학생 질문 (공감순)]
+{qa_text if qa_text else '(질문 없음)'}
+
+[이해도 데이터]
+이해 {pulse_understand}명 / 혼란 {pulse_confused}명 = {understand_rate}%
+"""
+            client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+            insight_resp = client.chat.completions.create(
+                model='gpt-4o-mini',
+                messages=[
+                    {'role': 'system', 'content': (
+                        '당신은 부트캠프 교수자를 위한 수업 분석 AI입니다.\n'
+                        '아래 세션 데이터를 분석하여 교수자 인사이트 리포트를 작성하세요.\n\n'
+                        '형식:\n'
+                        '# 📊 인사이트 리포트\n\n'
+                        '## 🔴 주의 구간\n- 이해도가 낮았던 포인트, 혼란이 많았던 시점\n\n'
+                        '## ❓ TOP 3 질문\n- 가장 많은 공감을 받은 질문과 의미\n\n'
+                        '## 📝 퀴즈 분석\n- 정답률 낮은 문항 분석, 취약 개념\n\n'
+                        '## 💡 다음 수업 제안\n- 보충 필요 주제, 수업 속도 조절 제안\n\n'
+                        '## 📈 전체 평가\n- 긍정 포인트 + 개선 포인트 요약'
+                    )},
+                    {'role': 'user', 'content': insight_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2000,
+            )
+            note.instructor_insight = insight_resp.choices[0].message.content
+            note.save()
+            print(f"✅ [Insight] 교수자 인사이트 리포트 생성 완료")
+        except Exception as ie:
+            print(f"⚠️ [Insight] 인사이트 생성 실패 (노트는 정상): {ie}")
+
         print(f"✅ [LiveNote] 세션 #{session_id} 통합 노트 생성 완료 ({note.status})")
 
     except Exception as e:
@@ -1096,11 +1138,17 @@ class LiveNoteView(APIView):
             return Response({'error': '아직 노트가 생성되지 않았습니다.', 'status': 'NOT_STARTED'},
                             status=status.HTTP_404_NOT_FOUND)
 
-        return Response({
+        response_data = {
             'session_id': session.id,
             'status': note.status,
             'content': note.content if note.status == 'DONE' else '',
             'stats': note.stats,
             'created_at': note.created_at,
-        })
+        }
+
+        # 교수자에게만 인사이트 리포트 제공
+        if is_instructor:
+            response_data['instructor_insight'] = note.instructor_insight or ''
+
+        return Response(response_data)
 

@@ -266,9 +266,42 @@ const endLiveSession = async () => {
     try {
         await api.post(`/learning/live/${liveSession.value.id}/end/`);
         stopLivePolling();
-        liveSession.value = null;
-        liveParticipants.value = [];
+        stopSTT();
+        // 세션 종료 후 상태 유지 → 인사이트 폴링 시작
+        liveSession.value = { ...liveSession.value, status: 'ENDED' };
+        startInsightPolling();
     } catch (e) { alert('세션 종료 실패'); }
+};
+
+// ── 인사이트 리포트 폴링 ──
+const insightData = ref(null);
+const insightPolling = ref(null);
+
+const fetchInsight = async () => {
+    if (!liveSession.value) return;
+    try {
+        const { data } = await api.get(`/learning/live/${liveSession.value.id}/note/`);
+        if (data.status === 'DONE') {
+            insightData.value = data;
+            if (insightPolling.value) { clearInterval(insightPolling.value); insightPolling.value = null; }
+        }
+    } catch {}
+};
+
+const startInsightPolling = () => {
+    fetchInsight();
+    insightPolling.value = setInterval(fetchInsight, 3000);
+};
+
+const renderInsightMarkdown = (text) => {
+    if (!text) return '';
+    return text
+        .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+        .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/^- (.+)$/gm, '<li>$1</li>')
+        .replace(/\n/g, '<br/>');
 };
 
 const startLivePolling = () => {
@@ -1321,6 +1354,41 @@ onMounted(fetchDashboard);
                 </div>
                 <p v-else class="empty-text">아직 업로드된 교안이 없습니다.</p>
             </div>
+
+            <!-- 세션 종료 후: 인사이트 리포트 -->
+            <div v-if="liveSession.status === 'ENDED'" class="insight-section">
+                <h2 class="section-title">📊 인사이트 리포트</h2>
+                <div v-if="!insightData" class="insight-loading">
+                    <div class="insight-spinner"></div>
+                    <p>AI가 수업 데이터를 분석 중입니다...</p>
+                    <p class="insight-hint">통합 노트 + 인사이트 리포트가 자동 생성됩니다 (약 30초~1분)</p>
+                </div>
+                <div v-else>
+                    <!-- 통계 카드 -->
+                    <div v-if="insightData.stats" class="insight-stats-row">
+                        <div class="insight-stat">
+                            <span class="is-num">{{ insightData.stats.total_participants || 0 }}</span>
+                            <span class="is-lbl">참가자</span>
+                        </div>
+                        <div class="insight-stat">
+                            <span class="is-num">{{ insightData.stats.duration_minutes || 0 }}분</span>
+                            <span class="is-lbl">수업 시간</span>
+                        </div>
+                        <div class="insight-stat">
+                            <span class="is-num">{{ insightData.stats.understand_rate || 0 }}%</span>
+                            <span class="is-lbl">이해도</span>
+                        </div>
+                        <div class="insight-stat">
+                            <span class="is-num">{{ insightData.stats.quiz_count || 0 }}건</span>
+                            <span class="is-lbl">퀴즈</span>
+                        </div>
+                    </div>
+
+                    <!-- 교수자 인사이트 마크다운 -->
+                    <div v-if="insightData.instructor_insight" class="insight-body" v-html="renderInsightMarkdown(insightData.instructor_insight)"></div>
+                    <p v-else class="insight-pending">인사이트 리포트 생성 중...</p>
+                </div>
+            </div>
         </div>
 
         <!-- ══════════════════════════════════════ -->
@@ -1937,4 +2005,30 @@ tr:hover td { background: #fafbfc; }
 .ws-rate { font-size: 14px; font-weight: 700; width: 50px; text-align: right; flex-shrink: 0; }
 
 .diagnostic-footer { text-align: center; padding: 12px; color: #aaa; font-size: 12px; border-top: 1px solid #eee; }
+
+/* ── Insight Report ── */
+.insight-section { margin-top: 28px; padding: 20px; background: #fafafa; border-radius: 12px; border: 1px solid #eee; }
+.insight-loading { text-align: center; padding: 40px 0; color: #888; }
+.insight-spinner {
+    width: 36px; height: 36px; border: 3px solid #eee; border-top-color: #3b82f6;
+    border-radius: 50%; animation: spin-insight 0.8s linear infinite; margin: 0 auto 12px;
+}
+@keyframes spin-insight { to { transform: rotate(360deg); } }
+.insight-hint { font-size: 12px; color: #aaa; }
+.insight-pending { color: #aaa; font-style: italic; text-align: center; padding: 20px; }
+
+.insight-stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.insight-stat { text-align: center; padding: 14px; background: white; border: 1px solid #e5e7eb; border-radius: 10px; }
+.is-num { display: block; font-size: 22px; font-weight: 800; color: #333; }
+.is-lbl { font-size: 11px; color: #aaa; }
+
+.insight-body {
+    padding: 16px; background: white; border-radius: 10px; border: 1px solid #e5e7eb;
+    font-size: 13px; line-height: 1.8; color: #333;
+}
+.insight-body h2 { font-size: 18px; margin: 16px 0 8px; color: #1e3a5f; }
+.insight-body h3 { font-size: 15px; margin: 12px 0 6px; color: #334155; }
+.insight-body h4 { font-size: 14px; margin: 10px 0 4px; color: #475569; }
+.insight-body li { margin-left: 16px; list-style: disc; margin-bottom: 4px; }
+.insight-body strong { color: #1e40af; }
 </style>
