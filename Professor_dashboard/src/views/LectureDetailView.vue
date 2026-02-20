@@ -287,12 +287,94 @@ const startLivePolling = () => {
             await fetchQuizResult();
             // Q&A 질문 동시 조회
             await fetchLiveQuestions();
+            // AI 퀴즈 제안 체크
+            if (!quizSuggestion.value) await fetchQuizSuggestion();
         } catch (e) { /* ignore */ }
     }, 5000);
 };
 
 const stopLivePolling = () => {
     if (livePollingTimer.value) { clearInterval(livePollingTimer.value); livePollingTimer.value = null; }
+};
+
+// ── STT (Web Speech API) ──
+const sttActive = ref(false);
+const sttRecognition = ref(null);
+const sttLastText = ref('');
+
+const startSTT = () => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert('이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.');
+        return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'ko-KR';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+
+    recognition.onresult = async (event) => {
+        const last = event.results[event.results.length - 1];
+        if (last.isFinal) {
+            const text = last[0].transcript.trim();
+            if (text && liveSession.value) {
+                sttLastText.value = text;
+                try {
+                    await api.post(`/learning/live/${liveSession.value.id}/stt/`, { text });
+                } catch {}
+            }
+        }
+    };
+
+    recognition.onerror = (e) => {
+        console.error('STT Error:', e.error);
+        if (e.error !== 'no-speech') { sttActive.value = false; }
+    };
+    recognition.onend = () => {
+        // continuous 모드에서도 중간에 끊길 수 있음 → 자동 재시작
+        if (sttActive.value && liveSession.value?.status === 'LIVE') {
+            recognition.start();
+        }
+    };
+
+    recognition.start();
+    sttRecognition.value = recognition;
+    sttActive.value = true;
+};
+
+const stopSTT = () => {
+    if (sttRecognition.value) {
+        sttActive.value = false;
+        sttRecognition.value.stop();
+        sttRecognition.value = null;
+    }
+};
+
+// ── 퀴즈 제안 (AI 자동 생성 → 교수자 승인) ──
+const quizSuggestion = ref(null);
+
+const fetchQuizSuggestion = async () => {
+    if (!liveSession.value || liveSession.value.status !== 'LIVE') return;
+    try {
+        const { data } = await api.get(`/learning/live/${liveSession.value.id}/quiz/suggestion/`);
+        if (data && data.id) {
+            quizSuggestion.value = data;
+        }
+    } catch {}
+};
+
+const approveQuizSuggestion = async () => {
+    if (!quizSuggestion.value) return;
+    try {
+        await api.post(`/learning/live/${liveSession.value.id}/quiz/${quizSuggestion.value.id}/approve/`, {
+            time_limit: 60
+        });
+        quizSuggestion.value = null;
+    } catch (e) { alert('퀴즈 발동 실패: ' + (e.response?.data?.error || '')); }
+};
+
+const dismissQuizSuggestion = () => {
+    quizSuggestion.value = null;
 };
 
 // ── Quiz Control State ──
@@ -1041,6 +1123,36 @@ onMounted(fetchDashboard);
                     <button v-if="liveSession.status === 'LIVE'" class="btn-live-end" @click="endLiveSession">
                         ⏹️ 세션 종료
                     </button>
+                    <button v-if="liveSession.status === 'LIVE' && !sttActive" class="btn-stt-start" @click="startSTT">
+                        🎙️ 음성 인식 시작
+                    </button>
+                    <button v-if="liveSession.status === 'LIVE' && sttActive" class="btn-stt-stop" @click="stopSTT">
+                        🔴 음성 인식 중...
+                    </button>
+                </div>
+
+                <!-- STT 최근 인식 텍스트 -->
+                <div v-if="sttActive && sttLastText" class="stt-preview">
+                    <span class="stt-label">🎙️ 마지막 인식:</span>
+                    <span class="stt-text">{{ sttLastText }}</span>
+                </div>
+
+                <!-- AI 퀴즈 제안 스마트 팝업 -->
+                <div v-if="quizSuggestion" class="quiz-suggestion-popup">
+                    <div class="suggestion-header">
+                        <span>🤖 AI 퀴즈 준비 완료!</span>
+                        <span class="suggestion-hint">방금 설명하신 내용 기반</span>
+                    </div>
+                    <p class="suggestion-question">{{ quizSuggestion.question_text }}</p>
+                    <div class="suggestion-options">
+                        <span v-for="(opt, i) in quizSuggestion.options" :key="i" class="suggestion-opt" :class="{ correct: opt === quizSuggestion.correct_answer }">
+                            {{ opt }}
+                        </span>
+                    </div>
+                    <div class="suggestion-actions">
+                        <button class="btn-approve" @click="approveQuizSuggestion">✅ 발동하기</button>
+                        <button class="btn-dismiss" @click="dismissQuizSuggestion">✕ 무시</button>
+                    </div>
                 </div>
 
                 <!-- 이해도 펄스 게이지 (LIVE일 때만) -->
@@ -1461,6 +1573,58 @@ tr:hover td { background: #fafbfc; }
     border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;
 }
 .btn-live-end:hover { background: #dc2626; }
+
+/* STT 마이크 */
+.btn-stt-start {
+    padding: 14px; background: #6366f1; color: white; border: none;
+    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.btn-stt-start:hover { background: #4f46e5; }
+.btn-stt-stop {
+    padding: 14px; background: #dc2626; color: white; border: none;
+    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+    animation: pulse-warn 1.5s infinite;
+}
+
+.stt-preview {
+    padding: 8px 12px; background: #f5f3ff; border-radius: 8px; margin-bottom: 16px;
+    font-size: 12px; color: #6366f1;
+}
+.stt-label { font-weight: 600; margin-right: 6px; }
+.stt-text { color: #333; }
+
+/* 퀴즈 제안 스마트 팝업 */
+.quiz-suggestion-popup {
+    padding: 16px; background: linear-gradient(135deg, #fffbeb, #fef3c7);
+    border: 2px solid #f59e0b; border-radius: 12px; margin-bottom: 20px;
+    animation: slideDown 0.3s ease;
+}
+@keyframes slideDown { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+.suggestion-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.suggestion-header span:first-child { font-size: 15px; font-weight: 700; color: #92400e; }
+.suggestion-hint { font-size: 11px; color: #b45309; }
+
+.suggestion-question { font-size: 14px; font-weight: 600; color: #333; margin: 8px 0 12px; }
+
+.suggestion-options { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.suggestion-opt {
+    padding: 4px 10px; border-radius: 6px; font-size: 12px;
+    background: white; border: 1px solid #e5e7eb; color: #555;
+}
+.suggestion-opt.correct { background: #dcfce7; border-color: #22c55e; color: #166534; font-weight: 600; }
+
+.suggestion-actions { display: flex; gap: 8px; }
+.btn-approve {
+    flex: 1; padding: 10px; background: #22c55e; color: white; border: none;
+    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.btn-approve:hover { background: #16a34a; }
+.btn-dismiss {
+    padding: 10px 16px; background: #f3f4f6; color: #888; border: none;
+    border-radius: 8px; font-size: 14px; cursor: pointer;
+}
+.btn-dismiss:hover { background: #e5e7eb; }
 
 .participants-list { margin-bottom: 24px; }
 .participants-list h3 { font-size: 15px; color: #333; margin-bottom: 12px; }

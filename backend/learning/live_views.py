@@ -22,6 +22,7 @@ import openai
 import os
 import json
 import threading
+from datetime import timedelta
 openai.api_key = os.getenv('OPENAI_API_KEY')
 
 
@@ -272,6 +273,112 @@ class LiveSessionViewSet(viewsets.ViewSet):
             'confused': confused,
             'total': total,
             'understand_rate': understand_rate,
+        })
+
+    # ── Step B: STT 수신 + 키워드 스팟팅 ──
+
+    TRIGGER_KEYWORDS = [
+        '이해되셨나요', '이해하셨나요', '질문 있나요', '질문 있으신가요',
+        '여기까지 괜찮으시죠', '다음으로 넘어갈게요', '잠깐 퀴즈',
+        '여기까지 되셨나요', '이해가 되시나요', '알겠죠',
+    ]
+
+    @action(detail=True, methods=['post'], url_path='stt')
+    def receive_stt(self, request, pk=None):
+        """
+        POST /api/learning/live/{id}/stt/
+        교수자 브라우저 Web Speech API → STT 청크 수신
+        키워드 감지 시 자동으로 AI 퀴즈 제안 생성 (백그라운드)
+        """
+        session = get_object_or_404(LiveSession, id=pk, instructor=request.user, status='LIVE')
+
+        text = request.data.get('text', '').strip()
+        if not text:
+            return Response({'error': 'text는 필수입니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # STT 로그 저장
+        last_seq = session.stt_logs.order_by('-sequence_order').values_list('sequence_order', flat=True).first() or 0
+        LiveSTTLog.objects.create(
+            live_session=session,
+            sequence_order=last_seq + 1,
+            text_chunk=text,
+        )
+
+        # 키워드 스팟팅
+        keyword_detected = None
+        for kw in self.TRIGGER_KEYWORDS:
+            if kw in text:
+                keyword_detected = kw
+                break
+
+        quiz_suggestion_triggered = False
+        if keyword_detected:
+            # 최근 5분 내 제안이 없을 때만 (스팸 방지)
+            recent_suggestion = session.quizzes.filter(
+                is_suggestion=True, triggered_at__gte=timezone.now() - timedelta(minutes=3)
+            ).exists()
+            if not recent_suggestion:
+                # 백그라운드에서 AI 퀴즈 제안 생성
+                thread = threading.Thread(
+                    target=_generate_quiz_suggestion, args=(session.id,)
+                )
+                thread.daemon = True
+                thread.start()
+                quiz_suggestion_triggered = True
+
+        return Response({
+            'sequence': last_seq + 1,
+            'keyword_detected': keyword_detected,
+            'quiz_suggestion_triggered': quiz_suggestion_triggered,
+        })
+
+    @action(detail=True, methods=['get'], url_path='quiz/suggestion')
+    def quiz_suggestion(self, request, pk=None):
+        """
+        GET /api/learning/live/{id}/quiz/suggestion/
+        교수자용: 미승인 AI 퀴즈 제안 조회 (폴링)
+        """
+        session = get_object_or_404(LiveSession, id=pk, instructor=request.user)
+        suggestion = session.quizzes.filter(is_suggestion=True, is_active=False).order_by('-triggered_at').first()
+
+        if not suggestion:
+            return Response(None)
+
+        return Response({
+            'id': suggestion.id,
+            'question_text': suggestion.question_text,
+            'options': suggestion.options,
+            'correct_answer': suggestion.correct_answer,
+            'explanation': suggestion.explanation,
+            'triggered_at': suggestion.triggered_at,
+        })
+
+    @action(detail=True, methods=['post'], url_path=r'quiz/(?P<quiz_id>\d+)/approve')
+    def approve_quiz(self, request, pk=None, quiz_id=None):
+        """
+        POST /api/learning/live/{id}/quiz/{qid}/approve/
+        교수자가 AI 제안 퀴즈를 승인 → 전체 학생에게 발동
+        """
+        session = get_object_or_404(LiveSession, id=pk, instructor=request.user, status='LIVE')
+        quiz = get_object_or_404(LiveQuiz, id=quiz_id, live_session=session, is_suggestion=True)
+
+        # 기존 활성 퀴즈 비활성화
+        session.quizzes.filter(is_active=True).update(is_active=False)
+
+        # 제안 → 활성으로 전환
+        quiz.is_suggestion = False
+        quiz.is_active = True
+        quiz.time_limit = int(request.data.get('time_limit', 60))
+        quiz.triggered_at = timezone.now()  # 발동 시점 갱신
+        quiz.save()
+
+        return Response({
+            'id': quiz.id,
+            'question_text': quiz.question_text,
+            'options': quiz.options,
+            'is_active': True,
+            'time_limit': quiz.time_limit,
+            'triggered_at': quiz.triggered_at,
         })
 
     # ── Step 3: 체크포인트 퀴즈 ──
@@ -735,6 +842,64 @@ class LectureMaterialViewSet(viewsets.ViewSet):
 # ══════════════════════════════════════════════════════════
 # 통합 노트 생성 (백그라운드)
 # ══════════════════════════════════════════════════════════
+
+def _generate_quiz_suggestion(session_id):
+    """
+    키워드 스팟팅 감지 후 백그라운드에서 실행.
+    최근 STT 청크 기반으로 AI가 퀴즈 후보를 생성하고 is_suggestion=True로 저장.
+    """
+    import django
+    django.setup()
+
+    try:
+        session = LiveSession.objects.get(id=session_id)
+        recent_chunks = session.stt_logs.order_by('-sequence_order')[:10]
+        if not recent_chunks:
+            return
+
+        context_text = '\n'.join([c.text_chunk for c in reversed(recent_chunks)])
+
+        client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        response = client.chat.completions.create(
+            model='gpt-4o-mini',
+            messages=[
+                {'role': 'system', 'content': (
+                    '당신은 부트캠프 강의에서 교수자가 방금 설명한 내용을 바탕으로 '
+                    '체크포인트 퀴즈를 생성하는 AI입니다.\n'
+                    '반드시 아래 JSON 형식으로만 응답하세요:\n'
+                    '{"question": "문제", "options": ["A", "B", "C", "D"], '
+                    '"correct_answer": "정답", "explanation": "해설"}'
+                )},
+                {'role': 'user', 'content': f'방금 교수자가 설명한 내용:\n{context_text}'}
+            ],
+            temperature=0.7,
+            max_tokens=500,
+        )
+
+        import json as json_module
+        raw = response.choices[0].message.content.strip()
+        # JSON 블록 추출
+        if '```' in raw:
+            raw = raw.split('```')[1]
+            if raw.startswith('json'):
+                raw = raw[4:]
+        quiz_data = json_module.loads(raw)
+
+        LiveQuiz.objects.create(
+            live_session=session,
+            question_text=quiz_data['question'],
+            options=quiz_data['options'],
+            correct_answer=quiz_data['correct_answer'],
+            explanation=quiz_data.get('explanation', ''),
+            is_ai_generated=True,
+            is_suggestion=True,   # 교수자 승인 대기
+            is_active=False,      # 아직 학생에게 미발동
+        )
+        print(f"✅ [QuizSuggestion] 세션 #{session_id} AI 퀴즈 제안 생성 완료")
+
+    except Exception as e:
+        print(f"⚠️ [QuizSuggestion] 생성 실패: {e}")
+
 
 def _generate_live_note(session_id, note_id):
     """
