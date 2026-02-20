@@ -14,8 +14,8 @@ from django.db.models import Count
 
 from .models import (
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog,
-    Lecture, LearningSession, PulseCheck, LiveQuiz, LiveQuizResponse,
-    LiveQuestion, LiveSessionNote
+    Lecture, LearningSession, PulseCheck, PulseLog, LiveQuiz, LiveQuizResponse,
+    LiveQuestion, LiveSessionNote, WeakZoneAlert
 )
 
 import openai
@@ -237,10 +237,26 @@ class LiveSessionViewSet(viewsets.ViewSet):
             defaults={'pulse_type': pulse_type}
         )
 
-        return Response({
+        # Phase 2: 이력 기록 (Weak Zone 감지용)
+        PulseLog.objects.create(
+            live_session=session,
+            student=request.user,
+            pulse_type=pulse_type,
+        )
+
+        # Phase 2-1: CONFUSED일 때 Weak Zone 감지
+        weak_zone_alert = None
+        if pulse_type == 'CONFUSED':
+            from .weak_zone_utils import check_pulse_weak_zone
+            weak_zone_alert = check_pulse_weak_zone(session, request.user)
+
+        resp = {
             'pulse_type': pulse.pulse_type,
             'updated': not created,
-        })
+        }
+        if weak_zone_alert:
+            resp['weak_zone_detected'] = True
+        return Response(resp)
 
     @action(detail=True, methods=['get'], url_path='pulse-stats')
     def pulse_stats(self, request, pk=None):
@@ -547,12 +563,21 @@ class LiveSessionViewSet(viewsets.ViewSet):
             is_correct=is_correct,
         )
 
-        return Response({
+        # Phase 2-1: Weak Zone 감지 트리거
+        weak_zone_alert = None
+        if not is_correct:
+            from .weak_zone_utils import check_quiz_weak_zone
+            weak_zone_alert = check_quiz_weak_zone(session, request.user, response_obj)
+
+        resp = {
             'is_correct': is_correct,
             'correct_answer': quiz.correct_answer,
             'explanation': quiz.explanation,
             'your_answer': answer,
-        })
+        }
+        if weak_zone_alert:
+            resp['weak_zone_detected'] = True
+        return Response(resp)
 
     @action(detail=True, methods=['get'], url_path=r'quiz/(?P<quiz_id>\d+)/results')
     def quiz_results(self, request, pk=None, quiz_id=None):
@@ -705,6 +730,108 @@ class LiveSessionViewSet(viewsets.ViewSet):
             'is_answered': False,
             'created_at': question.created_at,
         }, status=status.HTTP_201_CREATED)
+
+    # ── Phase 2-1: Weak Zone Actions ──
+
+    @action(detail=True, methods=['get'], url_path='weak-zones')
+    def weak_zones(self, request, pk=None):
+        """
+        GET /api/learning/live/{id}/weak-zones/
+        교수자용: 현재 세션의 Weak Zone 알림 목록
+        """
+        session = get_object_or_404(LiveSession, id=pk, instructor=request.user)
+        alerts = WeakZoneAlert.objects.filter(live_session=session).select_related('student', 'supplement_material')
+
+        data = [
+            {
+                'id': a.id,
+                'student_name': f"학생 #{a.student.id}",
+                'trigger_type': a.trigger_type,
+                'trigger_detail': a.trigger_detail,
+                'status': a.status,
+                'ai_suggested_content': a.ai_suggested_content,
+                'supplement_material': {
+                    'id': a.supplement_material.id,
+                    'title': a.supplement_material.title,
+                } if a.supplement_material else None,
+                'created_at': a.created_at,
+            }
+            for a in alerts
+        ]
+        return Response({'weak_zones': data, 'total': len(data)})
+
+    @action(detail=True, methods=['post'], url_path=r'weak-zones/(?P<wz_id>\d+)/push')
+    def push_weak_zone(self, request, pk=None, wz_id=None):
+        """
+        POST /api/learning/live/{id}/weak-zones/{wz_id}/push/
+        교수자: 보충 자료 푸시 승인 (material_id 선택 or AI 설명 사용)
+        """
+        session = get_object_or_404(LiveSession, id=pk, instructor=request.user)
+        alert = get_object_or_404(WeakZoneAlert, id=wz_id, live_session=session)
+
+        material_id = request.data.get('material_id')
+        if material_id:
+            material = get_object_or_404(LectureMaterial, id=material_id, lecture=session.lecture)
+            alert.supplement_material = material
+
+        alert.status = 'MATERIAL_PUSHED'
+        alert.save()
+
+        return Response({'ok': True, 'status': alert.status})
+
+    @action(detail=True, methods=['post'], url_path=r'weak-zones/(?P<wz_id>\d+)/dismiss')
+    def dismiss_weak_zone(self, request, pk=None, wz_id=None):
+        """
+        POST /api/learning/live/{id}/weak-zones/{wz_id}/dismiss/
+        교수자: Weak Zone 거부
+        """
+        session = get_object_or_404(LiveSession, id=pk, instructor=request.user)
+        alert = get_object_or_404(WeakZoneAlert, id=wz_id, live_session=session)
+        alert.status = 'DISMISSED'
+        alert.save()
+        return Response({'ok': True, 'status': 'DISMISSED'})
+
+    @action(detail=True, methods=['get'], url_path='my-alerts')
+    def my_alerts(self, request, pk=None):
+        """
+        GET /api/learning/live/{id}/my-alerts/
+        학생용: 내 미해결 Weak Zone 알림 조회
+        """
+        session = get_object_or_404(LiveSession, id=pk)
+        alerts = WeakZoneAlert.objects.filter(
+            live_session=session,
+            student=request.user,
+            status__in=['DETECTED', 'MATERIAL_PUSHED'],
+        )
+
+        data = [
+            {
+                'id': a.id,
+                'trigger_type': a.trigger_type,
+                'status': a.status,
+                'ai_suggested_content': a.ai_suggested_content,
+                'supplement_material': {
+                    'id': a.supplement_material.id,
+                    'title': a.supplement_material.title,
+                    'file_url': a.supplement_material.file.url if a.supplement_material.file else '',
+                } if a.supplement_material else None,
+                'created_at': a.created_at,
+            }
+            for a in alerts
+        ]
+        return Response({'alerts': data})
+
+    @action(detail=True, methods=['post'], url_path=r'my-alerts/(?P<wz_id>\d+)/resolve')
+    def resolve_alert(self, request, pk=None, wz_id=None):
+        """
+        POST /api/learning/live/{id}/my-alerts/{wz_id}/resolve/
+        학생: 알림 확인 처리
+        """
+        session = get_object_or_404(LiveSession, id=pk)
+        alert = get_object_or_404(WeakZoneAlert, id=wz_id, live_session=session, student=request.user)
+        alert.status = 'RESOLVED'
+        alert.save()
+        return Response({'ok': True})
 
 # ══════════════════════════════════════════════════════════
 # 학습자: 세션 입장

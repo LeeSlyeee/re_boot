@@ -40,6 +40,36 @@ const quizTimer = ref(0);
 const quizTimerInterval = ref(null);
 const quizTimeLimit = ref(60);
 
+// --- Weak Zone Alert State ---
+const weakZoneAlerts = ref([]);
+const showWeakZonePopup = ref(false);
+const currentWeakZone = ref(null);
+
+const fetchWeakZoneAlerts = async () => {
+    if (!liveSessionData.value || liveSessionData.value.status !== 'LIVE') return;
+    try {
+        const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/my-alerts/`);
+        if (data.alerts && data.alerts.length > 0) {
+            weakZoneAlerts.value = data.alerts;
+            // 미표시 알림이 있으면 팝업
+            if (!showWeakZonePopup.value) {
+                currentWeakZone.value = data.alerts[0];
+                showWeakZonePopup.value = true;
+            }
+        }
+    } catch (e) { /* silent */ }
+};
+
+const resolveWeakZone = async (alertId) => {
+    if (!liveSessionData.value) return;
+    try {
+        await api.post(`/learning/live/${liveSessionData.value.session_id}/my-alerts/${alertId}/resolve/`);
+        showWeakZonePopup.value = false;
+        currentWeakZone.value = null;
+        weakZoneAlerts.value = weakZoneAlerts.value.filter(a => a.id !== alertId);
+    } catch (e) { /* silent */ }
+};
+
 const timerPercent = computed(() => {
     if (quizTimeLimit.value <= 0) return 100;
     return Math.max(0, (quizTimer.value / quizTimeLimit.value) * 100);
@@ -168,6 +198,8 @@ const startLiveStatusPolling = () => {
             }
             // Q&A 질문 목록 갱신
             if (qaOpen.value) await fetchLiveQuestions();
+            // Phase 2-1: Weak Zone 알림 체크
+            await fetchWeakZoneAlerts();
         } catch {}
     }, 5000);
 };
@@ -1316,6 +1348,27 @@ const openSessionReview = (id) => {
                     <p v-else class="qa-empty">아직 질문이 없습니다. 첫 질문을 남겨보세요!</p>
                 </div>
             </div>
+
+            <!-- Phase 2-1: Weak Zone 알림 팝업 -->
+            <transition name="slide-up">
+                <div v-if="showWeakZonePopup && currentWeakZone" class="weak-zone-popup">
+                    <div class="wz-header">
+                        <span class="wz-icon">📌</span>
+                        <span class="wz-title">이 부분이 어려우신가요?</span>
+                    </div>
+                    <div class="wz-body">
+                        <p class="wz-ai-text" v-if="currentWeakZone.ai_suggested_content">{{ currentWeakZone.ai_suggested_content }}</p>
+                        <div v-if="currentWeakZone.supplement_material" class="wz-material">
+                            <a :href="currentWeakZone.supplement_material.file_url" target="_blank" class="wz-material-link">
+                                📎 {{ currentWeakZone.supplement_material.title }}
+                            </a>
+                        </div>
+                    </div>
+                    <div class="wz-actions">
+                        <button class="wz-btn-ok" @click="resolveWeakZone(currentWeakZone.id)">괜찮아요 👍</button>
+                    </div>
+                </div>
+            </transition>
 
             <button v-if="liveSessionData.status !== 'ENDED'" class="btn btn-secondary" style="margin-top:20px;" @click="leaveLiveSession">
                 ← 나가기
@@ -2480,4 +2533,35 @@ const openSessionReview = (id) => {
 .lm-type { font-size: 10px; padding: 2px 6px; background: rgba(59,130,246,0.2); color: #93c5fd; border-radius: 4px; font-weight: 600; }
 .lm-link { color: #60a5fa; text-decoration: none; font-size: 13px; }
 .lm-link:hover { text-decoration: underline; }
+
+/* ── Phase 2-1: Weak Zone Popup ── */
+.weak-zone-popup {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    width: 90%; max-width: 420px; z-index: 1500;
+    background: rgba(30, 30, 50, 0.95); backdrop-filter: blur(12px);
+    border: 1px solid rgba(245,158,11,0.4); border-radius: 16px;
+    padding: 16px 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.wz-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.wz-icon { font-size: 20px; }
+.wz-title { font-size: 15px; font-weight: 700; color: #fbbf24; }
+.wz-body { margin-bottom: 12px; }
+.wz-ai-text { font-size: 13px; color: #e2e8f0; line-height: 1.6; margin: 0; }
+.wz-material { margin-top: 8px; }
+.wz-material-link { color: #60a5fa; font-size: 13px; text-decoration: none; }
+.wz-material-link:hover { text-decoration: underline; }
+.wz-actions { display: flex; justify-content: flex-end; }
+.wz-btn-ok {
+    padding: 8px 20px; background: rgba(245,158,11,0.2); color: #fbbf24;
+    border: 1px solid rgba(245,158,11,0.4); border-radius: 8px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.wz-btn-ok:hover { background: rgba(245,158,11,0.3); }
+
+.slide-up-enter-active { animation: slideUp 0.3s ease; }
+.slide-up-leave-active { animation: slideUp 0.3s ease reverse; }
+@keyframes slideUp {
+    from { transform: translateX(-50%) translateY(100%); opacity: 0; }
+    to { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
 </style>

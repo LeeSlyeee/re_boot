@@ -330,6 +330,22 @@ class PulseCheck(models.Model):
         return f"{self.student.username}: {self.pulse_type} @ {self.live_session.session_code}"
 
 
+class PulseLog(models.Model):
+    """
+    펄스 이력 (Weak Zone 감지용).
+    PulseCheck은 '현재 상태' (unique_together), PulseLog은 '이력' (모두 기록).
+    """
+    live_session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name='pulse_logs')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='pulse_log_entries')
+    pulse_type = models.CharField(max_length=12, choices=PulseCheck.PULSE_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[Log] {self.student.username}: {self.pulse_type} @ {self.created_at}"
+
 class LiveQuiz(models.Model):
     """
     교수자가 라이브 세션 중 발동하는 체크포인트 퀴즈.
@@ -419,6 +435,40 @@ class LiveSessionNote(models.Model):
 
     def __str__(self):
         return f"[Note] {self.live_session.session_code} ({self.status})"
+
+
+# ══════════════════════════════════════════════════════════
+# Phase 2-1: Weak Zone Alert
+# ══════════════════════════════════════════════════════════
+
+class WeakZoneAlert(models.Model):
+    """학습자의 취약 구간 감지 기록"""
+    TRIGGER_CHOICES = (
+        ('QUIZ_WRONG', '퀴즈 오답'),
+        ('PULSE_CONFUSED', '연속 혼란 펄스'),
+        ('COMBINED', '복합 (오답+혼란)'),
+    )
+    STATUS_CHOICES = (
+        ('DETECTED', '감지됨'),
+        ('MATERIAL_PUSHED', '보충 자료 전송됨'),
+        ('DISMISSED', '교수자 거부'),
+        ('RESOLVED', '학생 확인'),
+    )
+
+    live_session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name='weak_zones')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='weak_zone_alerts')
+    trigger_type = models.CharField(max_length=20, choices=TRIGGER_CHOICES)
+    trigger_detail = models.JSONField(default=dict, help_text="트리거 상세 { quiz_ids, confused_count, recent_topic }")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DETECTED')
+    supplement_material = models.ForeignKey(LectureMaterial, on_delete=models.SET_NULL, null=True, blank=True, help_text="교수자가 푸시한 보충 자료")
+    ai_suggested_content = models.TextField(blank=True, help_text="AI가 생성한 보충 설명")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[WZ] {self.student.username}: {self.trigger_type} @ {self.live_session.session_code}"
 
 
 # ══════════════════════════════════════════════════════════

@@ -331,6 +331,34 @@ const linkMaterials = async () => {
     } catch (e) { alert('교안 연결 실패'); }
 };
 
+// ── Phase 2-1: Weak Zone ──
+const weakZones = ref([]);
+
+const fetchWeakZones = async () => {
+    if (!liveSession.value) return;
+    try {
+        const { data } = await api.get(`/learning/live/${liveSession.value.id}/weak-zones/`);
+        weakZones.value = data.weak_zones || [];
+    } catch (e) { /* silent */ }
+};
+
+const pushWeakZone = async (wzId, materialId = null) => {
+    try {
+        const body = materialId ? { material_id: materialId } : {};
+        await api.post(`/learning/live/${liveSession.value.id}/weak-zones/${wzId}/push/`, body);
+        await fetchWeakZones();
+    } catch (e) { alert('보충 자료 전송 실패'); }
+};
+
+const dismissWeakZone = async (wzId) => {
+    try {
+        await api.post(`/learning/live/${liveSession.value.id}/weak-zones/${wzId}/dismiss/`);
+        await fetchWeakZones();
+    } catch (e) { alert('거부 실패'); }
+};
+
+const activeWeakZones = computed(() => weakZones.value.filter(w => w.status === 'DETECTED'));
+
 const startLivePolling = () => {
     stopLivePolling();
     livePollingTimer.value = setInterval(async () => {
@@ -350,6 +378,8 @@ const startLivePolling = () => {
             await fetchLiveQuestions();
             // AI 퀴즈 제안 체크
             if (!quizSuggestion.value) await fetchQuizSuggestion();
+            // Phase 2-1: Weak Zone 체크
+            await fetchWeakZones();
         } catch (e) { /* ignore */ }
     }, 5000);
 };
@@ -1363,6 +1393,29 @@ onMounted(fetchDashboard);
                     </div>
                 </div>
 
+                <!-- Phase 2-1: Weak Zone 관리 패널 -->
+                <div v-if="liveSession && liveSession.status === 'LIVE'" class="weak-zone-panel">
+                    <h3>
+                        ⚠️ Weak Zone
+                        <span v-if="activeWeakZones.length > 0" class="wz-badge">{{ activeWeakZones.length }}</span>
+                    </h3>
+                    <div v-if="weakZones.length === 0" class="wz-empty">감지된 취약 구간이 없습니다.</div>
+                    <div v-else class="wz-list">
+                        <div v-for="wz in weakZones" :key="wz.id" class="wz-item" :class="'wz-status-' + wz.status.toLowerCase()">
+                            <div class="wz-item-header">
+                                <span class="wz-student">{{ wz.student_name }}</span>
+                                <span class="wz-trigger-badge">{{ wz.trigger_type === 'QUIZ_WRONG' ? '📝 오답' : wz.trigger_type === 'PULSE_CONFUSED' ? '❓ 혼란' : '⚡ 복합' }}</span>
+                                <span class="wz-status-tag">{{ wz.status }}</span>
+                            </div>
+                            <p v-if="wz.ai_suggested_content" class="wz-ai-preview">{{ wz.ai_suggested_content.slice(0, 100) }}...</p>
+                            <div v-if="wz.status === 'DETECTED'" class="wz-item-actions">
+                                <button class="wz-btn-push" @click="pushWeakZone(wz.id)">📤 AI 설명 전송</button>
+                                <button class="wz-btn-dismiss" @click="dismissWeakZone(wz.id)">무시</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             <!-- 교안 업로드 영역 (항상 표시) -->
             <div class="materials-section">
                 <h3>📄 교안 관리</h3>
@@ -1418,15 +1471,15 @@ onMounted(fetchDashboard);
                     <!-- 교안 매핑 -->
                     <div class="material-link-section" v-if="insightData">
                         <h3>📎 교안 연결</h3>
-                        <div v-if="lectureMaterials.length > 0" class="material-checklist">
-                            <label v-for="m in lectureMaterials" :key="m.id" class="material-check-item">
+                        <div v-if="materials.length > 0" class="material-checklist">
+                            <label v-for="m in materials" :key="m.id" class="material-check-item">
                                 <input type="checkbox" :value="m.id" v-model="selectedMaterialIds" />
                                 <span class="material-type-badge">{{ m.file_type }}</span>
                                 {{ m.title }}
                             </label>
                         </div>
                         <p v-else class="empty-text">업로드된 교안이 없습니다.</p>
-                        <button v-if="lectureMaterials.length > 0" class="btn-link-materials" @click="linkMaterials">📎 교안 연결 저장</button>
+                        <button v-if="materials.length > 0" class="btn-link-materials" @click="linkMaterials">📎 교안 연결 저장</button>
                     </div>
 
                     <!-- 승인 컨트롤 -->
@@ -2120,4 +2173,25 @@ tr:hover td { background: #fafbfc; }
     margin-top: 16px; padding: 12px; background: #f0fdf4; border: 1px solid #bbf7d0;
     border-radius: 8px; color: #16a34a; font-weight: 600; font-size: 14px; text-align: center;
 }
+
+/* ── Phase 2-1: Weak Zone Panel ── */
+.weak-zone-panel { margin-top: 20px; padding: 16px; background: rgba(245,158,11,0.05); border: 1px solid rgba(245,158,11,0.2); border-radius: 12px; }
+.weak-zone-panel h3 { font-size: 16px; color: #f59e0b; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+.wz-badge { background: #ef4444; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
+.wz-empty { color: #9ca3af; font-size: 13px; text-align: center; padding: 12px; }
+.wz-list { display: flex; flex-direction: column; gap: 10px; }
+.wz-item { padding: 12px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; }
+.wz-item-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.wz-student { font-weight: 600; font-size: 13px; color: #374151; }
+.wz-trigger-badge { font-size: 11px; padding: 2px 8px; background: #fef3c7; color: #92400e; border-radius: 4px; }
+.wz-status-tag { font-size: 10px; color: #9ca3af; margin-left: auto; }
+.wz-ai-preview { font-size: 12px; color: #6b7280; margin: 4px 0; line-height: 1.5; }
+.wz-item-actions { display: flex; gap: 8px; margin-top: 8px; }
+.wz-btn-push { padding: 6px 12px; background: #f59e0b; color: #fff; border: none; border-radius: 6px; font-size: 12px; cursor: pointer; }
+.wz-btn-push:hover { background: #d97706; }
+.wz-btn-dismiss { padding: 6px 12px; background: #f3f4f6; color: #6b7280; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 12px; cursor: pointer; }
+.wz-btn-dismiss:hover { background: #e5e7eb; }
+.wz-status-material_pushed { opacity: 0.7; }
+.wz-status-dismissed { opacity: 0.5; }
+.wz-status-resolved { opacity: 0.5; }
 </style>

@@ -2,8 +2,9 @@ from django.contrib import admin
 from .models import (
     Lecture, LearningSession, STTLog, SessionSummary, 
     DailyQuiz, QuizQuestion, QuizAttempt, VectorStore,
-    LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog, PulseCheck,
+    LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog, PulseCheck, PulseLog,
     LiveQuiz, LiveQuizResponse, LiveQuestion, LiveSessionNote,
+    WeakZoneAlert,
     Skill, CareerGoal, PlacementQuestion, PlacementResult,
     StudentGoal, StudentSkill
 )
@@ -95,6 +96,15 @@ class LiveSessionNoteAdmin(admin.ModelAdmin):
     list_display = ('id', 'live_session', 'status', 'created_at')
     list_filter = ('status',)
 
+@admin.register(PulseLog)
+class PulseLogAdmin(admin.ModelAdmin):
+    list_display = ('id', 'student', 'live_session', 'pulse_type', 'created_at')
+    list_filter = ('pulse_type',)
+
+@admin.register(WeakZoneAlert)
+class WeakZoneAlertAdmin(admin.ModelAdmin):
+    list_display = ('id', 'student', 'live_session', 'trigger_type', 'status', 'created_at')
+    list_filter = ('trigger_type', 'status')
 
 # Phase 1
 @admin.register(Skill)
