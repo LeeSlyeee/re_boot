@@ -348,6 +348,25 @@ class LiveSessionViewSet(viewsets.ViewSet):
             'quiz_suggestion_triggered': quiz_suggestion_triggered,
         })
 
+    @action(detail=True, methods=['get'], url_path='stt-feed')
+    def stt_feed(self, request, pk=None):
+        """
+        GET /api/learning/live/{id}/stt-feed/?after_seq=0
+        학생용: 교수자 STT 실시간 자막 조회 (폴링)
+        """
+        session = get_object_or_404(LiveSession, id=pk)
+        after_seq = int(request.query_params.get('after_seq', 0))
+        logs = session.stt_logs.filter(sequence_order__gt=after_seq).order_by('sequence_order')[:20]
+        return Response([
+            {
+                'id': log.id,
+                'seq': log.sequence_order,
+                'text': log.text_chunk,
+                'timestamp': log.created_at.strftime('%H:%M:%S') if log.created_at else '',
+            }
+            for log in logs
+        ])
+
     @action(detail=True, methods=['get'], url_path='quiz/suggestion')
     def quiz_suggestion(self, request, pk=None):
         """

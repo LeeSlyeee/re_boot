@@ -591,27 +591,33 @@ const startSTT = () => {
     const recognition = new SpeechRecognition();
     recognition.lang = 'ko-KR';
     recognition.continuous = true;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => {
+        console.log('🎙️ STT 시작됨');
+        sttLastText.value = '🎙️ 마이크 대기 중... 말씀해주세요';
+    };
 
     recognition.onresult = async (event) => {
         const last = event.results[event.results.length - 1];
-        if (last.isFinal) {
-            const text = last[0].transcript.trim();
-            if (text && liveSession.value) {
-                sttLastText.value = text;
-                try {
-                    await api.post(`/learning/live/${liveSession.value.id}/stt/`, { text });
-                } catch {}
-            }
+        const text = last[0].transcript.trim();
+        console.log('📝 STT 결과:', text, '| isFinal:', last.isFinal);
+        sttLastText.value = text;
+        if (last.isFinal && text && liveSession.value) {
+            try {
+                await api.post(`/learning/live/${liveSession.value.id}/stt/`, { text });
+                console.log('✅ STT 전송 완료');
+            } catch (e) { console.error('❌ STT 전송 실패:', e); }
         }
     };
 
     recognition.onerror = (e) => {
-        console.error('STT Error:', e.error);
+        console.error('❌ STT Error:', e.error, e.message);
+        sttLastText.value = `❌ 에러: ${e.error}`;
         if (e.error !== 'no-speech') { sttActive.value = false; }
     };
     recognition.onend = () => {
-        // continuous 모드에서도 중간에 끊길 수 있음 → 자동 재시작
+        console.log('🔄 STT 세션 종료 → 재시작 시도');
         if (sttActive.value && liveSession.value?.status === 'LIVE') {
             recognition.start();
         }

@@ -200,8 +200,25 @@ const startLiveStatusPolling = () => {
             if (qaOpen.value) await fetchLiveQuestions();
             // Phase 2-1: Weak Zone 알림 체크
             await fetchWeakZoneAlerts();
+            // 교수자 STT 실시간 자막 수신
+            try {
+                const lastSeq = sttLogs.value.length > 0
+                    ? Math.max(...sttLogs.value.map(l => l.seq || 0))
+                    : 0;
+                const sttRes = await api.get(`/learning/live/${liveSessionData.value.session_id}/stt-feed/?after_seq=${lastSeq}`);
+                if (sttRes.data.length > 0) {
+                    for (const log of sttRes.data) {
+                        sttLogs.value.push({
+                            id: log.id,
+                            seq: log.seq,
+                            text_chunk: log.text,
+                            timestamp: log.timestamp,
+                        });
+                    }
+                }
+            } catch {}
         } catch {}
-    }, 5000);
+    }, 3000);
 };
 
 const stopLiveStatusPolling = () => {
