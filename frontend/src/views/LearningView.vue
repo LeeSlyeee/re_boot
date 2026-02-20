@@ -343,8 +343,11 @@ onMounted(async () => {
              // [TODO] If resuming session, we might want to analyze its parent lecture too
              // But for now, analysis is main feature of Lecture List View
         } else if (savedSessionId) {
-            // [CHANGE] 자동 복구 시도 (isAutoRestore=true)
-            await resumeSession(true); 
+            // [UX 개선] 미완료 세션이 있어도 자동 복원하지 않음
+            // → 모드 선택 화면에서 "이전 학습 이어하기" 카드를 보여주고
+            //   사용자가 직접 선택하거나, 새로운 학습을 시작할 수 있도록 함
+            pendingSessionId.value = savedSessionId;
+            mode.value = null; // 모드 선택 화면 표시
         } else {
             // [FIX] 저장된 세션이 없으면 전체 상태 클린 리셋
             // → 이전 학습 완료 후 재진입 시 모드 선택 화면이 뜨도록 보장
