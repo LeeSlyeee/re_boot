@@ -13,6 +13,11 @@ from .review_views import (
 )
 from .formative_views import GenerateFormativeView, GetFormativeView, SubmitFormativeView
 from .adaptive_views import GenerateAdaptiveView, ListAdaptiveView, ApproveAdaptiveView, MyContentView
+from .analytics_views import (
+    AnalyticsOverviewView, SendMessageView, WeakInsightsView,
+    AISuggestionsView, SuggestionActionView, SendGroupMessageView,
+    QualityReportView, ApplyRedistributionView, MyMessagesView,
+)
 
 router = DefaultRouter()
 router.register(r'sessions', LearningSessionViewSet, basename='session')
@@ -59,5 +64,14 @@ urlpatterns = [
     path('materials/<int:pk>/adaptive/', ListAdaptiveView.as_view(), name='list-adaptive'),
     path('adaptive/<int:pk>/approve/', ApproveAdaptiveView.as_view(), name='approve-adaptive'),
     path('live/<int:pk>/my-content/', MyContentView.as_view(), name='my-content'),
+    # Phase 3: 교수자 대시보드 분석
+    path('professor/<int:lecture_id>/analytics/overview/', AnalyticsOverviewView.as_view(), name='analytics-overview'),
+    path('professor/<int:lecture_id>/analytics/weak-insights/', WeakInsightsView.as_view(), name='weak-insights'),
+    path('professor/<int:lecture_id>/analytics/ai-suggestions/', AISuggestionsView.as_view(), name='ai-suggestions'),
+    path('professor/<int:lecture_id>/analytics/quality-report/', QualityReportView.as_view(), name='quality-report'),
+    path('professor/<int:lecture_id>/send-message/', SendMessageView.as_view(), name='send-message'),
+    path('professor/<int:lecture_id>/send-group-message/', SendGroupMessageView.as_view(), name='send-group-message'),
+    path('professor/<int:lecture_id>/apply-redistribution/', ApplyRedistributionView.as_view(), name='apply-redistribution'),
+    path('messages/my/', MyMessagesView.as_view(), name='my-messages'),
     path('', include(router.urls)),
 ]

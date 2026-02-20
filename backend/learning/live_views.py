@@ -15,7 +15,7 @@ from django.db.models import Count
 from .models import (
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog,
     Lecture, LearningSession, PulseCheck, PulseLog, LiveQuiz, LiveQuizResponse,
-    LiveQuestion, LiveSessionNote, WeakZoneAlert
+    LiveQuestion, LiveSessionNote, WeakZoneAlert, NoteViewLog
 )
 
 import openai
@@ -1389,6 +1389,10 @@ class LiveNoteView(APIView):
             for m in note.linked_materials.all()
         ]
 
+        # Phase 3: 학생이 노트를 조회하면 NoteViewLog 기록
+        if not is_instructor:
+            NoteViewLog.objects.get_or_create(note=note, student=request.user)
+
         # 교수자에게만 인사이트 리포트 제공
         if is_instructor:
             response_data['instructor_insight'] = note.instructor_insight or ''
@@ -1520,4 +1524,7 @@ class AbsentNoteListView(APIView):
             'absent_notes': data,
             'total': len(data),
         })
+
+        # Phase 3: 결석 노트 열람 시 NoteViewLog 기록은 개별 노트 조회 시 수행
+        # (목록 조회 시에는 기록하지 않고, 학생이 실제 내용을 열어볼 때 기록)
 
