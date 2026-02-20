@@ -140,6 +140,8 @@ onMounted(async () => {
 
     // 5. Phase 2-3: 간격 반복 due 항목 로드
     fetchSRDue();
+    // 6. Phase 3: 교수자 메시지 로드
+    fetchMyMessages();
 });
 
 // --- Phase 2-3: Spaced Repetition ---
@@ -176,6 +178,27 @@ const submitSRAnswer = async (itemId, answer) => {
 const closeSRQuiz = () => {
     srAnswering.value = null;
     srResult.value = null;
+};
+
+// --- Phase 3: 교수자 메시지 ---
+const myMessages = ref([]);
+const unreadCount = ref(0);
+
+const fetchMyMessages = async () => {
+    try {
+        const { data } = await api.get('/learning/messages/my/');
+        myMessages.value = data.messages || [];
+        unreadCount.value = data.unread_count || 0;
+    } catch (e) { /* silent */ }
+};
+
+const markRead = async (msgId) => {
+    try {
+        await api.post('/learning/messages/my/', { message_id: msgId });
+        const msg = myMessages.value.find(m => m.id === msgId);
+        if (msg) msg.is_read = true;
+        unreadCount.value = myMessages.value.filter(m => !m.is_read).length;
+    } catch (e) { /* silent */ }
 };
 
 const startLearning = () => {
@@ -306,6 +329,21 @@ const continueLearning = () => {
                 </section>
 
                 <!-- Phase 2-3: 간격 반복 알림 -->
+                <!-- Phase 3: 교수자 메시지 -->
+                <section v-if="myMessages.length > 0" class="msg-section glass-panel mt-section">
+                    <div class="sr-header">
+                        <h2>📩 교수자 메시지 <span v-if="unreadCount > 0" class="sr-badge">{{ unreadCount }}</span></h2>
+                    </div>
+                    <div v-for="msg in myMessages" :key="msg.id" class="msg-card" :class="{ 'msg-unread': !msg.is_read }" @click="markRead(msg.id)">
+                        <div class="msg-card-header">
+                            <span class="msg-type-tag">{{ msg.message_type }}</span>
+                            <span class="msg-from">{{ msg.sender }} · {{ msg.lecture_title }}</span>
+                        </div>
+                        <h4 class="msg-title">{{ msg.title }}</h4>
+                        <p class="msg-content">{{ msg.content }}</p>
+                    </div>
+                </section>
+
                 <section v-if="srDueItems.length > 0" class="sr-section glass-panel mt-section">
                     <div class="section-header">
                         <h2>🔔 복습 알림 <span class="sr-badge">{{ srDueItems.length }}</span></h2>
@@ -815,4 +853,15 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
 .sr-result.correct { background: rgba(34,197,94,0.15); color: #22c55e; }
 .sr-result.wrong { background: rgba(239,68,68,0.15); color: #ef4444; }
 .sr-close-btn { margin-top: 12px; width: 100%; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #94a3b8; cursor: pointer; }
+
+/* Phase 3: 교수자 메시지 */
+.msg-section { margin-bottom: 16px; }
+.msg-card { padding: 12px; border-radius: 8px; margin-bottom: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); cursor: pointer; transition: all 0.2s; }
+.msg-card:hover { background: rgba(255,255,255,0.06); }
+.msg-unread { border-left: 3px solid #6366f1; background: rgba(99,102,241,0.05); }
+.msg-card-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.msg-type-tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(99,102,241,0.2); color: #a78bfa; font-weight: 600; }
+.msg-from { font-size: 11px; color: #94a3b8; }
+.msg-title { margin: 4px 0; font-size: 14px; color: #e2e8f0; }
+.msg-content { margin: 0; font-size: 12px; color: #94a3b8; line-height: 1.5; }
 </style>

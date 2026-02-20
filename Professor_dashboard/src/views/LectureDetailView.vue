@@ -207,6 +207,7 @@ const switchTab = (tab) => {
     if (tab === 'recording') fetchRecordings();
     if (tab === 'live') fetchLiveStatus();
     if (tab === 'diagnostic') fetchDiagnostics();
+    if (tab === 'analytics') loadAnalytics();
 };
 
 // ── Live Session State ──
@@ -405,6 +406,146 @@ const approveAdaptive = async (acId, materialId) => {
         await api.post(`/learning/adaptive/${acId}/approve/`);
         await fetchAdaptiveContents(materialId);
     } catch (e) { alert('승인 실패'); }
+};
+
+// ── Phase 3: Analytics State ──
+const analyticsSubTab = ref('overview');
+const analyticsLoading = ref(false);
+const analyticsOverview = ref(null);
+const weakInsights = ref(null);
+const aiSuggestions = ref(null);
+const qualityReport = ref(null);
+
+// 메시지 모달
+const showMsgModal = ref(false);
+const msgTarget = ref(null);
+const msgTitle = ref('');
+const msgContent = ref('');
+
+// 그룹 메시지
+const groupMsgLevel = ref(0);
+const groupMsgTitle = ref('');
+const groupMsgContent = ref('');
+
+// Analytics computed charts
+const levelChartData = computed(() => {
+    if (!analyticsOverview.value?.level_distribution) return { labels: [], datasets: [] };
+    const dist = analyticsOverview.value.level_distribution;
+    return {
+        labels: ['Beginner', 'Intermediate', 'Advanced'],
+        datasets: [{
+            data: [dist.BEGINNER || 0, dist.INTERMEDIATE || 0, dist.ADVANCED || 0],
+            backgroundColor: ['#ef5350', '#ffa726', '#66bb6a'],
+        }]
+    };
+});
+
+const sessionComparisonChart = computed(() => {
+    if (!weakInsights.value?.session_comparison) return { labels: [], datasets: [] };
+    const sc = weakInsights.value.session_comparison;
+    return {
+        labels: sc.map(s => s.session_title),
+        datasets: [
+            { label: '이해율', data: sc.map(s => s.understand_rate), backgroundColor: '#42a5f5' },
+            { label: '퀴즈 정답률', data: sc.map(s => s.quiz_accuracy), backgroundColor: '#66bb6a' },
+            { label: '형성평가 평균', data: sc.map(s => s.formative_avg), backgroundColor: '#ffa726' },
+        ]
+    };
+});
+
+// Analytics fetch
+const fetchAnalyticsOverview = async () => {
+    try {
+        const { data } = await api.get(`/learning/professor/${lectureId}/analytics/overview/`);
+        analyticsOverview.value = data;
+    } catch (e) { console.error('overview fetch error', e); }
+};
+const fetchWeakInsights = async () => {
+    try {
+        const { data } = await api.get(`/learning/professor/${lectureId}/analytics/weak-insights/`);
+        weakInsights.value = data;
+    } catch (e) { console.error('weak insights fetch error', e); }
+};
+const fetchAISuggestions = async () => {
+    try {
+        const { data } = await api.get(`/learning/professor/${lectureId}/analytics/ai-suggestions/`);
+        aiSuggestions.value = data;
+    } catch (e) { console.error('ai suggestions fetch error', e); }
+};
+const fetchQualityReport = async () => {
+    try {
+        const { data } = await api.get(`/learning/professor/${lectureId}/analytics/quality-report/`);
+        qualityReport.value = data;
+    } catch (e) { console.error('quality report fetch error', e); }
+};
+
+const loadAnalytics = async () => {
+    analyticsLoading.value = true;
+    await Promise.all([
+        fetchAnalyticsOverview(),
+        fetchWeakInsights(),
+        fetchAISuggestions(),
+        fetchQualityReport(),
+    ]);
+    analyticsLoading.value = false;
+};
+
+// 메시지 발송
+const openMessage = (student) => {
+    msgTarget.value = student;
+    msgTitle.value = '';
+    msgContent.value = '';
+    showMsgModal.value = true;
+};
+
+const sendDirectMessage = async () => {
+    try {
+        await api.post(`/learning/professor/${lectureId}/send-message/`, {
+            student_ids: [msgTarget.value.id],
+            title: msgTitle.value,
+            content: msgContent.value,
+            message_type: 'FEEDBACK',
+        });
+        alert('메시지 발송 완료');
+        showMsgModal.value = false;
+    } catch (e) { alert('메시지 발송 실패'); }
+};
+
+const sendGroupMessage = async () => {
+    try {
+        await api.post(`/learning/professor/${lectureId}/send-group-message/`, {
+            target_level: groupMsgLevel.value,
+            title: groupMsgTitle.value,
+            content: groupMsgContent.value,
+            message_type: 'NOTICE',
+        });
+        alert('그룹 메시지 발송 완료');
+        groupMsgTitle.value = '';
+        groupMsgContent.value = '';
+    } catch (e) { alert('발송 실패'); }
+};
+
+// AI 제안 액션
+const handleSuggestion = async (type, id, action) => {
+    try {
+        await api.post(`/learning/professor/${lectureId}/analytics/ai-suggestions/`, {
+            type, id, action,
+        });
+        await fetchAISuggestions();
+    } catch (e) { alert('처리 실패'); }
+};
+
+// 재분류 적용
+const applyRedistribution = async () => {
+    if (!qualityReport.value?.level_redistribution?.changes?.length) return;
+    if (!confirm('레벨 재분류를 일괄 적용하시겠습니까?')) return;
+    try {
+        await api.post(`/learning/professor/${lectureId}/apply-redistribution/`, {
+            changes: qualityReport.value.level_redistribution.changes,
+        });
+        alert('레벨 재분류 적용 완료');
+        await loadAnalytics();
+    } catch (e) { alert('적용 실패'); }
 };
 
 const startLivePolling = () => {
@@ -831,6 +972,11 @@ onMounted(fetchDashboard);
                 :class="['tab-btn', { active: activeTab === 'diagnostic' }]" 
                 @click="switchTab('diagnostic')">
                 📋 수준 진단
+            </button>
+            <button 
+                :class="['tab-btn', { active: activeTab === 'analytics' }]" 
+                @click="switchTab('analytics')">
+                📈 학습 분석
             </button>
         </div>
 
@@ -1642,6 +1788,182 @@ onMounted(fetchDashboard);
             </div>
         </div>
 
+        <!-- ══════════════════════════════════════ -->
+        <!-- 📈 학습 분석 탭                         -->
+        <!-- ══════════════════════════════════════ -->
+        <div v-if="activeTab === 'analytics'" class="analytics-tab-content">
+            <!-- 서브탭 -->
+            <div class="analytics-sub-tabs">
+                <button v-for="st in ['overview','weak','ai','report']" :key="st"
+                    :class="['sub-tab-btn', { active: analyticsSubTab === st }]"
+                    @click="analyticsSubTab = st">
+                    {{ {overview:'📊 현황판', weak:'🔍 취약구간', ai:'🤖 AI 제안', report:'📋 리포트'}[st] }}
+                </button>
+            </div>
+
+            <!-- 로딩 -->
+            <div v-if="analyticsLoading" class="analytics-loading">데이터를 불러오는 중...</div>
+
+            <!-- 서브탭 1: 현황판 -->
+            <div v-else-if="analyticsSubTab === 'overview'" class="an-panel">
+                <div v-if="analyticsOverview">
+                    <div class="an-summary-row">
+                        <div class="an-stat-card"><span class="an-stat-value">{{ analyticsOverview.total_students }}</span><span class="an-stat-label">수강생</span></div>
+                        <div class="an-stat-card"><span class="an-stat-value">{{ analyticsOverview.session_count }}</span><span class="an-stat-label">종료 세션</span></div>
+                        <div class="an-stat-card"><span class="an-stat-value">{{ analyticsOverview.avg_attendance_rate }}%</span><span class="an-stat-label">평균 출석률</span></div>
+                        <div class="an-stat-card"><span class="an-stat-value">{{ analyticsOverview.avg_quiz_accuracy }}%</span><span class="an-stat-label">평균 정답률</span></div>
+                        <div class="an-stat-card"><span class="an-stat-value">{{ analyticsOverview.avg_progress_rate }}%</span><span class="an-stat-label">평균 진도율</span></div>
+                    </div>
+
+                    <!-- 레벨 분포 -->
+                    <div class="an-chart-row" v-if="analyticsOverview.level_distribution">
+                        <div class="an-chart-box">
+                            <h3>레벨 분포</h3>
+                            <Doughnut :data="levelChartData" :options="{ responsive: true, maintainAspectRatio: false }" style="max-height: 200px;" />
+                        </div>
+                    </div>
+
+                    <!-- 위험군 -->
+                    <div v-if="analyticsOverview.at_risk_students && analyticsOverview.at_risk_students.length > 0" class="an-risk-section">
+                        <h3>⚠️ 위험군 학습자 ({{ analyticsOverview.at_risk_students.length }}명)</h3>
+                        <table class="an-risk-table">
+                            <thead><tr><th>학생</th><th>레벨</th><th>위험 사유</th><th>결석 노트</th><th>형성평가</th><th>조치</th></tr></thead>
+                            <tbody>
+                                <tr v-for="s in analyticsOverview.at_risk_students" :key="s.id" class="an-risk-row">
+                                    <td>{{ s.username }}</td>
+                                    <td><span class="an-level-tag">{{ s.level }}</span></td>
+                                    <td><span v-for="r in s.risk_reasons" :key="r" class="an-risk-tag">{{ r }}</span></td>
+                                    <td>{{ s.absent_note_viewed ? '✅' : '❌' }}</td>
+                                    <td>{{ s.formative_completed ? '✅' : '❌' }}</td>
+                                    <td><button class="an-msg-btn" @click="openMessage(s)">📩</button></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div v-else class="an-empty">위험군 학습자가 없습니다 👍</div>
+                </div>
+                <div v-else class="an-empty">{{ analyticsOverview?.message || '데이터를 불러올 수 없습니다.' }}</div>
+            </div>
+
+            <!-- 서브탭 2: 취약구간 -->
+            <div v-else-if="analyticsSubTab === 'weak'" class="an-panel">
+                <div v-if="weakInsights && weakInsights.insights && weakInsights.insights.length > 0">
+                    <h3>🔍 취약 구간 랭킹</h3>
+                    <table class="an-weak-table">
+                        <thead><tr><th>#</th><th>개념</th><th>세션</th><th>오답률</th><th>영향 학생</th><th>출처</th></tr></thead>
+                        <tbody>
+                            <tr v-for="ins in weakInsights.insights" :key="ins.rank">
+                                <td class="an-rank">{{ ins.rank }}</td>
+                                <td>{{ ins.concept }}</td>
+                                <td>{{ ins.session_title }}</td>
+                                <td>
+                                    <div class="an-bar-bg"><div class="an-bar-fill" :style="{ width: ins.wrong_rate + '%' }"></div></div>
+                                    <span>{{ ins.wrong_rate }}%</span>
+                                </td>
+                                <td>{{ ins.affected_count }}/{{ ins.total_students }}명</td>
+                                <td><span class="an-source-tag">{{ ins.source }}</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <!-- 차시별 비교 -->
+                    <div v-if="weakInsights.session_comparison && weakInsights.session_comparison.length > 1" class="an-chart-box" style="margin-top: 20px;">
+                        <h3>차시별 비교 추이</h3>
+                        <Bar :data="sessionComparisonChart" :options="{ responsive: true, maintainAspectRatio: false }" style="max-height: 250px;" />
+                    </div>
+                </div>
+                <div v-else class="an-empty">아직 취약 구간 데이터가 없습니다.</div>
+            </div>
+
+            <!-- 서브탭 3: AI 제안 -->
+            <div v-else-if="analyticsSubTab === 'ai'" class="an-panel">
+                <div v-if="aiSuggestions && aiSuggestions.pending_suggestions && aiSuggestions.pending_suggestions.length > 0">
+                    <h3>🤖 AI 제안 ({{ aiSuggestions.pending_count }}건 대기)</h3>
+                    <div v-for="sg in aiSuggestions.pending_suggestions" :key="sg.type + sg.id" class="an-suggestion-card">
+                        <div class="an-sg-header">
+                            <span class="an-sg-type">{{ {REVIEW_ROUTE:'📚',WEAK_ZONE:'⚠️',ADAPTIVE_CONTENT:'📖'}[sg.type] }} {{ sg.type }}</span>
+                            <span class="an-sg-student" v-if="sg.student_name">{{ sg.student_name }}</span>
+                        </div>
+                        <p class="an-sg-detail">{{ sg.detail }}</p>
+                        <div class="an-sg-actions">
+                            <button class="an-btn-approve" @click="handleSuggestion(sg.type, sg.id, 'APPROVE')">✅ 승인</button>
+                            <button class="an-btn-reject" @click="handleSuggestion(sg.type, sg.id, 'REJECT')">❌ 거부</button>
+                        </div>
+                    </div>
+                </div>
+                <div v-else class="an-empty">대기 중인 AI 제안이 없습니다.</div>
+
+                <div v-if="aiSuggestions && aiSuggestions.recent_decisions && aiSuggestions.recent_decisions.length > 0" style="margin-top: 20px;">
+                    <h4>최근 판단 이력</h4>
+                    <div v-for="(d, i) in aiSuggestions.recent_decisions" :key="i" class="an-decision-item">
+                        <span>{{ d.type }} — {{ d.action }}</span>
+                        <span class="an-decision-detail">{{ d.detail }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 서브탭 4: 리포트 -->
+            <div v-else-if="analyticsSubTab === 'report'" class="an-panel">
+                <div v-if="qualityReport && qualityReport.sessions && qualityReport.sessions.length > 0">
+                    <h3>📋 강의 품질 리포트</h3>
+                    <table class="an-report-table">
+                        <thead><tr><th>차시</th><th>날짜</th><th>참여</th><th>이해율</th><th>퀴즈</th><th>체크포인트</th><th>형성평가</th><th>WZ</th></tr></thead>
+                        <tbody>
+                            <tr v-for="s in qualityReport.sessions" :key="s.id">
+                                <td>{{ s.title }}</td>
+                                <td>{{ s.date }}</td>
+                                <td>{{ s.participants }}명</td>
+                                <td>{{ s.metrics.understand_rate }}%</td>
+                                <td>{{ s.metrics.quiz_accuracy }}%</td>
+                                <td>{{ s.metrics.checkpoint_pass_rate }}%</td>
+                                <td>{{ s.metrics.formative_completion_rate }}%</td>
+                                <td>{{ s.metrics.weak_zone_count }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <!-- 재분류 제안 -->
+                    <div v-if="qualityReport.level_redistribution && qualityReport.level_redistribution.changes && qualityReport.level_redistribution.changes.length > 0" class="an-redistribution">
+                        <h3>🔄 레벨 재분류 제안</h3>
+                        <div v-for="c in qualityReport.level_redistribution.changes" :key="c.student_id" class="an-reclass-item">
+                            <span>{{ c.student_name }}</span>
+                            <span class="an-level-tag">{{ c.from }}</span> → <span class="an-level-tag">{{ c.to }}</span>
+                            <span class="an-reclass-reason">{{ c.reason }}</span>
+                        </div>
+                        <button class="an-btn-apply" @click="applyRedistribution">일괄 승인</button>
+                    </div>
+
+                    <!-- 그룹 메시지 -->
+                    <div class="an-group-msg" style="margin-top: 20px;">
+                        <h3>📩 그룹 메시지 발송</h3>
+                        <select v-model="groupMsgLevel" class="an-select">
+                            <option :value="0">전체</option>
+                            <option :value="1">Level 1</option>
+                            <option :value="2">Level 2</option>
+                            <option :value="3">Level 3</option>
+                        </select>
+                        <input v-model="groupMsgTitle" placeholder="제목" class="an-input" />
+                        <textarea v-model="groupMsgContent" placeholder="내용" class="an-textarea" rows="3"></textarea>
+                        <button class="an-btn-send" @click="sendGroupMessage" :disabled="!groupMsgTitle || !groupMsgContent">발송</button>
+                    </div>
+                </div>
+                <div v-else class="an-empty">{{ qualityReport?.message || '아직 종료된 강의가 없습니다.' }}</div>
+            </div>
+        </div>
+
+        <!-- 메시지 발송 모달 -->
+        <div v-if="showMsgModal" class="an-modal-overlay" @click.self="showMsgModal = false">
+            <div class="an-modal">
+                <h3>📩 {{ msgTarget?.username }}에게 메시지</h3>
+                <input v-model="msgTitle" placeholder="제목" class="an-input" />
+                <textarea v-model="msgContent" placeholder="내용" class="an-textarea" rows="4"></textarea>
+                <div class="an-modal-actions">
+                    <button class="an-btn-send" @click="sendDirectMessage" :disabled="!msgTitle || !msgContent">발송</button>
+                    <button class="an-btn-cancel" @click="showMsgModal = false">취소</button>
+                </div>
+            </div>
+        </div>
+
     </div>
 </template>
 
@@ -2282,4 +2604,87 @@ tr:hover td { background: #fafbfc; }
 .ac-generating { background: #e5e7eb; color: #6b7280; }
 .ac-approve-btn { background: #22c55e; color: #fff; border: none; border-radius: 3px; font-size: 9px; padding: 1px 4px; cursor: pointer; }
 .ac-approve-btn:hover { background: #16a34a; }
+
+/* ── Phase 3: Analytics Tab ── */
+.analytics-tab-content { padding: 20px 0; }
+.analytics-sub-tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+.sub-tab-btn { padding: 8px 16px; border: 1px solid #e0e0e0; border-radius: 20px; background: #fff; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+.sub-tab-btn.active { background: #1565c0; color: white; border-color: #1565c0; }
+.sub-tab-btn:hover:not(.active) { background: #f5f5f5; }
+.analytics-loading { text-align: center; padding: 40px; color: #999; }
+
+.an-panel { animation: fadeIn 0.2s; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.an-summary-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.an-stat-card { flex: 1; min-width: 120px; background: linear-gradient(135deg, #f8f9fa, #e8eaf6); border-radius: 12px; padding: 16px; text-align: center; }
+.an-stat-value { display: block; font-size: 24px; font-weight: 700; color: #1565c0; }
+.an-stat-label { display: block; font-size: 12px; color: #666; margin-top: 4px; }
+
+.an-chart-row { margin-bottom: 20px; }
+.an-chart-box { background: #fafafa; border-radius: 12px; padding: 16px; }
+.an-chart-box h3 { margin: 0 0 12px 0; font-size: 15px; }
+
+.an-risk-section { margin-top: 20px; }
+.an-risk-section h3 { color: #c62828; }
+.an-risk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.an-risk-table th { background: #ffebee; padding: 8px; text-align: left; font-weight: 600; }
+.an-risk-table td { padding: 8px; border-bottom: 1px solid #f5f5f5; }
+.an-risk-row:hover { background: #fff3e0; }
+.an-level-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; background: #e3f2fd; color: #1565c0; }
+.an-risk-tag { display: inline-block; padding: 2px 6px; margin: 1px; border-radius: 4px; font-size: 10px; background: #ffcdd2; color: #b71c1c; }
+.an-msg-btn { background: #42a5f5; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.an-msg-btn:hover { background: #1e88e5; }
+.an-empty { text-align: center; padding: 40px; color: #999; font-size: 14px; }
+
+/* 취약구간 */
+.an-weak-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.an-weak-table th { background: #fff3e0; padding: 8px; text-align: left; }
+.an-weak-table td { padding: 8px; border-bottom: 1px solid #f5f5f5; }
+.an-rank { font-weight: 700; color: #e65100; font-size: 16px; }
+.an-bar-bg { height: 8px; background: #e0e0e0; border-radius: 4px; width: 80px; display: inline-block; margin-right: 8px; vertical-align: middle; }
+.an-bar-fill { height: 100%; background: linear-gradient(90deg, #ff9800, #f44336); border-radius: 4px; }
+.an-source-tag { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; background: #e8eaf6; color: #3f51b5; }
+
+/* AI 제안 */
+.an-suggestion-card { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+.an-sg-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.an-sg-type { font-weight: 600; font-size: 13px; }
+.an-sg-student { font-size: 12px; color: #666; }
+.an-sg-detail { margin: 0; font-size: 13px; color: #444; }
+.an-sg-actions { display: flex; gap: 8px; margin-top: 12px; }
+.an-btn-approve { background: #4caf50; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+.an-btn-approve:hover { background: #388e3c; }
+.an-btn-reject { background: #ef5350; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+.an-btn-reject:hover { background: #c62828; }
+.an-decision-item { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f0f0f0; font-size: 12px; }
+.an-decision-detail { color: #999; }
+
+/* 리포트 */
+.an-report-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.an-report-table th { background: #e8f5e9; padding: 6px; text-align: center; font-weight: 600; }
+.an-report-table td { padding: 6px; text-align: center; border-bottom: 1px solid #f5f5f5; }
+
+/* 재분류 */
+.an-redistribution { margin-top: 20px; padding: 16px; background: #fff8e1; border-radius: 12px; }
+.an-reclass-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
+.an-reclass-reason { font-size: 11px; color: #666; }
+.an-btn-apply { background: #7c4dff; color: white; border: none; padding: 8px 20px; border-radius: 8px; cursor: pointer; margin-top: 12px; font-weight: 600; }
+.an-btn-apply:hover { background: #651fff; }
+
+/* 그룹 메시지 */
+.an-group-msg { background: #f5f5f5; padding: 16px; border-radius: 12px; }
+.an-select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 8px; }
+.an-input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 8px; box-sizing: border-box; }
+.an-textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 8px; resize: vertical; box-sizing: border-box; }
+.an-btn-send { background: #1565c0; color: white; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+.an-btn-send:hover { background: #0d47a1; }
+.an-btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 모달 */
+.an-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 999; }
+.an-modal { background: white; border-radius: 16px; padding: 24px; width: 400px; max-width: 90vw; }
+.an-modal h3 { margin-top: 0; }
+.an-modal-actions { display: flex; gap: 8px; margin-top: 12px; }
+.an-btn-cancel { background: #e0e0e0; color: #333; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; }
 </style>
