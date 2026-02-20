@@ -345,7 +345,17 @@ onMounted(async () => {
         } else if (savedSessionId) {
             // [CHANGE] 자동 복구 시도 (isAutoRestore=true)
             await resumeSession(true); 
-        } 
+        } else {
+            // [FIX] 저장된 세션이 없으면 전체 상태 클린 리셋
+            // → 이전 학습 완료 후 재진입 시 모드 선택 화면이 뜨도록 보장
+            mode.value = null;
+            sessionId.value = null;
+            pendingSessionId.value = null;
+            isUrlSubmitted.value = false;
+            isCompletedSession.value = false;
+            sttLogs.value = [];
+            youtubeUrl.value = '';
+        }
         
         // Load History
         const history = localStorage.getItem('watchHistory');
@@ -824,9 +834,14 @@ const endSession = async () => {
         // 2. 세션 종료 처리
         try { await api.post(`/learning/sessions/${sessionId.value}/end/`); } catch(e) {}
         
-        // [FIX] 세션 종료 시 로컬 스토리지 정리
+        // [FIX] 세션 종료 시 로컬 스토리지 + Vue 상태 모두 정리
         localStorage.removeItem('currentSessionId');
         localStorage.removeItem('currentYoutubeUrl');
+        localStorage.removeItem('restoredMode');
+        
+        // Vue 상태 초기화 (퀴즈 끝나고 재진입 시 모드 선택 화면 보장)
+        sessionId.value = null;
+        pendingSessionId.value = null;
     }
 
     // 3. 퀴즈 생성 요청
