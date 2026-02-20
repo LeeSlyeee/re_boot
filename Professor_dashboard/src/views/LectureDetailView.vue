@@ -378,6 +378,35 @@ const generateFormative = async () => {
     }
 };
 
+// ── Phase 2-2: Adaptive Content ──
+const adaptiveGenerating = ref({});
+const adaptiveContents = ref({});
+
+const generateAdaptive = async (materialId) => {
+    adaptiveGenerating.value = { ...adaptiveGenerating.value, [materialId]: true };
+    try {
+        const { data } = await api.post(`/learning/materials/${materialId}/generate-adaptive/`);
+        adaptiveContents.value = { ...adaptiveContents.value, [materialId]: data.levels };
+    } catch (e) {
+        alert('AI 변형 생성 실패');
+    }
+    adaptiveGenerating.value = { ...adaptiveGenerating.value, [materialId]: false };
+};
+
+const fetchAdaptiveContents = async (materialId) => {
+    try {
+        const { data } = await api.get(`/learning/materials/${materialId}/adaptive/`);
+        adaptiveContents.value = { ...adaptiveContents.value, [materialId]: data.adaptive_contents };
+    } catch (e) { /* silent */ }
+};
+
+const approveAdaptive = async (acId, materialId) => {
+    try {
+        await api.post(`/learning/adaptive/${acId}/approve/`);
+        await fetchAdaptiveContents(materialId);
+    } catch (e) { alert('승인 실패'); }
+};
+
 const startLivePolling = () => {
     stopLivePolling();
     livePollingTimer.value = setInterval(async () => {
@@ -1448,7 +1477,17 @@ onMounted(fetchDashboard);
                     <div v-for="m in materials" :key="m.id" class="material-item">
                         <span class="material-type">{{ m.file_type }}</span>
                         <span class="material-title">{{ m.title }}</span>
+                        <button class="btn-adaptive-gen" @click="generateAdaptive(m.id)" :disabled="adaptiveGenerating[m.id]" title="레벨별 AI 변형">
+                            {{ adaptiveGenerating[m.id] ? '⏳' : '🔄' }}
+                        </button>
                         <button class="btn-material-delete" @click="deleteMaterial(m.id)">×</button>
+                        <!-- 변형 목록 -->
+                        <div v-if="adaptiveContents[m.id] && adaptiveContents[m.id].length > 0" class="adaptive-levels">
+                            <span v-for="ac in adaptiveContents[m.id]" :key="ac.id" class="adaptive-badge" :class="'ac-' + ac.status.toLowerCase()">
+                                L{{ ac.level }}
+                                <button v-if="ac.status === 'DRAFT'" class="ac-approve-btn" @click="approveAdaptive(ac.id, m.id)">✓</button>
+                            </span>
+                        </div>
                     </div>
                 </div>
                 <p v-else class="empty-text">아직 업로드된 교안이 없습니다.</p>
@@ -2230,4 +2269,17 @@ tr:hover td { background: #fafbfc; }
 .btn-formative-gen:hover:not(:disabled) { background: #4f46e5; }
 .btn-formative-gen:disabled { opacity: 0.6; cursor: not-allowed; }
 .formative-ready { padding: 10px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; color: #16a34a; font-size: 13px; font-weight: 600; text-align: center; }
+
+/* ── Phase 2-2: Adaptive Content ── */
+.btn-adaptive-gen { background: none; border: none; font-size: 16px; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.btn-adaptive-gen:hover:not(:disabled) { background: rgba(99,102,241,0.1); }
+.btn-adaptive-gen:disabled { opacity: 0.5; cursor: not-allowed; }
+.adaptive-levels { display: flex; gap: 4px; margin-top: 4px; width: 100%; }
+.adaptive-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 10px; font-weight: 600; border-radius: 4px; }
+.ac-draft { background: #fef3c7; color: #92400e; }
+.ac-approved { background: #d1fae5; color: #065f46; }
+.ac-rejected { background: #fee2e2; color: #991b1b; opacity: 0.6; }
+.ac-generating { background: #e5e7eb; color: #6b7280; }
+.ac-approve-btn { background: #22c55e; color: #fff; border: none; border-radius: 3px; font-size: 9px; padding: 1px 4px; cursor: pointer; }
+.ac-approve-btn:hover { background: #16a34a; }
 </style>

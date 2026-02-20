@@ -304,6 +304,19 @@ const submitFormative = async () => {
     formativeSubmitting.value = false;
 };
 
+// --- Phase 2-2: Adaptive Content ---
+const myAdaptiveContent = ref([]);
+const myStudentLevel = ref(2);
+
+const fetchMyContent = async () => {
+    if (!liveSessionData.value) return;
+    try {
+        const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/my-content/`);
+        myAdaptiveContent.value = data.contents || [];
+        myStudentLevel.value = data.student_level || 2;
+    } catch (e) { /* silent */ }
+};
+
 const renderMarkdown = (text) => {
     if (!text) return '';
     return text
@@ -1339,6 +1352,19 @@ const openSessionReview = (id) => {
                                     <span class="lm-type">{{ m.file_type }}</span>
                                     <a v-if="m.file_url" :href="m.file_url" target="_blank" class="lm-link">{{ m.title }}</a>
                                     <span v-else>{{ m.title }}</span>
+                                </div>
+                            </div>
+
+                            <!-- Phase 2-2: 내 레벨 콘텐츠 -->
+                            <div v-if="myAdaptiveContent.length > 0" class="adaptive-content-section">
+                                <h4>📖 내 수준별 학습 자료 <span class="level-badge">Level {{ myStudentLevel }}</span></h4>
+                                <div v-for="mc in myAdaptiveContent" :key="mc.material_id" class="ac-item">
+                                    <div class="ac-item-header" @click="mc._open = !mc._open">
+                                        <span>{{ mc.material_title }}</span>
+                                        <span v-if="mc.adaptive_content" class="ac-level-tag">{{ mc.adaptive_content.level_label }}</span>
+                                        <span v-else class="ac-na">원본만 제공</span>
+                                    </div>
+                                    <div v-if="mc._open && mc.adaptive_content" class="ac-content" v-html="renderMarkdown(mc.adaptive_content.content)"></div>
                                 </div>
                             </div>
 
@@ -2734,4 +2760,15 @@ const openSessionReview = (id) => {
 .fa-result-item.correct { background: rgba(34,197,94,0.1); color: #22c55e; }
 .fa-result-item.wrong { background: rgba(239,68,68,0.1); color: #fca5a5; }
 .fa-explanation { display: block; font-size: 11px; color: #94a3b8; margin-top: 4px; }
+
+/* ── Phase 2-2: Adaptive Content ── */
+.adaptive-content-section { margin-top: 16px; padding: 16px; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); border-radius: 12px; }
+.adaptive-content-section h4 { margin: 0 0 10px; font-size: 15px; color: #34d399; display: flex; align-items: center; gap: 8px; }
+.level-badge { font-size: 11px; padding: 2px 8px; background: rgba(16,185,129,0.2); color: #34d399; border-radius: 6px; font-weight: 700; }
+.ac-item { margin-bottom: 8px; }
+.ac-item-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; cursor: pointer; font-size: 13px; color: #e2e8f0; }
+.ac-item-header:hover { border-color: rgba(16,185,129,0.3); }
+.ac-level-tag { font-size: 10px; padding: 2px 6px; background: rgba(16,185,129,0.2); color: #34d399; border-radius: 4px; margin-left: auto; }
+.ac-na { font-size: 10px; color: #64748b; margin-left: auto; }
+.ac-content { padding: 12px; margin-top: 4px; background: rgba(255,255,255,0.03); border-radius: 8px; font-size: 13px; color: #cbd5e1; line-height: 1.7; }
 </style>

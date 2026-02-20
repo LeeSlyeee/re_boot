@@ -471,6 +471,35 @@ class WeakZoneAlert(models.Model):
         return f"[WZ] {self.student.username}: {self.trigger_type} @ {self.live_session.session_code}"
 
 # ══════════════════════════════════════════════════════════
+# Phase 2-2: 수준별 콘텐츠 분기
+# ══════════════════════════════════════════════════════════
+
+class AdaptiveContent(models.Model):
+    """레벨별 AI 변형 교안"""
+    LEVEL_CHOICES = ((1, 'Level 1 - 기초'), (2, 'Level 2 - 표준'), (3, 'Level 3 - 심화'))
+    STATUS_CHOICES = (
+        ('GENERATING', 'AI 생성 중'),
+        ('DRAFT', 'AI 생성 초안'),
+        ('APPROVED', '교수자 승인'),
+        ('REJECTED', '교수자 거부'),
+    )
+
+    source_material = models.ForeignKey(LectureMaterial, on_delete=models.CASCADE, related_name='adaptive_contents')
+    level = models.IntegerField(choices=LEVEL_CHOICES)
+    title = models.CharField(max_length=200)
+    content = models.TextField(help_text="AI 변형 마크다운")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='GENERATING')
+    created_at = models.DateTimeField(auto_now_add=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ['source_material', 'level']
+        ordering = ['level']
+
+    def __str__(self):
+        return f"[Adaptive L{self.level}] {self.source_material.title}"
+
+# ══════════════════════════════════════════════════════════
 # Phase 2-3: AI 복습 루트 + 간격 반복
 # ══════════════════════════════════════════════════════════
 

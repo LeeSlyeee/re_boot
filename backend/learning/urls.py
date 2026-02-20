@@ -12,6 +12,7 @@ from .review_views import (
     SpacedRepetitionDueView, CompleteSpacedRepView,
 )
 from .formative_views import GenerateFormativeView, GetFormativeView, SubmitFormativeView
+from .adaptive_views import GenerateAdaptiveView, ListAdaptiveView, ApproveAdaptiveView, MyContentView
 
 router = DefaultRouter()
 router.register(r'sessions', LearningSessionViewSet, basename='session')
@@ -53,5 +54,10 @@ urlpatterns = [
     path('formative/<int:session_id>/generate/', GenerateFormativeView.as_view(), name='formative-generate'),
     path('formative/<int:session_id>/', GetFormativeView.as_view(), name='formative-get'),
     path('formative/<int:fa_id>/submit/', SubmitFormativeView.as_view(), name='formative-submit'),
+    # Phase 2-2: 적응형 콘텐츠
+    path('materials/<int:pk>/generate-adaptive/', GenerateAdaptiveView.as_view(), name='generate-adaptive'),
+    path('materials/<int:pk>/adaptive/', ListAdaptiveView.as_view(), name='list-adaptive'),
+    path('adaptive/<int:pk>/approve/', ApproveAdaptiveView.as_view(), name='approve-adaptive'),
+    path('live/<int:pk>/my-content/', MyContentView.as_view(), name='my-content'),
     path('', include(router.urls)),
 ]
