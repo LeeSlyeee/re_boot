@@ -5,6 +5,7 @@ from .models import (
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog, PulseCheck, PulseLog,
     LiveQuiz, LiveQuizResponse, LiveQuestion, LiveSessionNote,
     WeakZoneAlert, ReviewRoute, SpacedRepetitionItem,
+    FormativeAssessment, FormativeResponse,
     Skill, CareerGoal, PlacementQuestion, PlacementResult,
     StudentGoal, StudentSkill
 )
@@ -115,6 +116,16 @@ class ReviewRouteAdmin(admin.ModelAdmin):
 class SpacedRepetitionItemAdmin(admin.ModelAdmin):
     list_display = ('id', 'student', 'concept_name', 'current_review', 'created_at')
     search_fields = ('concept_name', 'student__username')
+
+@admin.register(FormativeAssessment)
+class FormativeAssessmentAdmin(admin.ModelAdmin):
+    list_display = ('id', 'live_session', 'status', 'total_questions', 'created_at')
+    list_filter = ('status',)
+
+@admin.register(FormativeResponse)
+class FormativeResponseAdmin(admin.ModelAdmin):
+    list_display = ('id', 'student', 'assessment', 'score', 'total', 'sr_items_created', 'submitted_at')
+    list_filter = ('sr_items_created',)
 
 # Phase 1
 @admin.register(Skill)

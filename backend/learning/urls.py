@@ -11,6 +11,7 @@ from .review_views import (
     ApproveReviewRouteView, EditReviewRouteView,
     SpacedRepetitionDueView, CompleteSpacedRepView,
 )
+from .formative_views import GenerateFormativeView, GetFormativeView, SubmitFormativeView
 
 router = DefaultRouter()
 router.register(r'sessions', LearningSessionViewSet, basename='session')
@@ -48,5 +49,9 @@ urlpatterns = [
     path('review-routes/<int:pk>/', EditReviewRouteView.as_view(), name='edit-review-route'),
     path('spaced-repetition/due/', SpacedRepetitionDueView.as_view(), name='sr-due'),
     path('spaced-repetition/<int:pk>/complete/', CompleteSpacedRepView.as_view(), name='sr-complete'),
+    # Phase 2-4: 형성평가
+    path('formative/<int:session_id>/generate/', GenerateFormativeView.as_view(), name='formative-generate'),
+    path('formative/<int:session_id>/', GetFormativeView.as_view(), name='formative-get'),
+    path('formative/<int:fa_id>/submit/', SubmitFormativeView.as_view(), name='formative-submit'),
     path('', include(router.urls)),
 ]

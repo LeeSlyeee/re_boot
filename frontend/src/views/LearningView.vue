@@ -216,7 +216,10 @@ const fetchLiveNote = async () => {
         if (data.status === 'DONE' || data.status === 'FAILED') {
             if (notePolling.value) { clearInterval(notePolling.value); notePolling.value = null; }
             // Phase 2-3: 노트 완료 시 복습 루트 자동 로드
-            if (data.status === 'DONE') fetchMyReviewRoutes();
+            if (data.status === 'DONE') {
+                fetchMyReviewRoutes();
+                fetchFormative();
+            }
         }
     } catch {}
 };
@@ -264,6 +267,41 @@ const completeSR = async (itemId, answer) => {
         }
         return data;
     } catch (e) { return null; }
+};
+
+// --- Phase 2-4: Formative Assessment ---
+const formativeData = ref(null);
+const formativeAnswers = ref({});
+const formativeResult = ref(null);
+const formativeSubmitting = ref(false);
+
+const fetchFormative = async () => {
+    if (!liveSessionData.value) return;
+    try {
+        const { data } = await api.get(`/learning/formative/${liveSessionData.value.session_id}/`);
+        if (data.available && !data.already_submitted) {
+            formativeData.value = data;
+        } else if (data.already_submitted) {
+            formativeResult.value = { score: data.score, total: data.total };
+        }
+    } catch (e) { /* silent */ }
+};
+
+const submitFormative = async () => {
+    if (!formativeData.value) return;
+    formativeSubmitting.value = true;
+    try {
+        const answers = Object.entries(formativeAnswers.value).map(([qId, answer]) => ({
+            question_id: parseInt(qId),
+            answer,
+        }));
+        const { data } = await api.post(`/learning/formative/${formativeData.value.assessment_id}/submit/`, { answers });
+        formativeResult.value = data;
+        formativeData.value = null;
+        // SR due 갱신
+        await fetchSRDue();
+    } catch (e) { /* silent */ }
+    formativeSubmitting.value = false;
 };
 
 const renderMarkdown = (text) => {
@@ -1324,6 +1362,38 @@ const openSessionReview = (id) => {
                                 </div>
                             </div>
                         </div>
+
+                            <!-- Phase 2-4: 형성평가 -->
+                            <div v-if="formativeData && formativeData.available" class="formative-card">
+                                <h4>📝 사후 형성평가 ({{ formativeData.total_questions }}문항)</h4>
+                                <div v-for="q in formativeData.questions" :key="q.id" class="fa-question">
+                                    <p class="fa-q-text">Q{{ q.id }}. {{ q.question }}</p>
+                                    <div class="fa-options">
+                                        <label v-for="(opt, idx) in q.options" :key="idx" class="fa-option" :class="{ selected: formativeAnswers[q.id] === opt }">
+                                            <input type="radio" :name="'fa-q-' + q.id" :value="opt" v-model="formativeAnswers[q.id]" />
+                                            {{ opt }}
+                                        </label>
+                                    </div>
+                                </div>
+                                <button class="fa-submit-btn" @click="submitFormative" :disabled="formativeSubmitting">
+                                    {{ formativeSubmitting ? '제출 중...' : '✅ 제출하기' }}
+                                </button>
+                            </div>
+
+                            <!-- 형성평가 결과 -->
+                            <div v-if="formativeResult" class="formative-result-card">
+                                <h4>📊 형성평가 결과</h4>
+                                <p class="fa-score">{{ formativeResult.score }} / {{ formativeResult.total }} 정답</p>
+                                <div v-if="formativeResult.sr_items_created > 0" class="fa-sr-notice">
+                                    🔁 오답 {{ formativeResult.sr_items_created }}개 → 간격 반복 자동 등록됨
+                                </div>
+                                <div v-if="formativeResult.results" class="fa-results-detail">
+                                    <div v-for="r in formativeResult.results" :key="r.question_id" class="fa-result-item" :class="r.is_correct ? 'correct' : 'wrong'">
+                                        <span>Q{{ r.question_id }}: {{ r.is_correct ? '✅' : '❌' }}</span>
+                                        <span v-if="!r.is_correct" class="fa-explanation">정답: {{ r.correct_answer }} — {{ r.explanation }}</span>
+                                    </div>
+                                </div>
+                            </div>
                     </div>
                     <button class="btn btn-secondary" @click="leaveLiveSession" style="margin-top:16px;">나가기</button>
                 </div>
@@ -2640,4 +2710,28 @@ const openSessionReview = (id) => {
 .rr-item-info { flex: 1; display: flex; justify-content: space-between; align-items: center; }
 .rr-item-title { font-size: 13px; color: #e2e8f0; }
 .rr-item-time { font-size: 11px; color: #64748b; }
+
+/* ── Phase 2-4: Formative Assessment ── */
+.formative-card { margin-top: 16px; padding: 16px; background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); border-radius: 12px; }
+.formative-card h4 { margin: 0 0 12px; font-size: 15px; color: #a78bfa; }
+.fa-question { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.fa-q-text { font-size: 13px; color: #e2e8f0; font-weight: 600; margin: 0 0 8px; line-height: 1.6; }
+.fa-options { display: flex; flex-direction: column; gap: 6px; }
+.fa-option { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; font-size: 12px; color: #cbd5e1; cursor: pointer; transition: all 0.2s; }
+.fa-option:hover { border-color: rgba(99,102,241,0.4); background: rgba(99,102,241,0.1); }
+.fa-option.selected { border-color: #6366f1; background: rgba(99,102,241,0.15); color: #a78bfa; }
+.fa-option input[type="radio"] { accent-color: #6366f1; }
+.fa-submit-btn { width: 100%; margin-top: 12px; padding: 12px; background: #6366f1; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.fa-submit-btn:hover:not(:disabled) { background: #4f46e5; }
+.fa-submit-btn:disabled { opacity: 0.6; }
+
+.formative-result-card { margin-top: 16px; padding: 16px; background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); border-radius: 12px; }
+.formative-result-card h4 { margin: 0 0 10px; font-size: 15px; color: #a78bfa; }
+.fa-score { font-size: 20px; font-weight: 700; color: #e2e8f0; text-align: center; margin: 8px 0; }
+.fa-sr-notice { padding: 8px 12px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); border-radius: 8px; color: #fbbf24; font-size: 12px; margin: 8px 0; text-align: center; }
+.fa-results-detail { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.fa-result-item { padding: 8px 10px; border-radius: 6px; font-size: 12px; }
+.fa-result-item.correct { background: rgba(34,197,94,0.1); color: #22c55e; }
+.fa-result-item.wrong { background: rgba(239,68,68,0.1); color: #fca5a5; }
+.fa-explanation { display: block; font-size: 11px; color: #94a3b8; margin-top: 4px; }
 </style>

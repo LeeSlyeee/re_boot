@@ -521,6 +521,60 @@ class SpacedRepetitionItem(models.Model):
 
 
 # ══════════════════════════════════════════════════════════
+# Phase 2-4: 사후 형성평가
+# ══════════════════════════════════════════════════════════
+
+class FormativeAssessment(models.Model):
+    """세션 이후 AI가 노트 기반으로 생성하는 형성평가"""
+    STATUS_CHOICES = (
+        ('GENERATING', '생성 중'),
+        ('READY', '준비 완료'),
+        ('FAILED', '생성 실패'),
+    )
+
+    live_session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name='formative_assessments')
+    note = models.ForeignKey(LiveSessionNote, on_delete=models.CASCADE, related_name='formative_assessments')
+    questions = models.JSONField(default=list, help_text="""
+    [{
+        "id": 1,
+        "question": "클로저란 무엇인가?",
+        "options": ["A", "B", "C", "D"],
+        "correct_answer": "B",
+        "explanation": "...",
+        "related_note_section": "## 핵심 내용 정리 > 1. 클로저",
+        "concept_tag": "클로저"
+    }]
+    """)
+    total_questions = models.IntegerField(default=0)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='GENERATING')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[FA] {self.live_session.session_code} ({self.status})"
+
+
+class FormativeResponse(models.Model):
+    """학생의 형성평가 응답"""
+    assessment = models.ForeignKey(FormativeAssessment, on_delete=models.CASCADE, related_name='responses')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='formative_responses')
+    answers = models.JSONField(default=list, help_text="[{ question_id, answer, is_correct }]")
+    score = models.IntegerField(default=0)
+    total = models.IntegerField(default=0)
+    sr_items_created = models.BooleanField(default=False, help_text="오답→SR 자동 등록 완료 여부")
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['assessment', 'student']
+        ordering = ['-submitted_at']
+
+    def __str__(self):
+        return f"[FR] {self.student.username}: {self.score}/{self.total}"
+
+
+# ══════════════════════════════════════════════════════════
 # Phase 1: 수준 진단 + 갭 맵
 # ══════════════════════════════════════════════════════════
 

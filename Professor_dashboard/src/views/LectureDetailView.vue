@@ -359,6 +359,25 @@ const dismissWeakZone = async (wzId) => {
 
 const activeWeakZones = computed(() => weakZones.value.filter(w => w.status === 'DETECTED'));
 
+// ── Phase 2-4: Formative Assessment ──
+const formativeStatus = ref(null);
+const formativeCount = ref(0);
+const formativeGenerating = ref(false);
+
+const generateFormative = async () => {
+    if (!liveSession.value) return;
+    formativeGenerating.value = true;
+    try {
+        const { data } = await api.post(`/learning/formative/${liveSession.value.id}/generate/`);
+        formativeStatus.value = data.status;
+        formativeCount.value = data.total_questions;
+    } catch (e) {
+        alert('형성평가 문항 생성 실패');
+    } finally {
+        formativeGenerating.value = false;
+    }
+};
+
 const startLivePolling = () => {
     stopLivePolling();
     livePollingTimer.value = setInterval(async () => {
@@ -1497,6 +1516,16 @@ onMounted(fetchDashboard);
                         ✅ 승인 완료 — 학생에게 공개 중
                         <span v-if="insightData.is_public"> (결석생 포함)</span>
                     </div>
+
+                    <!-- Phase 2-4: 형성평가 생성 -->
+                    <div v-if="insightData && insightData.is_approved && liveSession" class="formative-section">
+                        <button v-if="!formativeStatus" class="btn-formative-gen" @click="generateFormative" :disabled="formativeGenerating">
+                            {{ formativeGenerating ? '⏳ 문항 생성 중...' : '📝 사후 형성평가 생성' }}
+                        </button>
+                        <div v-if="formativeStatus === 'READY'" class="formative-ready">
+                            ✅ 형성평가 생성 완료 ({{ formativeCount }}문항) — 학생들이 풀 수 있습니다.
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2194,4 +2223,11 @@ tr:hover td { background: #fafbfc; }
 .wz-status-material_pushed { opacity: 0.7; }
 .wz-status-dismissed { opacity: 0.5; }
 .wz-status-resolved { opacity: 0.5; }
+
+/* ── Phase 2-4: Formative Assessment ── */
+.formative-section { margin-top: 16px; padding: 12px; background: rgba(99,102,241,0.05); border: 1px solid rgba(99,102,241,0.2); border-radius: 10px; }
+.btn-formative-gen { width: 100%; padding: 12px; background: #6366f1; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.btn-formative-gen:hover:not(:disabled) { background: #4f46e5; }
+.btn-formative-gen:disabled { opacity: 0.6; cursor: not-allowed; }
+.formative-ready { padding: 10px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; color: #16a34a; font-size: 13px; font-weight: 600; text-align: center; }
 </style>
