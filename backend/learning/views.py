@@ -1,17 +1,26 @@
+"""
+학습 세션 관리 Views: LearningSessionViewSet
+"""
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
-from django.db.models import Q # Added Q
-from .models import LearningSession, STTLog, SessionSummary
-from .serializers import LearningSessionSerializer, STTLogSerializer, SessionSummarySerializer, PublicLectureSerializer
+from django.db.models import Q
+from django.shortcuts import get_object_or_404
+from django.conf import settings
+
+from .models import LearningSession, STTLog, SessionSummary, Lecture, DailyQuiz
+from .serializers import LearningSessionSerializer, STTLogSerializer, SessionSummarySerializer
+
 import openai
 import os
 import logging
 from logging.handlers import RotatingFileHandler
-from django.conf import settings
-from rest_framework import generics
+
+# Re-export for backward compatibility (urls.py imports from .views)
+from .lecture_views import PublicLectureListView, MyLectureListView, EnrollLectureView  # noqa: F401
+from .checklist_views import ChecklistViewSet  # noqa: F401
 
 # OpenAI API Key Setup
 openai.api_key = settings.OPENAI_API_KEY
@@ -24,40 +33,6 @@ if not stt_logger.handlers:
     stt_logger.addHandler(handler)
     stt_logger.setLevel(logging.DEBUG)
 
-from rest_framework.views import APIView
-from django.shortcuts import get_object_or_404
-from .models import Lecture
-
-class PublicLectureListView(generics.ListAPIView):
-    queryset = Lecture.objects.all().order_by('-created_at')
-    serializer_class = PublicLectureSerializer
-    # [Change] Allow browsing without strict auth for debugging, or ensure frontend token is valid
-    permission_classes = [AllowAny]
-
-class MyLectureListView(generics.ListAPIView):
-    serializer_class = PublicLectureSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        return self.request.user.enrolled_lectures.all().order_by('-created_at')
-
-class EnrollLectureView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        access_code = request.data.get('access_code')
-        if not access_code:
-            return Response({'error': 'Access code is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        lecture = get_object_or_404(Lecture, access_code=access_code)
-        
-        # [BUGFIX] 실제 수강 등록 수행 (이전에 누락되어 있었음)
-        if lecture.students.filter(id=request.user.id).exists():
-            return Response({'message': '이미 등록된 강의입니다.', 'lecture_id': lecture.id, 'title': lecture.title}, status=status.HTTP_200_OK)
-        
-        lecture.students.add(request.user)
-        
-        return Response({'message': 'Enrolled successfully', 'lecture_id': lecture.id, 'title': lecture.title}, status=status.HTTP_200_OK)
 
 class LearningSessionViewSet(viewsets.ModelViewSet):
     """
@@ -363,7 +338,7 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
         total_hours = round(total_seconds / 3600, 1) # 소수점 1자리까지
         
         # 3. 최근 퀴즈 점수
-        from .models import DailyQuiz
+        # DailyQuiz already imported at top
         last_quiz = DailyQuiz.objects.filter(student=user).order_by('-created_at').first()
         quiz_score = last_quiz.total_score if last_quiz else 0
         
@@ -409,7 +384,7 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
 
         # [New] 출석률 계산
         # 사용자가 등록한 강의들의 전체 수업일 대비 출석 비율
-        from .models import Lecture # Import Lecture model
+        # Lecture already imported at top
         enrolled_lectures = Lecture.objects.filter(students=user)
         total_class_dates = 0
         attended_dates_count = 0
@@ -923,186 +898,7 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                 'content': summary.content_text
             }, status=status.HTTP_201_CREATED)
 
-from .models import Syllabus, LearningObjective, StudentChecklist, Lecture
-from .serializers import SyllabusSerializer
 
-class ChecklistViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
+# Note: ChecklistViewSet has been moved to checklist_views.py
+# It is re-exported at the top of this file for backward compatibility.
 
-    # GET /api/learning/lectures/<lecture_id>/checklist/
-    # DRF Router will allow: /api/learning/checklist/
-    # But we want specific lecture context. 
-    # Use: /api/learning/lectures/<lecture_id>/checklist/ if registered under lectures
-    # OR: /api/learning/checklists/?lecture_id=<id>
-    
-    # Let's use custom action on ViewSet or standalone ViewSet
-    # Here we use ViewSet with manual route or query param
-    
-    def list(self, request):
-        lecture_id = request.query_params.get('lecture_id')
-        if not lecture_id:
-            return Response({"error": "lecture_id required"}, status=400)
-            
-        lecture = get_object_or_404(Lecture, id=lecture_id)
-        
-        # Check enrollment
-        if not lecture.students.filter(id=request.user.id).exists() and lecture.instructor != request.user:
-             return Response({"error": "Not enrolled"}, status=403)
-
-        syllabi = Syllabus.objects.filter(lecture=lecture)
-        serializer = SyllabusSerializer(syllabi, many=True, context={'request': request})
-        return Response(serializer.data)
-
-    # POST /api/learning/checklist/<objective_id>/toggle/
-    @action(detail=True, methods=['post'])
-    def toggle(self, request, pk=None):
-        objective = get_object_or_404(LearningObjective, id=pk)
-        
-        lecture = objective.syllabus.lecture
-        if not lecture.students.filter(id=request.user.id).exists():
-             return Response({"error": "Not enrolled"}, status=403)
-
-        checklist, created = StudentChecklist.objects.get_or_create(student=request.user, objective=objective)
-        checklist.is_checked = not checklist.is_checked
-        checklist.save()
-        
-        return Response({"id": objective.id, "is_checked": checklist.is_checked})
-
-    # GET /api/learning/checklist/analyze/?lecture_id=<id>
-    # [Dynamic Re-routing Engine]
-    @action(detail=False, methods=['get'])
-    def analyze(self, request):
-        lecture_id = request.query_params.get('lecture_id')
-        if not lecture_id:
-            return Response({"error": "lecture_id required"}, status=400)
-            
-        lecture = get_object_or_404(Lecture, id=lecture_id)
-        
-        # 1. Calculate Progress
-        total_objectives = LearningObjective.objects.filter(syllabus__lecture=lecture).count()
-        if total_objectives == 0:
-            return Response({"status": "clean", "progress": 0, "message": "아직 학습 목표가 없습니다."})
-
-        checked_count = StudentChecklist.objects.filter(
-            student=request.user, 
-            objective__syllabus__lecture=lecture, 
-            is_checked=True
-        ).count()
-        
-        progress = (checked_count / total_objectives) * 100
-        
-        # 2. Determine Status (Simple Heuristic for MVP)
-        # In real-world, we would check 'time passing' vs 'progress'
-        status = "good"
-        recommendation = None
-        
-        if progress < 30:
-            status = "critical"
-            recommendation = {
-                "type": "catch_up",
-                "title": "🚨 경로 이탈 위험!",
-                "message": "진도율이 너무 낮습니다 (30% 미만). AI가 핵심 요약 코스로 경로를 재설정할까요?",
-                "action": "압축 코스 생성"
-            }
-        elif progress < 60:
-            status = "warning"
-            recommendation = {
-                "type": "review",
-                "title": "⚠️ 학습 지연 감지",
-                "message": "계획보다 뒤쳐지고 있습니다. 놓친 핵심 개념만 빠르게 훑어보세요.",
-                "action": "빠른 복습 하기"
-            }
-        else:
-            status = "good"
-            recommendation = {
-                "type": "keep_going",
-                "title": "✅ 순항 중",
-                "message": "훌륭합니다! 현재 속도를 유지하세요.",
-                "action": None
-            }
-            
-        return Response({
-            "progress": round(progress, 1),
-            "status": status,
-            "recommendation": recommendation
-        })
-
-    # POST /api/learning/checklist/recovery_plan/
-    # [Dynamic Re-routing Action]
-    @action(detail=False, methods=['post'])
-    def recovery_plan(self, request):
-        lecture_id = request.data.get('lecture_id')
-        if not lecture_id:
-            return Response({"error": "lecture_id required"}, status=400)
-            
-        lecture = get_object_or_404(Lecture, id=lecture_id)
-        
-        # 1. Collect unfinished objectives
-        unfinished_objectives = LearningObjective.objects.filter(
-            syllabus__lecture=lecture
-        ).exclude(
-            student_checks__student=request.user, 
-            student_checks__is_checked=True
-        )
-        
-        if not unfinished_objectives.exists():
-            return Response({"message": "모든 학습 목표를 달성했습니다! 복구할 내용이 없습니다."})
-            
-        # 2. Format for AI Prompt
-        objective_texts = "\n".join([f"- {obj.content}" for obj in unfinished_objectives])
-        
-        # 3. Call OpenAI
-        from django.conf import settings
-        from openai import OpenAI
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        
-        system_prompt = (
-            "당신은 '학습 경로 재설계 전문가'입니다.\n"
-            "학생이 놓친 학습 목표들을 바탕으로, 단기간에 캐치업할 수 있는 '핵심 압축 가이드'를 작성해주세요.\n"
-            "반드시 아래 Markdown 형식을 따라주세요:\n\n"
-            "# 🚀 3분 압축 복구 플랜\n\n"
-            "## 1. 지금 꼭 알아야 할 핵심 개념\n"
-            "(놓친 항목들의 핵심 정의를 3줄 요약)\n\n"
-            "## 2. 실무 적용 포인트\n"
-            "(해당 개념이 왜 중요한지, 어떻게 쓰이는지 간단 설명)\n\n"
-            "## 3. 추천 학습 순서\n"
-            "1. (가장 먼저 봐야 할 것)\n"
-            "2. (그 다음 순서)\n"
-        )
-        
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"다음은 학생이 아직 학습하지 못한 목표들입니다. 이를 위한 복구 플랜을 짜주세요:\n\n{objective_texts}"}
-                ],
-                max_tokens=1000
-            )
-            recovery_content = response.choices[0].message.content
-            
-            return Response({
-                "status": "success",
-                "recovery_plan": recovery_content,
-                "unfinished_count": unfinished_objectives.count()
-            })
-            
-        except Exception as e:
-            print(f"OPENAI API Error: {str(e)}")
-            # Fallback for Demo/Error cases
-            fallback_plan = (
-                "# 🚀 [임시] 3분 압축 복구 플랜\n"
-                "(AI 서비스 연결이 원활하지 않아 자동 생성된 임시 플랜입니다.)\n\n"
-                "## 1. 놓친 핵심 개념 요약\n"
-            )
-            for obj in unfinished_objectives[:3]:
-                 fallback_plan += f"- **{obj.content}**: 이 개념은 반드시 숙지해야 합니다.\n"
-            
-            fallback_plan += "\n## 2. 추천 학습 경로\n1. 공식 문서 빠르게 훑어보기\n2. 예제 코드 실행해보기\n"
-            
-            return Response({
-                "status": "success",
-                "recovery_plan": fallback_plan,
-                "unfinished_count": unfinished_objectives.count(),
-                "is_fallback": True
-            })
