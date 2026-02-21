@@ -13,12 +13,14 @@ import {
   AlertTriangle,
   X,
   CheckCircle,
+  Lock,
   Mic,
+  Trophy,
 } from "lucide-vue-next";
 
 const router = useRouter();
 const portfolios = ref([]);
-const skills = ref([]); // [New] Skill Blocks Data
+const skillData = ref({ stats: { total: 0, earned: 0, rate: 0 }, categories: [] });
 const loading = ref(false);
 const skillsLoading = ref(false);
 const generating = ref(false);
@@ -44,7 +46,7 @@ onMounted(async () => {
       selectedPortfolio.value = portfolios.value[0];
     }
 
-    skills.value = skillsRes.data;
+    skillData.value = skillsRes.data;
   } catch (e) {
     console.error("Skills Fetch Failed", e);
     // Only show critical errors, don't fallback to dummy
@@ -179,39 +181,80 @@ const closeModal = () => {
         </div>
       </div>
 
-      <!-- [New] Skill Blocks Section -->
+      <!-- Skill Blocks Gamification Section -->
       <section
-        v-if="skills.length > 0"
+        v-if="skillData.stats.total > 0"
         class="skill-heatmap-section glass-panel"
       >
+        <!-- 전체 진행률 헤더 -->
         <div class="section-header">
-          <h3>🏆 획득한 스킬 블록 (My Skill Assets)</h3>
-          <span class="total-count"
-            >{{ skills.reduce((acc, cat) => acc + cat.skills.length, 0) }}개
-            획득</span
-          >
+          <div class="header-left">
+            <Trophy size="20" class="trophy-icon" />
+            <h3>스킬 블록</h3>
+          </div>
+          <div class="stats-badge">
+            <span class="earned-num">{{ skillData.stats.earned }}</span>
+            <span class="divider">/</span>
+            <span class="total-num">{{ skillData.stats.total }}</span>
+            <span class="unit">블록 획득</span>
+          </div>
         </div>
 
+        <!-- 프로그레스 바 -->
+        <div class="progress-bar-container">
+          <div class="progress-bar">
+            <div
+              class="progress-fill"
+              :style="{ width: skillData.stats.rate + '%' }"
+            ></div>
+          </div>
+          <span class="progress-label">{{ skillData.stats.rate }}%</span>
+        </div>
+
+        <!-- 카테고리별 블록 -->
         <div class="skill-categories">
           <div
-            v-for="category in skills"
-            :key="category.category"
+            v-for="cat in skillData.categories"
+            :key="cat.category"
             class="skill-category"
           >
-            <h4>{{ category.category }}</h4>
+            <div class="category-header">
+              <h4>{{ cat.category }}</h4>
+              <span class="category-progress">{{ cat.earned_count }}/{{ cat.total }}</span>
+            </div>
             <div class="blocks-grid">
+              <!-- 획득한 블록 -->
               <div
-                v-for="skill in category.skills"
-                :key="skill.id"
-                class="skill-block"
-                :title="`${skill.week} - ${skill.source}\n(${skill.date})`"
+                v-for="skill in cat.earned"
+                :key="'e-' + skill.id"
+                class="skill-block earned"
+                :title="`✅ ${skill.week} - ${skill.source}\n획득일: ${skill.date}`"
               >
                 <span class="block-check"><CheckCircle size="12" /></span>
+                <span class="block-name">{{ skill.name }}</span>
+              </div>
+              <!-- 미획득 블록 (잠금) -->
+              <div
+                v-for="skill in cat.available"
+                :key="'a-' + skill.id"
+                class="skill-block locked"
+                :title="skill.hint"
+              >
+                <span class="block-lock"><Lock size="12" /></span>
                 <span class="block-name">{{ skill.name }}</span>
               </div>
             </div>
           </div>
         </div>
+      </section>
+
+      <!-- 스킬 블록이 아예 없을 때 -->
+      <section
+        v-else-if="!skillsLoading"
+        class="skill-empty-section glass-panel"
+      >
+        <Trophy size="32" class="empty-icon" />
+        <p>수강 중인 강의가 없습니다. 강의에 등록하면 스킬 블록을 획득할 수 있습니다!</p>
       </section>
 
       <div class="content-layout">
@@ -476,32 +519,93 @@ const closeModal = () => {
   }
 }
 
-/* Skill Heatmap Styles */
+/* Skill Block Gamification */
 .skill-heatmap-section {
   margin-bottom: 24px;
   padding: 24px;
-  background: rgba(255, 255, 255, 0.03); /* Subtle background */
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .trophy-icon {
+    color: #fbbf24;
+  }
+
   h3 {
     font-size: 18px;
     font-weight: 700;
     color: #eee;
     margin: 0;
   }
-  .total-count {
-    font-size: 14px;
-    color: #4facfe;
+
+  .stats-badge {
+    display: flex;
+    align-items: baseline;
+    gap: 2px;
     font-weight: 600;
     background: rgba(79, 172, 254, 0.1);
-    padding: 4px 10px;
-    border-radius: 12px;
+    padding: 6px 14px;
+    border-radius: 20px;
+
+    .earned-num {
+      font-size: 20px;
+      color: #4facfe;
+    }
+    .divider {
+      color: #555;
+      margin: 0 2px;
+    }
+    .total-num {
+      font-size: 14px;
+      color: #888;
+    }
+    .unit {
+      font-size: 12px;
+      color: #666;
+      margin-left: 6px;
+    }
   }
+}
+
+.progress-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4facfe, #00f2fe);
+  border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.progress-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #4facfe;
+  min-width: 40px;
+  text-align: right;
 }
 
 .skill-categories {
@@ -511,14 +615,26 @@ const closeModal = () => {
 }
 
 .skill-category {
+  .category-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
   h4 {
     font-size: 14px;
     color: #888;
-    margin-bottom: 10px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    margin: 0;
   }
+
+  .category-progress {
+    font-size: 12px;
+    color: #666;
+    font-weight: 500;
+  }
+
   .blocks-grid {
     display: flex;
     flex-wrap: wrap;
@@ -531,23 +647,67 @@ const closeModal = () => {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: rgba(79, 172, 254, 0.1);
-  border: 1px solid rgba(79, 172, 254, 0.2);
   border-radius: 6px;
   font-size: 13px;
-  color: #eee;
   cursor: default;
   transition: all 0.2s;
 
-  &:hover {
-    background: rgba(79, 172, 254, 0.2);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  &.earned {
+    background: rgba(79, 172, 254, 0.1);
+    border: 1px solid rgba(79, 172, 254, 0.2);
+    color: #eee;
+
+    &:hover {
+      background: rgba(79, 172, 254, 0.2);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .block-check {
+      color: #4facfe;
+      display: flex;
+    }
   }
 
-  .block-check {
-    color: #4facfe;
-    display: flex;
+  &.locked {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+    color: #555;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: #888;
+      transform: translateY(-1px);
+    }
+
+    .block-lock {
+      color: #444;
+      display: flex;
+    }
+
+    .block-name {
+      color: #555;
+    }
+  }
+}
+
+.skill-empty-section {
+  margin-bottom: 24px;
+  padding: 40px;
+  text-align: center;
+  color: #555;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+
+  .empty-icon {
+    color: #333;
+  }
+
+  p {
+    font-size: 14px;
   }
 }
 

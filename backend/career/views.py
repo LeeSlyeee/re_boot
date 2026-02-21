@@ -126,46 +126,85 @@ class PortfolioViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='skills')
     def skills(self, request):
         """
-        [Skill Block Assetization]
-        사용자가 완료한 학습 목표(Checklist)를 기반으로 획득한 스킬 목록 반환
+        [Skill Block Gamification]
+        획득한 스킬 + 추가 획득 가능한 스킬 + 전체 진행률을 반환.
+        학생이 "다음에 뭘 해야 하는지" 동기부여를 제공.
         """
-        from learning.models import StudentChecklist
-        
+        from learning.models import StudentChecklist, LearningObjective, Syllabus, Lecture
+
         user = request.user
-        
-        # 1. Fetch completed checklists
-        completed_checks = StudentChecklist.objects.filter(
-            student=user, 
-            is_checked=True
-        ).select_related('objective', 'objective__syllabus', 'objective__syllabus__lecture').order_by('objective__syllabus__lecture__title', 'objective__syllabus__week_number')
-        
-        if not completed_checks.exists():
-            return Response([])
-            
-        # 2. Group by Lecture (Skill Category)
-        skills_map = {}
-        
-        for check in completed_checks:
-            lecture_title = check.objective.syllabus.lecture.title
-            week_num = check.objective.syllabus.week_number
-            
-            if lecture_title not in skills_map:
-                skills_map[lecture_title] = []
-                
-            skills_map[lecture_title].append({
-                "id": check.objective.id,
-                "name": check.objective.content,
+
+        # 수강 중인 강의 조회
+        enrolled_lectures = Lecture.objects.filter(students=user)
+        if not enrolled_lectures.exists():
+            return Response({"stats": {"total": 0, "earned": 0, "rate": 0}, "categories": []})
+
+        # 전체 학습 목표 (수강 중인 강의의 모든 목표)
+        all_objectives = LearningObjective.objects.filter(
+            syllabus__lecture__in=enrolled_lectures
+        ).select_related('syllabus', 'syllabus__lecture').order_by(
+            'syllabus__lecture__title', 'syllabus__week_number', 'id'
+        )
+
+        # 획득한 목표 ID Set
+        earned_ids = set(
+            StudentChecklist.objects.filter(
+                student=user, is_checked=True
+            ).values_list('objective_id', flat=True)
+        )
+
+        # 강의별 그룹핑
+        categories_map = {}  # {lecture_title: {"earned": [...], "available": [...]}}
+
+        for obj in all_objectives:
+            lecture_title = obj.syllabus.lecture.title
+            week_num = obj.syllabus.week_number
+            is_earned = obj.id in earned_ids
+
+            if lecture_title not in categories_map:
+                categories_map[lecture_title] = {"earned": [], "available": []}
+
+            item = {
+                "id": obj.id,
+                "name": obj.content,
                 "week": f"{week_num}주차",
-                "date": check.updated_at.strftime('%Y-%m-%d'),
-                "source": f"[{lecture_title}] {week_num}주차 수업"
+                "source": f"{week_num}주차 수업",
+            }
+
+            if is_earned:
+                # 획득한 날짜 조회
+                check = StudentChecklist.objects.filter(
+                    student=user, objective=obj, is_checked=True
+                ).first()
+                item["date"] = check.updated_at.strftime('%Y-%m-%d') if check else ""
+                categories_map[lecture_title]["earned"].append(item)
+            else:
+                item["hint"] = f"{week_num}주차 학습 목표를 완료하면 획득!"
+                categories_map[lecture_title]["available"].append(item)
+
+        # 결과 조립
+        total_count = all_objectives.count()
+        earned_count = len(earned_ids & set(all_objectives.values_list('id', flat=True)))
+        rate = round((earned_count / total_count) * 100) if total_count > 0 else 0
+
+        categories = []
+        for lecture_title, groups in categories_map.items():
+            cat_total = len(groups["earned"]) + len(groups["available"])
+            cat_earned = len(groups["earned"])
+            categories.append({
+                "category": lecture_title,
+                "earned": groups["earned"],
+                "available": groups["available"],
+                "total": cat_total,
+                "earned_count": cat_earned,
+                "rate": round((cat_earned / cat_total) * 100) if cat_total > 0 else 0,
             })
-            
-        # 3. Format as list
-        result = []
-        for category, items in skills_map.items():
-            result.append({
-                "category": category,
-                "skills": items
-            })
-            
-        return Response(result)
+
+        return Response({
+            "stats": {
+                "total": total_count,
+                "earned": earned_count,
+                "rate": rate,
+            },
+            "categories": categories,
+        })
