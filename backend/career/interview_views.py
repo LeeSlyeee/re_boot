@@ -144,58 +144,90 @@ class InterviewViewSet(viewsets.ModelViewSet):
             if ex.answer:
                  messages.append({"role": "user", "content": ex.answer})
         
+        # 공통 루브릭 (점수대별 구체 기준)
+        scoring_rubric = """
+[평가 차원 및 채점 기준 (Rubric)]
+
+아래 4개 차원 각각을 0~100점으로 채점하되, 반드시 아래 점수대 기준에 따라 채점하세요.
+"느낌"이 아니라 "근거"로 채점하세요.
+
+━━━ 1. technical_depth (기술적 깊이) ━━━
+평가 관점: 개념의 정확성, 기술 선택의 이유, 대안 기술과의 비교
+- 90~100: 핵심 개념을 정확히 설명하고, "왜 이 기술을 선택했는지" 대안(2개 이상)과 비교하며 근거를 제시함
+- 70~89:  핵심 개념이 정확하고, 기술 선택 이유를 1가지 이상 설명함. 대안 비교는 부분적
+- 50~69:  개념을 대체로 알고 있으나, 부정확한 부분이 있거나 선택 이유가 불명확함
+- 30~49:  개념 설명이 피상적이거나 오류가 있음. 기술 선택 이유를 말하지 못함
+- 0~29:   관련 기술 개념을 거의 모르거나, 전혀 다른 내용을 답변함
+
+━━━ 2. logical_coherence (논리적 일관성) ━━━
+평가 관점: 답변의 구조, STAR 기법(상황-과제-행동-결과) 준수, 인과관계의 명확성
+- 90~100: STAR 또는 이에 준하는 구조로 답변하고, 각 단계 간 인과관계가 매우 명확함
+- 70~89:  답변에 구조가 있고, 주장과 근거가 연결됨. 일부 비약이 있을 수 있음
+- 50~69:  답변의 방향은 맞으나, 구조 없이 나열식이거나 인과관계가 약함
+- 30~49:  답변이 산만하고, 질문과 동떨어진 내용이 섞여 있음
+- 0~29:   답변이 질문의 의도와 무관하거나, 논리적 연결이 전혀 없음
+
+━━━ 3. communication (소통 능력) ━━━
+평가 관점: 설명의 명확성, 구체적 예시 활용, 질문 의도 파악 여부
+- 90~100: 질문 의도를 정확히 파악하고, 구체적 예시(코드/경험)를 들어 쉽고 명확하게 설명함
+- 70~89:  질문 의도를 파악하고 예시를 1개 이상 활용함. 설명이 대체로 명확함
+- 50~69:  질문 의도는 파악했으나, 예시 없이 추상적으로 설명하거나 장황함
+- 30~49:  질문 의도를 일부 오해하거나, 설명이 모호하여 이해하기 어려움
+- 0~29:   질문을 이해하지 못하거나, 답변을 거의 하지 않음
+
+━━━ 4. problem_solving (문제 해결력) ━━━
+평가 관점: 실무 적용 능력, 예외/엣지 케이스 고려, 창의적 접근
+- 90~100: 문제를 체계적으로 분석하고, 엣지 케이스(오류 처리, 성능 등)까지 고려하며 대안을 제시함
+- 70~89:  실무 적용 가능한 방법을 제시하고, 기본적인 예외 상황을 인지함
+- 50~69:  해결 방향은 맞으나, 예외 상황을 고려하지 않거나 피상적인 접근에 그침
+- 30~49:  문제 분석 없이 단편적인 답변을 하거나, 실무와 동떨어진 방법을 제시함
+- 0~29:   문제를 분석하지 못하거나, 해결 방향을 전혀 제시하지 못함
+
+━━━ overall_score (종합 점수) ━━━
+- 4개 차원 점수의 산술 평균을 기본으로 하되, 질문 유형에 따라 ±5점 범위 내 조정 가능
+- 예: 기술 질문이면 technical_depth에 가중치, 행동 질문이면 communication에 가중치
+"""
+
         # Different prompt for last vs continuing
         if is_last_question:
-            eval_prompt = """
-            사용자의 답변을 아래 4가지 차원으로 평가하세요.
-            각 차원은 0~100점으로 채점하고, 구체적인 근거를 1줄 코멘트로 제시하세요.
-            
-            [평가 차원 (Rubric)]
-            1. technical_depth (기술적 깊이): 개념의 정확성, 기술 선택의 이유, 대안 기술 비교
-            2. logical_coherence (논리적 일관성): 답변 구조, STAR(상황-과제-행동-결과) 기법 준수, 인과관계의 명확성
-            3. communication (소통 능력): 설명의 명확성, 적절한 예시 활용, 질문 의도 파악
-            4. problem_solving (문제 해결력): 실무 적용 능력, 예외/엣지 케이스 고려, 창의적 접근
-            
+            eval_prompt = f"""
+            사용자의 답변을 아래 루브릭(채점 기준표)에 따라 엄격하게 평가하세요.
+            {scoring_rubric}
+
             이것이 마지막 질문입니다. next_question은 null로 반환하세요.
-            
+
             응답 형식 (JSON):
-            {
-                "rubric": {
-                    "technical_depth": {"score": 85, "comment": "..."},
-                    "logical_coherence": {"score": 70, "comment": "..."},
-                    "communication": {"score": 90, "comment": "..."},
-                    "problem_solving": {"score": 60, "comment": "..."}
-                },
+            {{
+                "rubric": {{
+                    "technical_depth": {{"score": 85, "comment": "채점 근거 1줄"}},
+                    "logical_coherence": {{"score": 70, "comment": "채점 근거 1줄"}},
+                    "communication": {{"score": 90, "comment": "채점 근거 1줄"}},
+                    "problem_solving": {{"score": 60, "comment": "채점 근거 1줄"}}
+                }},
                 "overall_score": 76,
-                "feedback": "종합 피드백 (2-3줄)",
+                "feedback": "종합 피드백 (2-3줄, 강점과 보완점을 구체적으로)",
                 "next_question": null
-            }
+            }}
             """
         else:
-            eval_prompt = """
-            사용자의 답변을 아래 4가지 차원으로 평가하세요.
-            각 차원은 0~100점으로 채점하고, 구체적인 근거를 1줄 코멘트로 제시하세요.
-            
-            [평가 차원 (Rubric)]
-            1. technical_depth (기술적 깊이): 개념의 정확성, 기술 선택의 이유, 대안 기술 비교
-            2. logical_coherence (논리적 일관성): 답변 구조, STAR(상황-과제-행동-결과) 기법 준수, 인과관계의 명확성
-            3. communication (소통 능력): 설명의 명확성, 적절한 예시 활용, 질문 의도 파악
-            4. problem_solving (문제 해결력): 실무 적용 능력, 예외/엣지 케이스 고려, 창의적 접근
-            
+            eval_prompt = f"""
+            사용자의 답변을 아래 루브릭(채점 기준표)에 따라 엄격하게 평가하세요.
+            {scoring_rubric}
+
             그리고 종합 피드백과 다음 질문을 생성하세요.
-            
+
             응답 형식 (JSON):
-            {
-                "rubric": {
-                    "technical_depth": {"score": 85, "comment": "..."},
-                    "logical_coherence": {"score": 70, "comment": "..."},
-                    "communication": {"score": 90, "comment": "..."},
-                    "problem_solving": {"score": 60, "comment": "..."}
-                },
+            {{
+                "rubric": {{
+                    "technical_depth": {{"score": 85, "comment": "채점 근거 1줄"}},
+                    "logical_coherence": {{"score": 70, "comment": "채점 근거 1줄"}},
+                    "communication": {{"score": 90, "comment": "채점 근거 1줄"}},
+                    "problem_solving": {{"score": 60, "comment": "채점 근거 1줄"}}
+                }},
                 "overall_score": 76,
-                "feedback": "종합 피드백 (2-3줄)",
+                "feedback": "종합 피드백 (2-3줄, 강점과 보완점을 구체적으로)",
                 "next_question": "다음 질문"
-            }
+            }}
             """
         
         messages.append({"role": "system", "content": eval_prompt})
