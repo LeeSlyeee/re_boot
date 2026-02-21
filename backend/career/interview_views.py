@@ -273,17 +273,6 @@ class InterviewViewSet(viewsets.ModelViewSet):
         interview.status = 'COMPLETED'
         interview.save()
         
-        # 이미 저장된 리포트가 있으면 재사용 (AI 재호출 방지)
-        if interview.report_data:
-            try:
-                saved_report = json.loads(interview.report_data)
-                return Response({
-                    'status': 'completed',
-                    'report': saved_report
-                })
-            except (json.JSONDecodeError, TypeError):
-                pass  # 리포트 데이터 손상 시 재생성
-        
         exchanges = interview.exchanges.filter(score__gt=0).order_by('order')
         
         if not exchanges.exists():
@@ -293,107 +282,130 @@ class InterviewViewSet(viewsets.ModelViewSet):
                 'report': None
             })
         
-        # Rubric 차원별 점수 집계
-        dimensions = {
-            'technical_depth': {'scores': [], 'label': '기술적 깊이'},
-            'logical_coherence': {'scores': [], 'label': '논리적 일관성'},
-            'communication': {'scores': [], 'label': '소통 능력'},
-            'problem_solving': {'scores': [], 'label': '문제 해결력'}
-        }
-        
-        overall_scores = []
-        best_exchange = None
-        worst_exchange = None
-        qa_pairs = []
-        
-        for ex in exchanges:
-            overall_scores.append(ex.score)
-            qa_pairs.append({"question": ex.question[:200], "answer": ex.answer[:200], "score": ex.score})
-            
-            if best_exchange is None or ex.score > best_exchange.score:
-                best_exchange = ex
-            if worst_exchange is None or ex.score < worst_exchange.score:
-                worst_exchange = ex
-            
+        # ── 캐시 확인: AI 분석은 비싸므로 캐싱 ──
+        cached_report = None
+        if interview.report_data:
             try:
-                feedback_data = json.loads(ex.feedback)
-                rubric = feedback_data.get('rubric', {})
-                for dim_key in dimensions:
-                    if dim_key in rubric:
-                        dimensions[dim_key]['scores'].append(rubric[dim_key].get('score', 0))
+                cached_report = json.loads(interview.report_data)
             except (json.JSONDecodeError, TypeError):
-                pass
-        
-        # 차원별 평균 계산
-        dimension_averages = {}
-        for dim_key, dim_data in dimensions.items():
-            scores = dim_data['scores']
-            avg = round(sum(scores) / len(scores), 1) if scores else 0
-            dimension_averages[dim_key] = {
-                'label': dim_data['label'],
-                'average': avg,
-                'count': len(scores)
+                cached_report = None
+
+        if cached_report:
+            # AI 분석은 캐시에서 가져오고, 스킬 데이터만 실시간 갱신
+            ai_summary = cached_report.get('ai_summary')
+            dimension_averages = cached_report.get('dimensions', {})
+            overall_avg = cached_report.get('overall_average', 0)
+            best_answer = cached_report.get('best_answer', {})
+            needs_improvement = cached_report.get('needs_improvement', {})
+            duration_minutes = cached_report.get('duration_minutes', 0)
+        else:
+            # 최초 생성: 점수 집계 + AI 호출
+            dimensions = {
+                'technical_depth': {'scores': [], 'label': '기술적 깊이'},
+                'logical_coherence': {'scores': [], 'label': '논리적 일관성'},
+                'communication': {'scores': [], 'label': '소통 능력'},
+                'problem_solving': {'scores': [], 'label': '문제 해결력'}
+            }
+            
+            overall_scores = []
+            best_exchange = None
+            worst_exchange = None
+            qa_pairs = []
+            
+            for ex in exchanges:
+                overall_scores.append(ex.score)
+                qa_pairs.append({"question": ex.question[:200], "answer": ex.answer[:200], "score": ex.score})
+                
+                if best_exchange is None or ex.score > best_exchange.score:
+                    best_exchange = ex
+                if worst_exchange is None or ex.score < worst_exchange.score:
+                    worst_exchange = ex
+                
+                try:
+                    feedback_data = json.loads(ex.feedback)
+                    rubric = feedback_data.get('rubric', {})
+                    for dim_key in dimensions:
+                        if dim_key in rubric:
+                            dimensions[dim_key]['scores'].append(rubric[dim_key].get('score', 0))
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            
+            # 차원별 평균 계산
+            dimension_averages = {}
+            for dim_key, dim_data in dimensions.items():
+                scores = dim_data['scores']
+                avg = round(sum(scores) / len(scores), 1) if scores else 0
+                dimension_averages[dim_key] = {
+                    'label': dim_data['label'],
+                    'average': avg,
+                    'count': len(scores)
+                }
+            
+            overall_avg = round(sum(overall_scores) / len(overall_scores), 1) if overall_scores else 0
+            
+            # AI 종합 리포트 생성 (비용 발생 → 최초 1회만)
+            ai_summary = None
+            try:
+                client = OpenAI(api_key=settings.OPENAI_API_KEY)
+                
+                dim_summary = "\n".join([
+                    f"- {v['label']}: 평균 {v['average']}점"
+                    for v in dimension_averages.values()
+                ])
+                
+                qa_summary = "\n".join([
+                    f"Q{i+1}: {qa['question'][:100]}\nA: {qa['answer'][:100]}\n점수: {qa['score']}"
+                    for i, qa in enumerate(qa_pairs[:10])
+                ])
+                
+                summary_prompt = f"""
+                면접 결과를 종합 분석하여 실용적인 리포트를 작성하세요.
+                
+                [면접관 유형]: {interview.get_persona_display()}
+                [총 질문 수]: {exchanges.count()}
+                [종합 평균 점수]: {overall_avg}점
+                
+                [차원별 평균]
+                {dim_summary}
+                
+                [질의응답 요약]
+                {qa_summary}
+                
+                다음 항목을 포함한 리포트를 JSON으로 작성하세요:
+                {{
+                    "grade": "S/A/B/C/D/F 중 하나 (S: 95+, A: 85+, B: 70+, C: 55+, D: 40+, F: 40미만)",
+                    "one_line_summary": "면접 결과 한 줄 요약",
+                    "strengths": ["강점1", "강점2", "강점3"],
+                    "weaknesses": ["약점1", "약점2"],
+                    "improvement_tips": ["구체적 개선 팁1", "구체적 개선 팁2", "구체적 개선 팁3"],
+                    "recommended_study": ["보완 학습 주제1", "보완 학습 주제2"]
+                }}
+                """
+                
+                ai_response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": "당신은 IT 채용 전문 면접 코치입니다. 면접 결과를 분석하여 실용적인 개선 방향을 제시합니다."},
+                        {"role": "user", "content": summary_prompt}
+                    ],
+                    response_format={"type": "json_object"}
+                )
+                ai_summary = json.loads(ai_response.choices[0].message.content)
+            except Exception as e:
+                print(f"AI Summary Error (non-critical): {e}")
+                ai_summary = None
+            
+            duration_minutes = round((timezone.now() - interview.created_at).total_seconds() / 60, 1)
+            best_answer = {
+                'question': best_exchange.question[:100] if best_exchange else '',
+                'score': best_exchange.score if best_exchange else 0
+            }
+            needs_improvement = {
+                'question': worst_exchange.question[:100] if worst_exchange else '',
+                'score': worst_exchange.score if worst_exchange else 0
             }
         
-        overall_avg = round(sum(overall_scores) / len(overall_scores), 1) if overall_scores else 0
-        
-        # AI 종합 리포트 생성
-        ai_summary = None
-        try:
-            client = OpenAI(api_key=settings.OPENAI_API_KEY)
-            
-            dim_summary = "\n".join([
-                f"- {v['label']}: 평균 {v['average']}점"
-                for v in dimension_averages.values()
-            ])
-            
-            qa_summary = "\n".join([
-                f"Q{i+1}: {qa['question'][:100]}\nA: {qa['answer'][:100]}\n점수: {qa['score']}"
-                for i, qa in enumerate(qa_pairs[:10])
-            ])
-            
-            summary_prompt = f"""
-            면접 결과를 종합 분석하여 실용적인 리포트를 작성하세요.
-            
-            [면접관 유형]: {interview.get_persona_display()}
-            [총 질문 수]: {exchanges.count()}
-            [종합 평균 점수]: {overall_avg}점
-            
-            [차원별 평균]
-            {dim_summary}
-            
-            [질의응답 요약]
-            {qa_summary}
-            
-            다음 항목을 포함한 리포트를 JSON으로 작성하세요:
-            {{
-                "grade": "S/A/B/C/D/F 중 하나 (S: 95+, A: 85+, B: 70+, C: 55+, D: 40+, F: 40미만)",
-                "one_line_summary": "면접 결과 한 줄 요약",
-                "strengths": ["강점1", "강점2", "강점3"],
-                "weaknesses": ["약점1", "약점2"],
-                "improvement_tips": ["구체적 개선 팁1", "구체적 개선 팁2", "구체적 개선 팁3"],
-                "recommended_study": ["보완 학습 주제1", "보완 학습 주제2"]
-            }}
-            """
-            
-            ai_response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "당신은 IT 채용 전문 면접 코치입니다. 면접 결과를 분석하여 실용적인 개선 방향을 제시합니다."},
-                    {"role": "user", "content": summary_prompt}
-                ],
-                response_format={"type": "json_object"}
-            )
-            ai_summary = json.loads(ai_response.choices[0].message.content)
-        except Exception as e:
-            print(f"AI Summary Error (non-critical): {e}")
-            ai_summary = None
-        
-        # 면접 소요 시간
-        duration_minutes = round((timezone.now() - interview.created_at).total_seconds() / 60, 1)
-        
-        # 스킬 블록 현황 조회 (학습 ↔ 면접 연결)
-        # StudentChecklist + LearningObjective 기반 (실제 학습 데이터)
+        # ── 스킬 데이터는 매번 실시간 계산 (DB 쿼리만, API 비용 없음) ──
         from learning.models import StudentChecklist, LearningObjective, Lecture
 
         enrolled_lectures = Lecture.objects.filter(students=interview.student)
@@ -409,7 +421,6 @@ class InterviewViewSet(viewsets.ModelViewSet):
         )
         earned_count = len(earned_ids & set(all_objectives.values_list('id', flat=True)))
 
-        # 카테고리별 획득 현황 (강의별)
         category_stats = {}
         for obj in all_objectives:
             lec_title = obj.syllabus.lecture.title
@@ -422,7 +433,6 @@ class InterviewViewSet(viewsets.ModelViewSet):
         for cat in category_stats.values():
             cat['percent'] = round(cat['earned'] / cat['total'] * 100) if cat['total'] > 0 else 0
         
-        # 미획득 학습 목표 중 추천 (최대 5개)
         not_earned_objectives = all_objectives.exclude(id__in=earned_ids)[:5]
         recommended_skills = [
             {
@@ -434,9 +444,9 @@ class InterviewViewSet(viewsets.ModelViewSet):
             for obj in not_earned_objectives
         ]
 
-        # 학습 진행률
         skill_progress = round(earned_count / total_count * 100) if total_count > 0 else 0
 
+        # ── 최종 리포트 조립 ──
         report = {
             'interview_id': interview.id,
             'persona': interview.get_persona_display(),
@@ -447,14 +457,8 @@ class InterviewViewSet(viewsets.ModelViewSet):
             'overall_average': overall_avg,
             'dimensions': dimension_averages,
             'ai_summary': ai_summary,
-            'best_answer': {
-                'question': best_exchange.question[:100] if best_exchange else '',
-                'score': best_exchange.score if best_exchange else 0
-            },
-            'needs_improvement': {
-                'question': worst_exchange.question[:100] if worst_exchange else '',
-                'score': worst_exchange.score if worst_exchange else 0
-            },
+            'best_answer': best_answer,
+            'needs_improvement': needs_improvement,
             'skill_connection': {
                 'earned_count': earned_count,
                 'total_count': total_count,
@@ -465,7 +469,7 @@ class InterviewViewSet(viewsets.ModelViewSet):
             'disclaimer': '⚠️ 본 평가는 AI가 자동 생성한 참고 자료이며, 전문가 검증을 거치지 않았습니다. STAR 기법 및 업계 통용 면접 평가 프레임워크를 참고하였으나, 실제 채용 면접의 공식 평가로 사용될 수 없습니다.'
         }
         
-        # 리포트를 DB에 저장 (다음 열람 시 재사용)
+        # AI 분석 결과를 DB에 캐싱 (스킬 데이터 포함, 다음에 AI 부분만 재사용)
         interview.report_data = json.dumps(report, ensure_ascii=False)
         interview.save(update_fields=['report_data'])
         
