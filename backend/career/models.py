@@ -35,6 +35,9 @@ class MockInterview(models.Model):
     portfolio = models.ForeignKey(Portfolio, on_delete=models.SET_NULL, null=True, related_name='interviews')
     persona = models.CharField(max_length=20, choices=PERSONA_CHOICES, default='TECH_LEAD')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='IN_PROGRESS')
+    max_questions = models.IntegerField(null=True, blank=True, help_text="최대 질문 수 (null이면 무제한)")
+    max_minutes = models.IntegerField(null=True, blank=True, help_text="최대 면접 시간(분) (null이면 무제한)")
+    report_data = models.TextField(blank=True, default='', help_text="면접 결과 리포트 JSON")
     created_at = models.DateTimeField(auto_now_add=True)
     
     def __str__(self):

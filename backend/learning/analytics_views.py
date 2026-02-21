@@ -724,14 +724,15 @@ class MyMessagesView(APIView):
     def get(self, request):
         user = request.user
 
-        # 내가 속한 강의의 메시지 중 (전체 대상 or 내 레벨 or 내 ID 포함)
+        # 내가 속한 강의의 메시지 중 (전체 대상 or 내 ID가 포함된 메시지)
         my_lectures = Lecture.objects.filter(students=user)
 
         messages = GroupMessage.objects.filter(
             lecture__in=my_lectures
         ).filter(
-            Q(target_level=0) |  # 전체
-            Q(target_students__contains=[user.id])  # 특정 학생
+            Q(target_level=0, target_students=[]) |     # 전체 대상 (레벨 0 + 특정 학생 미지정)
+            Q(target_students__contains=[user.id]) |    # 내 ID가 포함된 메시지
+            Q(target_level__gt=0)                       # 레벨 기반 (아래에서 2차 필터링)
         ).order_by('-created_at')[:20]
 
         # 레벨 기반 필터 추가

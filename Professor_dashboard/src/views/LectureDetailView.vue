@@ -581,6 +581,22 @@ const stopLivePolling = () => {
 const sttActive = ref(false);
 const sttRecognition = ref(null);
 const sttLastText = ref('');
+let sttLastProcessedIndex = 0;  // 마지막으로 처리(전송)한 result 인덱스
+let sttPendingInterim = '';     // 아직 isFinal이 안 된 interim 텍스트
+
+const flushPendingSTT = async () => {
+    // 세션 재시작/종료 시 아직 전송되지 않은 interim 텍스트를 강제 전송
+    if (sttPendingInterim && liveSession.value) {
+        const text = sttPendingInterim.trim();
+        sttPendingInterim = '';
+        if (text.length > 2) {  // 의미 없는 짧은 조각 필터
+            try {
+                await api.post(`/learning/live/${liveSession.value.id}/stt/`, { text });
+                console.log('🔄 Flush interim STT:', text);
+            } catch (e) { console.error('❌ Flush STT 실패:', e); }
+        }
+    }
+};
 
 const startSTT = () => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
@@ -592,34 +608,67 @@ const startSTT = () => {
     recognition.lang = 'ko-KR';
     recognition.continuous = true;
     recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
         console.log('🎙️ STT 시작됨');
         sttLastText.value = '🎙️ 마이크 대기 중... 말씀해주세요';
+        sttLastProcessedIndex = 0;
+        sttPendingInterim = '';
     };
 
     recognition.onresult = async (event) => {
-        const last = event.results[event.results.length - 1];
-        const text = last[0].transcript.trim();
-        console.log('📝 STT 결과:', text, '| isFinal:', last.isFinal);
-        sttLastText.value = text;
-        if (last.isFinal && text && liveSession.value) {
-            try {
-                await api.post(`/learning/live/${liveSession.value.id}/stt/`, { text });
-                console.log('✅ STT 전송 완료');
-            } catch (e) { console.error('❌ STT 전송 실패:', e); }
+        // 모든 미처리 결과를 순회 (잘림 방지)
+        for (let i = sttLastProcessedIndex; i < event.results.length; i++) {
+            const result = event.results[i];
+            const text = result[0].transcript.trim();
+
+            if (result.isFinal) {
+                // 최종 확정된 텍스트 → 서버로 전송
+                sttPendingInterim = '';  // interim 클리어
+                sttLastText.value = text;
+                console.log('📝 STT Final:', text);
+
+                if (text && liveSession.value) {
+                    try {
+                        await api.post(`/learning/live/${liveSession.value.id}/stt/`, { text });
+                        console.log('✅ STT 전송 완료');
+                    } catch (e) { console.error('❌ STT 전송 실패:', e); }
+                }
+                sttLastProcessedIndex = i + 1;  // 이 결과는 처리 완료
+            } else {
+                // 중간 결과 → 화면에만 표시 + pending 보관
+                sttPendingInterim = text;
+                sttLastText.value = text + ' ...';
+            }
         }
     };
 
     recognition.onerror = (e) => {
         console.error('❌ STT Error:', e.error, e.message);
         sttLastText.value = `❌ 에러: ${e.error}`;
-        if (e.error !== 'no-speech') { sttActive.value = false; }
+        // no-speech는 자동 재시작되므로 무시
+        if (e.error !== 'no-speech' && e.error !== 'aborted') {
+            sttActive.value = false;
+        }
     };
-    recognition.onend = () => {
-        console.log('🔄 STT 세션 종료 → 재시작 시도');
+
+    recognition.onend = async () => {
+        console.log('🔄 STT 세션 종료');
+        // [핵심 수정] 세션 종료 전 미전송 interim 텍스트 강제 전송
+        await flushPendingSTT();
+
         if (sttActive.value && liveSession.value?.status === 'LIVE') {
-            recognition.start();
+            // 짧은 딜레이 후 재시작 (브라우저 안정성)
+            setTimeout(() => {
+                try {
+                    sttLastProcessedIndex = 0;
+                    recognition.start();
+                } catch (e) {
+                    console.error('STT 재시작 실패:', e);
+                    sttActive.value = false;
+                }
+            }, 100);
         }
     };
 
@@ -631,6 +680,8 @@ const startSTT = () => {
 const stopSTT = () => {
     if (sttRecognition.value) {
         sttActive.value = false;
+        // 남은 interim 즉시 전송
+        flushPendingSTT();
         sttRecognition.value.stop();
         sttRecognition.value = null;
     }
