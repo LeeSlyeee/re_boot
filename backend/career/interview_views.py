@@ -6,6 +6,7 @@ from .models import Portfolio, MockInterview, InterviewExchange
 from .serializers import MockInterviewSerializer
 from django.conf import settings
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from openai import OpenAI
 
 class InterviewViewSet(viewsets.ModelViewSet):
@@ -19,12 +20,14 @@ class InterviewViewSet(viewsets.ModelViewSet):
     def start_interview(self, request):
         """
         [Start Mock Interview]
-        1. Create Interview Session
+        1. Create Interview Session with optional limits (max_questions or max_minutes)
         2. Generate First Question based on Portfolio & Persona
         """
         user = request.user
         portfolio_id = request.data.get('portfolio_id')
         persona = request.data.get('persona', 'TECH_LEAD')
+        max_questions = request.data.get('max_questions')  # None = 무제한
+        max_minutes = request.data.get('max_minutes')      # None = 무제한
         
         portfolio = get_object_or_404(Portfolio, id=portfolio_id)
         
@@ -33,12 +36,12 @@ class InterviewViewSet(viewsets.ModelViewSet):
             student=user,
             portfolio=portfolio,
             persona=persona,
-            status='IN_PROGRESS'
+            status='IN_PROGRESS',
+            max_questions=max_questions,
+            max_minutes=max_minutes
         )
         
-        # 2. Get Skill Blocks (Re-use logic or fetch again)
-        # For simplicity, we assume portfolio content has context, or we can fetch skills again.
-        # Let's fetch skills for better context.
+        # 2. Get Skill Blocks for context
         from learning.models import StudentChecklist
         skills_qs = StudentChecklist.objects.filter(
             student=user, is_checked=True
@@ -46,8 +49,15 @@ class InterviewViewSet(viewsets.ModelViewSet):
         skill_texts = [s.objective.content for s in skills_qs]
         skills_context = ", ".join(skill_texts) if skill_texts else "없음"
 
-        # 3. Generate First Question
-        system_prompt = self._get_system_prompt(persona)
+        # 3. Build limit context for AI
+        limit_context = ""
+        if max_questions:
+            limit_context = f"\n이 면접은 총 {max_questions}개의 질문으로 진행됩니다. 각 질문의 중요도를 높여 핵심적인 부분을 물어보세요."
+        elif max_minutes:
+            limit_context = f"\n이 면접은 약 {max_minutes}분 동안 진행됩니다. 시간에 맞게 핵심적인 질문을 하세요."
+
+        # 4. Generate First Question
+        system_prompt = self._get_system_prompt(persona) + limit_context
         user_prompt = f"""
         [Portfolio]: {portfolio.content[:2000]}...
         [Skills]: {skills_context}
@@ -77,7 +87,10 @@ class InterviewViewSet(viewsets.ModelViewSet):
             return Response({
                 "interview_id": interview.id,
                 "persona": interview.get_persona_display(),
-                "question": first_question
+                "question": first_question,
+                "max_questions": interview.max_questions,
+                "max_minutes": interview.max_minutes,
+                "current_question": 1,
             }, status=status.HTTP_201_CREATED)
             
         except Exception as e:
@@ -90,7 +103,8 @@ class InterviewViewSet(viewsets.ModelViewSet):
         [Interact]
         1. Receive User Answer
         2. Analyze & Score Answer (Multi-dimensional Rubric)
-        3. Generate Follow-up Question
+        3. Check if limit reached → if so, don't generate next question, signal auto_finish
+        4. Generate Follow-up Question (if not finished)
         """
         interview = self.get_object()
         answer_text = request.data.get('answer')
@@ -105,46 +119,86 @@ class InterviewViewSet(viewsets.ModelViewSet):
         current_exchange.answer = answer_text
         current_exchange.save()
         
+        # Check limits
+        answered_count = interview.exchanges.filter(answer__gt='').count()
+        is_last_question = False
+        
+        if interview.max_questions and answered_count >= interview.max_questions:
+            is_last_question = True
+        
+        if interview.max_minutes:
+            elapsed = (timezone.now() - interview.created_at).total_seconds() / 60
+            if elapsed >= interview.max_minutes:
+                is_last_question = True
+        
         # AI Interaction
         system_prompt = self._get_system_prompt(interview.persona)
         
         # Construct Context (History)
         messages = [{"role": "system", "content": system_prompt}]
         
-        # Add History (Last 3 exchanges)
+        # Add History
         history = interview.exchanges.order_by('order')
         for ex in history:
             messages.append({"role": "assistant", "content": ex.question})
             if ex.answer:
                  messages.append({"role": "user", "content": ex.answer})
         
-        # Prompt for Multi-dimensional Rubric Feedback & Next Question
-        next_prompt = """
-        사용자의 답변을 아래 4가지 차원으로 평가하세요.
-        각 차원은 0~100점으로 채점하고, 구체적인 근거를 1줄 코멘트로 제시하세요.
+        # Different prompt for last vs continuing
+        if is_last_question:
+            eval_prompt = """
+            사용자의 답변을 아래 4가지 차원으로 평가하세요.
+            각 차원은 0~100점으로 채점하고, 구체적인 근거를 1줄 코멘트로 제시하세요.
+            
+            [평가 차원 (Rubric)]
+            1. technical_depth (기술적 깊이): 개념의 정확성, 기술 선택의 이유, 대안 기술 비교
+            2. logical_coherence (논리적 일관성): 답변 구조, STAR(상황-과제-행동-결과) 기법 준수, 인과관계의 명확성
+            3. communication (소통 능력): 설명의 명확성, 적절한 예시 활용, 질문 의도 파악
+            4. problem_solving (문제 해결력): 실무 적용 능력, 예외/엣지 케이스 고려, 창의적 접근
+            
+            이것이 마지막 질문입니다. next_question은 null로 반환하세요.
+            
+            응답 형식 (JSON):
+            {
+                "rubric": {
+                    "technical_depth": {"score": 85, "comment": "..."},
+                    "logical_coherence": {"score": 70, "comment": "..."},
+                    "communication": {"score": 90, "comment": "..."},
+                    "problem_solving": {"score": 60, "comment": "..."}
+                },
+                "overall_score": 76,
+                "feedback": "종합 피드백 (2-3줄)",
+                "next_question": null
+            }
+            """
+        else:
+            eval_prompt = """
+            사용자의 답변을 아래 4가지 차원으로 평가하세요.
+            각 차원은 0~100점으로 채점하고, 구체적인 근거를 1줄 코멘트로 제시하세요.
+            
+            [평가 차원 (Rubric)]
+            1. technical_depth (기술적 깊이): 개념의 정확성, 기술 선택의 이유, 대안 기술 비교
+            2. logical_coherence (논리적 일관성): 답변 구조, STAR(상황-과제-행동-결과) 기법 준수, 인과관계의 명확성
+            3. communication (소통 능력): 설명의 명확성, 적절한 예시 활용, 질문 의도 파악
+            4. problem_solving (문제 해결력): 실무 적용 능력, 예외/엣지 케이스 고려, 창의적 접근
+            
+            그리고 종합 피드백과 다음 질문을 생성하세요.
+            
+            응답 형식 (JSON):
+            {
+                "rubric": {
+                    "technical_depth": {"score": 85, "comment": "..."},
+                    "logical_coherence": {"score": 70, "comment": "..."},
+                    "communication": {"score": 90, "comment": "..."},
+                    "problem_solving": {"score": 60, "comment": "..."}
+                },
+                "overall_score": 76,
+                "feedback": "종합 피드백 (2-3줄)",
+                "next_question": "다음 질문"
+            }
+            """
         
-        [평가 차원 (Rubric)]
-        1. technical_depth (기술적 깊이): 개념의 정확성, 기술 선택의 이유, 대안 기술 비교
-        2. logical_coherence (논리적 일관성): 답변 구조, STAR(상황-과제-행동-결과) 기법 준수, 인과관계의 명확성
-        3. communication (소통 능력): 설명의 명확성, 적절한 예시 활용, 질문 의도 파악
-        4. problem_solving (문제 해결력): 실무 적용 능력, 예외/엣지 케이스 고려, 창의적 접근
-        
-        그리고 종합 피드백과 다음 질문을 생성하세요.
-        
-        응답 형식 (JSON):
-        {
-            "rubric": {
-                "technical_depth": {"score": 85, "comment": "개념은 정확하나 대안 기술 비교가 부족"},
-                "logical_coherence": {"score": 70, "comment": "STAR 구조 중 Result 부분이 약함"},
-                "communication": {"score": 90, "comment": "예시가 구체적이고 설명이 명확"},
-                "problem_solving": {"score": 60, "comment": "엣지 케이스 고려가 부족"}
-            },
-            "overall_score": 76,
-            "feedback": "종합 피드백 (2-3줄)",
-            "next_question": "다음 질문"
-        }
-        """
-        messages.append({"role": "system", "content": next_prompt})
+        messages.append({"role": "system", "content": eval_prompt})
 
         try:
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -157,11 +211,13 @@ class InterviewViewSet(viewsets.ModelViewSet):
             result = json.loads(response.choices[0].message.content)
             
             # Rubric 데이터를 feedback에 JSON으로 저장
-            rubric = result.get('rubric', {})
+            # [DEFENSE] AI가 rubric에 불필요한 필드를 넣는 경우 방어 (Whitelist)
+            VALID_RUBRIC_KEYS = {'technical_depth', 'logical_coherence', 'communication', 'problem_solving'}
+            raw_rubric = result.get('rubric', {})
+            rubric = {k: v for k, v in raw_rubric.items() if k in VALID_RUBRIC_KEYS}
             overall_score = result.get('overall_score', 0)
             feedback_text = result.get('feedback', '')
             
-            # feedback 필드에 구조화된 데이터 저장 (JSON 형태)
             structured_feedback = json.dumps({
                 'rubric': rubric,
                 'feedback': feedback_text
@@ -171,20 +227,34 @@ class InterviewViewSet(viewsets.ModelViewSet):
             current_exchange.score = overall_score
             current_exchange.save()
             
-            # Create Next Question
+            # Create Next Question (only if not last)
             next_q = result.get('next_question')
-            if next_q:
+            if next_q and not is_last_question:
                 InterviewExchange.objects.create(
                     interview=interview,
                     question=next_q,
                     order=current_exchange.order + 1
                 )
             
+            # Progress info
+            total_answered = interview.exchanges.filter(answer__gt='').count()
+            remaining_minutes = None
+            if interview.max_minutes:
+                elapsed = (timezone.now() - interview.created_at).total_seconds() / 60
+                remaining_minutes = max(0, round(interview.max_minutes - elapsed, 1))
+            
             return Response({
                 "rubric": rubric,
                 "overall_score": overall_score,
                 "feedback": feedback_text,
-                "next_question": next_q
+                "next_question": next_q if not is_last_question else None,
+                "auto_finish": is_last_question,
+                "progress": {
+                    "answered": total_answered,
+                    "max_questions": interview.max_questions,
+                    "remaining_minutes": remaining_minutes,
+                    "max_minutes": interview.max_minutes,
+                }
             })
 
         except Exception as e:
@@ -194,14 +264,25 @@ class InterviewViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='finish')
     def finish_interview(self, request, pk=None):
         """
-        [면접 종료 및 결과 리포트 생성]
+        [면접 종료 및 AI 종합 결과 리포트 생성]
         - 모든 교환의 Rubric 점수를 집계
-        - 차원별 평균 점수 + 종합 분석 리포트 생성
+        - 차원별 평균 점수 + AI 종합 분석 리포트 생성
         """
         import json
         interview = self.get_object()
         interview.status = 'COMPLETED'
         interview.save()
+        
+        # 이미 저장된 리포트가 있으면 재사용 (AI 재호출 방지)
+        if interview.report_data:
+            try:
+                saved_report = json.loads(interview.report_data)
+                return Response({
+                    'status': 'completed',
+                    'report': saved_report
+                })
+            except (json.JSONDecodeError, TypeError):
+                pass  # 리포트 데이터 손상 시 재생성
         
         exchanges = interview.exchanges.filter(score__gt=0).order_by('order')
         
@@ -223,17 +304,17 @@ class InterviewViewSet(viewsets.ModelViewSet):
         overall_scores = []
         best_exchange = None
         worst_exchange = None
+        qa_pairs = []
         
         for ex in exchanges:
             overall_scores.append(ex.score)
+            qa_pairs.append({"question": ex.question[:200], "answer": ex.answer[:200], "score": ex.score})
             
-            # Best/Worst 판별
             if best_exchange is None or ex.score > best_exchange.score:
                 best_exchange = ex
             if worst_exchange is None or ex.score < worst_exchange.score:
                 worst_exchange = ex
             
-            # Rubric 파싱
             try:
                 feedback_data = json.loads(ex.feedback)
                 rubric = feedback_data.get('rubric', {})
@@ -241,7 +322,6 @@ class InterviewViewSet(viewsets.ModelViewSet):
                     if dim_key in rubric:
                         dimensions[dim_key]['scores'].append(rubric[dim_key].get('score', 0))
             except (json.JSONDecodeError, TypeError):
-                # 이전 형식(단순 텍스트) 호환
                 pass
         
         # 차원별 평균 계산
@@ -257,12 +337,100 @@ class InterviewViewSet(viewsets.ModelViewSet):
         
         overall_avg = round(sum(overall_scores) / len(overall_scores), 1) if overall_scores else 0
         
+        # AI 종합 리포트 생성
+        ai_summary = None
+        try:
+            client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            
+            dim_summary = "\n".join([
+                f"- {v['label']}: 평균 {v['average']}점"
+                for v in dimension_averages.values()
+            ])
+            
+            qa_summary = "\n".join([
+                f"Q{i+1}: {qa['question'][:100]}\nA: {qa['answer'][:100]}\n점수: {qa['score']}"
+                for i, qa in enumerate(qa_pairs[:10])
+            ])
+            
+            summary_prompt = f"""
+            면접 결과를 종합 분석하여 실용적인 리포트를 작성하세요.
+            
+            [면접관 유형]: {interview.get_persona_display()}
+            [총 질문 수]: {exchanges.count()}
+            [종합 평균 점수]: {overall_avg}점
+            
+            [차원별 평균]
+            {dim_summary}
+            
+            [질의응답 요약]
+            {qa_summary}
+            
+            다음 항목을 포함한 리포트를 JSON으로 작성하세요:
+            {{
+                "grade": "S/A/B/C/D/F 중 하나 (S: 95+, A: 85+, B: 70+, C: 55+, D: 40+, F: 40미만)",
+                "one_line_summary": "면접 결과 한 줄 요약",
+                "strengths": ["강점1", "강점2", "강점3"],
+                "weaknesses": ["약점1", "약점2"],
+                "improvement_tips": ["구체적 개선 팁1", "구체적 개선 팁2", "구체적 개선 팁3"],
+                "recommended_study": ["보완 학습 주제1", "보완 학습 주제2"]
+            }}
+            """
+            
+            ai_response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "당신은 IT 채용 전문 면접 코치입니다. 면접 결과를 분석하여 실용적인 개선 방향을 제시합니다."},
+                    {"role": "user", "content": summary_prompt}
+                ],
+                response_format={"type": "json_object"}
+            )
+            ai_summary = json.loads(ai_response.choices[0].message.content)
+        except Exception as e:
+            print(f"AI Summary Error (non-critical): {e}")
+            ai_summary = None
+        
+        # 면접 소요 시간
+        duration_minutes = round((timezone.now() - interview.created_at).total_seconds() / 60, 1)
+        
+        # 스킬 블록 현황 조회 (학습 ↔ 면접 연결)
+        from learning.models import SkillBlock, Skill
+        skill_blocks = SkillBlock.objects.filter(student=interview.student)
+        earned_blocks = skill_blocks.filter(is_earned=True)
+        total_skills = Skill.objects.count()
+        
+        # 카테고리별 획득 현황
+        category_stats = {}
+        for cat_code, cat_name in Skill.CATEGORY_CHOICES:
+            total_in_cat = skill_blocks.filter(skill__category=cat_code).count()
+            earned_in_cat = earned_blocks.filter(skill__category=cat_code).count()
+            if total_in_cat > 0:
+                category_stats[cat_code] = {
+                    'name': cat_name,
+                    'earned': earned_in_cat,
+                    'total': total_in_cat,
+                    'percent': round(earned_in_cat / total_in_cat * 100)
+                }
+        
+        # 미획득 스킬 중 면접에서 약했던 항목과 관련된 추천
+        not_earned = skill_blocks.filter(is_earned=False).select_related('skill')[:5]
+        recommended_skills = [
+            {'name': sb.skill.name, 'category': sb.skill.get_category_display(), 'level': sb.level}
+            for sb in not_earned
+        ]
+        
+        # 학습 진행률 (전체 블록 중 획득 비율)
+        skill_progress = round(earned_blocks.count() / skill_blocks.count() * 100) if skill_blocks.count() > 0 else 0
+        
         report = {
             'interview_id': interview.id,
             'persona': interview.get_persona_display(),
             'total_questions': exchanges.count(),
+            'duration_minutes': duration_minutes,
+            'max_questions': interview.max_questions,
+            'max_minutes': interview.max_minutes,
             'overall_average': overall_avg,
             'dimensions': dimension_averages,
+            'ai_summary': ai_summary,
             'best_answer': {
                 'question': best_exchange.question[:100] if best_exchange else '',
                 'score': best_exchange.score if best_exchange else 0
@@ -271,8 +439,19 @@ class InterviewViewSet(viewsets.ModelViewSet):
                 'question': worst_exchange.question[:100] if worst_exchange else '',
                 'score': worst_exchange.score if worst_exchange else 0
             },
+            'skill_connection': {
+                'earned_count': earned_blocks.count(),
+                'total_count': skill_blocks.count(),
+                'progress_percent': skill_progress,
+                'category_stats': category_stats,
+                'recommended_skills': recommended_skills,
+            },
             'disclaimer': '⚠️ 본 평가는 AI가 자동 생성한 참고 자료이며, 전문가 검증을 거치지 않았습니다. STAR 기법 및 업계 통용 면접 평가 프레임워크를 참고하였으나, 실제 채용 면접의 공식 평가로 사용될 수 없습니다.'
         }
+        
+        # 리포트를 DB에 저장 (다음 열람 시 재사용)
+        interview.report_data = json.dumps(report, ensure_ascii=False)
+        interview.save(update_fields=['report_data'])
         
         return Response({
             'status': 'completed',

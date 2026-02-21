@@ -27,5 +27,5 @@ class MockInterviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = MockInterview
         fields = ['id', 'student', 'portfolio', 'portfolio_title', 'persona', 'persona_display', 
-                 'status', 'status_display', 'created_at', 'exchanges']
+                 'status', 'status_display', 'max_questions', 'max_minutes', 'report_data', 'created_at', 'exchanges']
         read_only_fields = ['student', 'created_at', 'exchanges', 'persona_display', 'status_display']

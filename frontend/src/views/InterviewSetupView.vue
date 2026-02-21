@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
 import api from "../api/axios";
 import { getPortfolios } from "../api/career";
@@ -10,6 +10,12 @@ import {
   Zap,
   Globe,
   AlertTriangle,
+  Hash,
+  Clock,
+  Infinity as InfinityIcon,
+  History,
+  ChevronRight,
+  Trophy,
 } from "lucide-vue-next";
 
 const router = useRouter();
@@ -17,6 +23,21 @@ const portfolios = ref([]);
 const selectedPortfolio = ref(null);
 const selectedPersona = ref("TECH_LEAD");
 const loading = ref(false);
+const interviewHistory = ref([]);
+
+// Step 3: Interview Mode
+const interviewMode = ref("questions"); // 'questions' | 'time' | 'unlimited'
+const questionCount = ref(5);
+const timeLimit = ref(15); // minutes
+
+const questionOptions = [3, 5, 7, 10];
+const timeOptions = [10, 15, 20, 30];
+
+const limitLabel = computed(() => {
+  if (interviewMode.value === "questions") return `${questionCount.value}개 질문`;
+  if (interviewMode.value === "time") return `${timeLimit.value}분`;
+  return "무제한";
+});
 
 const personas = [
   {
@@ -65,14 +86,47 @@ const personas = [
 
 onMounted(async () => {
   try {
-    portfolios.value = await getPortfolios();
+    const [portfolioRes, historyRes] = await Promise.all([
+      getPortfolios(),
+      api.get('/career/interview/')
+    ]);
+
+    portfolios.value = portfolioRes;
     if (portfolios.value.length > 0) {
       selectedPortfolio.value = portfolios.value[0].id;
     }
+
+    interviewHistory.value = historyRes.data;
   } catch (e) {
-    console.error("Failed to load portfolios", e);
+    console.error("Failed to load data", e);
   }
 });
+
+const getPersonaName = (personaId) => {
+  const p = personas.find(x => x.id === personaId);
+  return p ? p.name : personaId;
+};
+
+const getPersonaColor = (personaId) => {
+  const p = personas.find(x => x.id === personaId);
+  return p ? p.color : '#4facfe';
+};
+
+const getAvgScore = (interview) => {
+  const scored = (interview.exchanges || []).filter(e => e.score > 0);
+  if (scored.length === 0) return 0;
+  return Math.round(scored.reduce((a, b) => a + b.score, 0) / scored.length);
+};
+
+const getScoreClass = (score) => {
+  if (score >= 80) return 'high';
+  if (score >= 50) return 'mid';
+  return 'low';
+};
+
+const reviewInterview = (id) => {
+  router.push(`/interview/${id}`);
+};
 
 const startInterview = async () => {
   if (!selectedPortfolio.value) {
@@ -82,12 +136,20 @@ const startInterview = async () => {
 
   loading.value = true;
   try {
-    const res = await api.post("/career/interview/start/", {
+    const payload = {
       portfolio_id: selectedPortfolio.value,
       persona: selectedPersona.value,
-    });
+    };
 
-    // Redirect to chat
+    if (interviewMode.value === "questions") {
+      payload.max_questions = questionCount.value;
+    } else if (interviewMode.value === "time") {
+      payload.max_minutes = timeLimit.value;
+    }
+    // 'unlimited' → 둘 다 보내지 않음
+
+    const res = await api.post("/career/interview/start/", payload);
+
     const interviewId = res.data.interview_id;
     router.push(`/interview/${interviewId}`);
   } catch (e) {
@@ -148,6 +210,73 @@ const startInterview = async () => {
         </div>
       </section>
 
+      <!-- Step 3: Interview Mode -->
+      <section class="step-section">
+        <h2>3. 면접 방식을 선택하세요</h2>
+        <div class="mode-grid">
+          <!-- Questions Mode -->
+          <div
+            class="mode-card"
+            :class="{ active: interviewMode === 'questions' }"
+            @click="interviewMode = 'questions'"
+          >
+            <div class="mode-icon questions">
+              <Hash size="28" color="white" />
+            </div>
+            <h3>질문 수 지정</h3>
+            <p>정해진 질문 수만큼 면접을 진행합니다.</p>
+            <div v-if="interviewMode === 'questions'" class="mode-options">
+              <button
+                v-for="opt in questionOptions"
+                :key="opt"
+                class="option-chip"
+                :class="{ selected: questionCount === opt }"
+                @click.stop="questionCount = opt"
+              >
+                {{ opt }}문항
+              </button>
+            </div>
+          </div>
+
+          <!-- Time Mode -->
+          <div
+            class="mode-card"
+            :class="{ active: interviewMode === 'time' }"
+            @click="interviewMode = 'time'"
+          >
+            <div class="mode-icon time">
+              <Clock size="28" color="white" />
+            </div>
+            <h3>시간 제한</h3>
+            <p>설정한 시간 동안 면접을 진행합니다.</p>
+            <div v-if="interviewMode === 'time'" class="mode-options">
+              <button
+                v-for="opt in timeOptions"
+                :key="opt"
+                class="option-chip"
+                :class="{ selected: timeLimit === opt }"
+                @click.stop="timeLimit = opt"
+              >
+                {{ opt }}분
+              </button>
+            </div>
+          </div>
+
+          <!-- Unlimited Mode -->
+          <div
+            class="mode-card"
+            :class="{ active: interviewMode === 'unlimited' }"
+            @click="interviewMode = 'unlimited'"
+          >
+            <div class="mode-icon unlimited">
+              <InfinityIcon size="28" color="white" />
+            </div>
+            <h3>무제한 면접</h3>
+            <p>원할 때까지 자유롭게 면접을 계속합니다.</p>
+          </div>
+        </div>
+      </section>
+
       <!-- AI 활용 사전 고지 (AI 기본법 투명성 의무) -->
       <div class="ai-notice">
         <span class="ai-notice-icon">🤖</span>
@@ -159,6 +288,13 @@ const startInterview = async () => {
             실제 채용 결과와 무관합니다.
           </p>
         </div>
+      </div>
+
+      <!-- Summary -->
+      <div class="interview-summary">
+        <span class="summary-chip">{{ limitLabel }}</span>
+        <span class="summary-divider">·</span>
+        <span class="summary-chip persona">{{ personas.find(p => p.id === selectedPersona)?.name }}</span>
       </div>
 
       <!-- Action -->
@@ -173,6 +309,53 @@ const startInterview = async () => {
         </button>
       </div>
     </main>
+
+    <!-- Interview History -->
+    <section class="history-section" v-if="interviewHistory.length > 0">
+      <div class="history-header">
+        <History :size="22" />
+        <h2>면접 기록 (Interview History)</h2>
+        <span class="history-count">{{ interviewHistory.length }}회</span>
+      </div>
+
+      <div class="history-list">
+        <div
+          v-for="iv in interviewHistory"
+          :key="iv.id"
+          class="history-card"
+          @click="reviewInterview(iv.id)"
+          :style="{ '--card-accent': getPersonaColor(iv.persona) }"
+        >
+          <div class="history-left">
+            <div class="history-persona-badge" :style="{ background: getPersonaColor(iv.persona) }">
+              🤖
+            </div>
+            <div class="history-info">
+              <div class="history-title">
+                {{ getPersonaName(iv.persona) }} 면접
+              </div>
+              <div class="history-meta">
+                <span>{{ iv.portfolio_title || '포트폴리오' }}</span>
+                <span class="meta-dot">·</span>
+                <span>{{ (iv.exchanges || []).filter(e => e.score > 0).length }}문항 응답</span>
+                <span class="meta-dot">·</span>
+                <span>{{ iv.created_at }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="history-right">
+            <div class="history-score" :class="getScoreClass(getAvgScore(iv))" v-if="getAvgScore(iv) > 0">
+              <Trophy :size="14" />
+              {{ getAvgScore(iv) }}점
+            </div>
+            <span class="status-tag" :class="iv.status">
+              {{ iv.status === 'COMPLETED' ? '완료' : '진행 중' }}
+            </span>
+            <ChevronRight :size="18" class="history-arrow" />
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -280,6 +463,118 @@ const startInterview = async () => {
   line-height: 1.4;
 }
 
+/* ── Mode Grid (Step 3) ── */
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.mode-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 24px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: center;
+}
+.mode-card:hover {
+  transform: translateY(-4px);
+  background: rgba(255, 255, 255, 0.06);
+}
+.mode-card.active {
+  border-color: #4facfe;
+  background: rgba(79, 172, 254, 0.08);
+  box-shadow: 0 0 24px rgba(79, 172, 254, 0.15);
+}
+.mode-card h3 {
+  font-size: 1.05rem;
+  margin: 14px 0 6px;
+  font-weight: 700;
+}
+.mode-card p {
+  font-size: 0.85rem;
+  color: #999;
+  margin: 0 0 12px;
+  line-height: 1.4;
+}
+
+.mode-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+}
+.mode-icon.questions {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+}
+.mode-icon.time {
+  background: linear-gradient(135deg, #f093fb, #f5576c);
+}
+.mode-icon.unlimited {
+  background: linear-gradient(135deg, #4facfe, #00f2fe);
+}
+
+.mode-options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 12px;
+  animation: fadeIn 0.3s ease;
+}
+
+.option-chip {
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: #ccc;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.option-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+.option-chip.selected {
+  background: rgba(79, 172, 254, 0.2);
+  border-color: #4facfe;
+  color: #4facfe;
+  box-shadow: 0 0 8px rgba(79, 172, 254, 0.2);
+}
+
+/* ── Interview Summary ── */
+.interview-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 24px;
+  padding: 14px;
+  background: rgba(79, 172, 254, 0.06);
+  border: 1px solid rgba(79, 172, 254, 0.12);
+  border-radius: 12px;
+}
+.summary-chip {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #4facfe;
+}
+.summary-chip.persona {
+  color: #a18cd1;
+}
+.summary-divider {
+  color: #555;
+}
+
+/* ── Action ── */
 .action-footer {
   text-align: center;
   margin-top: 20px;
@@ -333,5 +628,157 @@ const startInterview = async () => {
 }
 .ai-notice-text p strong {
   color: #7ec8f8;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 반응형 */
+@media (max-width: 768px) {
+  .mode-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Interview History Section ── */
+.history-section {
+  margin-top: 40px;
+}
+.history-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  color: #ddd;
+}
+.history-header h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 0;
+}
+.history-count {
+  font-size: 0.85rem;
+  background: rgba(79, 172, 254, 0.12);
+  color: #4facfe;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid var(--card-accent, #4facfe);
+  border-radius: 14px;
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+.history-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateX(4px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.history-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+.history-persona-badge {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.history-info {
+  min-width: 0;
+}
+.history-title {
+  font-weight: 600;
+  font-size: 1rem;
+  margin-bottom: 4px;
+  color: #eee;
+}
+.history-meta {
+  font-size: 0.8rem;
+  color: #888;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.meta-dot {
+  color: #555;
+}
+
+.history-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.history-score {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 5px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.history-score.high {
+  color: #4caf50;
+}
+.history-score.mid {
+  color: #ff9800;
+}
+.history-score.low {
+  color: #f44336;
+}
+
+.status-tag {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 6px;
+}
+.status-tag.COMPLETED {
+  background: rgba(76, 175, 80, 0.12);
+  color: #4caf50;
+}
+.status-tag.IN_PROGRESS {
+  background: rgba(255, 152, 0, 0.12);
+  color: #ff9800;
+}
+
+.history-arrow {
+  color: #555;
+  transition: transform 0.2s;
+}
+.history-card:hover .history-arrow {
+  transform: translateX(3px);
+  color: #4facfe;
 }
 </style>
