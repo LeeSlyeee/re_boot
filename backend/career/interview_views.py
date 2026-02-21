@@ -433,7 +433,10 @@ class InterviewViewSet(viewsets.ModelViewSet):
         for cat in category_stats.values():
             cat['percent'] = round(cat['earned'] / cat['total'] * 100) if cat['total'] > 0 else 0
         
-        not_earned_objectives = all_objectives.exclude(id__in=earned_ids)[:5]
+        # 미획득 학습 목표를 낮은 주차 순으로 추천 (선행 학습 우선)
+        not_earned_objectives = all_objectives.exclude(
+            id__in=earned_ids
+        ).order_by('syllabus__week_number', 'id')[:5]
         recommended_skills = [
             {
                 'name': obj.content,
