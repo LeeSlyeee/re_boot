@@ -47,10 +47,8 @@ fi
 echo ""
 echo "🎓 [2/3] 학생 Frontend (port 5173)..."
 cd "$PROJECT_ROOT/frontend"
-FIFO1=/tmp/reboot_frontend_fifo
-rm -f $FIFO1 && mkfifo $FIFO1
-(cat $FIFO1 | npx vite --port 5173 > /tmp/reboot_frontend.log 2>&1 &)
-sleep 2
+(sleep 999999 | npx vite --port 5173 > /tmp/reboot_frontend.log 2>&1) &
+sleep 3
 if lsof -i :5173 > /dev/null 2>&1; then
     echo "  ✅ http://localhost:5173"
 else
@@ -61,10 +59,8 @@ fi
 echo ""
 echo "👨‍🏫 [3/3] 교수자 Dashboard (port 5174)..."
 cd "$PROJECT_ROOT/Professor_dashboard"
-FIFO2=/tmp/reboot_professor_fifo
-rm -f $FIFO2 && mkfifo $FIFO2
-(cat $FIFO2 | npx vite --port 5174 > /tmp/reboot_professor.log 2>&1 &)
-sleep 2
+(sleep 999999 | npx vite --port 5174 > /tmp/reboot_professor.log 2>&1) &
+sleep 3
 if lsof -i :5174 > /dev/null 2>&1; then
     echo "  ✅ http://localhost:5174"
 else

@@ -393,34 +393,50 @@ class InterviewViewSet(viewsets.ModelViewSet):
         duration_minutes = round((timezone.now() - interview.created_at).total_seconds() / 60, 1)
         
         # 스킬 블록 현황 조회 (학습 ↔ 면접 연결)
-        from learning.models import SkillBlock, Skill
-        skill_blocks = SkillBlock.objects.filter(student=interview.student)
-        earned_blocks = skill_blocks.filter(is_earned=True)
-        total_skills = Skill.objects.count()
-        
-        # 카테고리별 획득 현황
+        # StudentChecklist + LearningObjective 기반 (실제 학습 데이터)
+        from learning.models import StudentChecklist, LearningObjective, Lecture
+
+        enrolled_lectures = Lecture.objects.filter(students=interview.student)
+        all_objectives = LearningObjective.objects.filter(
+            syllabus__lecture__in=enrolled_lectures
+        ).select_related('syllabus', 'syllabus__lecture')
+
+        total_count = all_objectives.count()
+        earned_ids = set(
+            StudentChecklist.objects.filter(
+                student=interview.student, is_checked=True
+            ).values_list('objective_id', flat=True)
+        )
+        earned_count = len(earned_ids & set(all_objectives.values_list('id', flat=True)))
+
+        # 카테고리별 획득 현황 (강의별)
         category_stats = {}
-        for cat_code, cat_name in Skill.CATEGORY_CHOICES:
-            total_in_cat = skill_blocks.filter(skill__category=cat_code).count()
-            earned_in_cat = earned_blocks.filter(skill__category=cat_code).count()
-            if total_in_cat > 0:
-                category_stats[cat_code] = {
-                    'name': cat_name,
-                    'earned': earned_in_cat,
-                    'total': total_in_cat,
-                    'percent': round(earned_in_cat / total_in_cat * 100)
-                }
+        for obj in all_objectives:
+            lec_title = obj.syllabus.lecture.title
+            if lec_title not in category_stats:
+                category_stats[lec_title] = {'name': lec_title, 'earned': 0, 'total': 0, 'percent': 0}
+            category_stats[lec_title]['total'] += 1
+            if obj.id in earned_ids:
+                category_stats[lec_title]['earned'] += 1
+
+        for cat in category_stats.values():
+            cat['percent'] = round(cat['earned'] / cat['total'] * 100) if cat['total'] > 0 else 0
         
-        # 미획득 스킬 중 면접에서 약했던 항목과 관련된 추천
-        not_earned = skill_blocks.filter(is_earned=False).select_related('skill')[:5]
+        # 미획득 학습 목표 중 추천 (최대 5개)
+        not_earned_objectives = all_objectives.exclude(id__in=earned_ids)[:5]
         recommended_skills = [
-            {'name': sb.skill.name, 'category': sb.skill.get_category_display(), 'level': sb.level}
-            for sb in not_earned
+            {
+                'name': obj.content,
+                'category': obj.syllabus.lecture.title,
+                'level': 1,
+                'hint': f"{obj.syllabus.week_number}주차 학습 목표를 완료하면 획득!"
+            }
+            for obj in not_earned_objectives
         ]
-        
-        # 학습 진행률 (전체 블록 중 획득 비율)
-        skill_progress = round(earned_blocks.count() / skill_blocks.count() * 100) if skill_blocks.count() > 0 else 0
-        
+
+        # 학습 진행률
+        skill_progress = round(earned_count / total_count * 100) if total_count > 0 else 0
+
         report = {
             'interview_id': interview.id,
             'persona': interview.get_persona_display(),
@@ -440,8 +456,8 @@ class InterviewViewSet(viewsets.ModelViewSet):
                 'score': worst_exchange.score if worst_exchange else 0
             },
             'skill_connection': {
-                'earned_count': earned_blocks.count(),
-                'total_count': skill_blocks.count(),
+                'earned_count': earned_count,
+                'total_count': total_count,
                 'progress_percent': skill_progress,
                 'category_stats': category_stats,
                 'recommended_skills': recommended_skills,
