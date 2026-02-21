@@ -10,6 +10,7 @@ import { Mic, Square, Pause, FileText, MonitorPlay, Users, Youtube, RefreshCw, B
 import { AudioRecorder } from '../api/audioRecorder';
 import api from '../api/axios';
 import ChecklistPanel from '../components/ChecklistPanel.vue';
+import { useLiveSession } from '../composables/useLiveSession';
 
 const router = useRouter();
 const route = useRoute(); // Route access
@@ -23,323 +24,39 @@ const isUrlSubmitted = ref(false);
 const pendingSessionId = ref(null); 
 const isCompletedSession = ref(false); 
 
-// --- Live Session State ---
-const liveSessionData = ref(null);
-const liveSessionCode = ref('');
-const livePolling = ref(null);
-const lastSttSeq = ref(0);
-const liveNoteTab = ref('subtitle');
-const myPulse = ref(null); // 'UNDERSTAND' | 'CONFUSED' | null
-const livePulseStats = ref({ understand: 0, confused: 0, total: 0, understand_rate: 0 });
+// --- State Management ---
+const isRecording = ref(false);
+const sttLogs = ref([]); 
+const recorder = ref(null);
+const logsContainer = ref(null);
+const sessionId = ref(null);
+const nextSequenceOrder = ref(1);
 
-// --- Live Quiz State ---
-const pendingQuiz = ref(null);
-const quizResult = ref(null);
-const quizAnswering = ref(false);
-const liveNote = ref(null);
-const notePolling = ref(null);
-const quizTimer = ref(0);
-const quizTimerInterval = ref(null);
-const quizTimeLimit = ref(60);
+// --- Live Session (Composable) ---
+const {
+    liveSessionData, liveSessionCode, liveNoteTab, myPulse, livePulseStats,
+    pendingQuiz, quizResult, quizAnswering, liveNote, quizTimer, quizTimeLimit,
+    weakZoneAlerts, showWeakZonePopup, currentWeakZone,
+    liveQuestions, newQuestionText, qaOpen,
+    myReviewRoutes, srDueItems,
+    formativeData, formativeAnswers, formativeResult, formativeSubmitting,
+    myAdaptiveContent, myStudentLevel,
+    timerPercent,
+    joinLiveSession, sendPulse, answerLiveQuiz, dismissQuizResult,
+    fetchLiveQuestions, askQuestion, upvoteQuestion,
+    startLiveStatusPolling, stopLiveStatusPolling,
+    fetchLiveNote, startNotePolling,
+    fetchWeakZoneAlerts, resolveWeakZone,
+    leaveLiveSession: _leaveLiveSession,
+    fetchMyReviewRoutes, completeReviewItem, fetchSRDue, completeSR,
+    fetchFormative, submitFormative,
+    fetchMyContent,
+} = useLiveSession(sttLogs);
 
-// --- Weak Zone Alert State ---
-const weakZoneAlerts = ref([]);
-const showWeakZonePopup = ref(false);
-const currentWeakZone = ref(null);
-
-const fetchWeakZoneAlerts = async () => {
-    if (!liveSessionData.value || liveSessionData.value.status !== 'LIVE') return;
-    try {
-        const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/my-alerts/`);
-        if (data.alerts && data.alerts.length > 0) {
-            weakZoneAlerts.value = data.alerts;
-            // 미표시 알림이 있으면 팝업
-            if (!showWeakZonePopup.value) {
-                currentWeakZone.value = data.alerts[0];
-                showWeakZonePopup.value = true;
-            }
-        }
-    } catch (e) { /* silent */ }
-};
-
-const resolveWeakZone = async (alertId) => {
-    if (!liveSessionData.value) return;
-    try {
-        await api.post(`/learning/live/${liveSessionData.value.session_id}/my-alerts/${alertId}/resolve/`);
-        showWeakZonePopup.value = false;
-        currentWeakZone.value = null;
-        weakZoneAlerts.value = weakZoneAlerts.value.filter(a => a.id !== alertId);
-    } catch (e) { /* silent */ }
-};
-
-const timerPercent = computed(() => {
-    if (quizTimeLimit.value <= 0) return 100;
-    return Math.max(0, (quizTimer.value / quizTimeLimit.value) * 100);
-});
-
-// pendingQuiz가 set되면 카운트다운 시작
-watch(pendingQuiz, (newQuiz) => {
-    if (quizTimerInterval.value) { clearInterval(quizTimerInterval.value); quizTimerInterval.value = null; }
-    if (newQuiz) {
-        quizTimeLimit.value = newQuiz.time_limit || 60;
-        quizTimer.value = newQuiz.remaining_seconds || newQuiz.time_limit || 60;
-        quizTimerInterval.value = setInterval(() => {
-            quizTimer.value--;
-            if (quizTimer.value <= 0) {
-                clearInterval(quizTimerInterval.value);
-                quizTimerInterval.value = null;
-                pendingQuiz.value = null; // 시간초과 → 자동 닫기
-            }
-        }, 1000);
-    }
-});
-
-const joinLiveSession = async () => {
-    const code = liveSessionCode.value.trim().toUpperCase();
-    if (code.length !== 6) { alert('6자리 코드를 입력해주세요.'); return; }
-    try {
-        const { data } = await api.post('/learning/live/join/', { session_code: code });
-        liveSessionData.value = data;
-        mode.value = 'live';
-        startLiveStatusPolling();
-    } catch (e) {
-        alert(e.response?.data?.error || '세션 입장 실패');
-    }
-};
-
-const sendPulse = async (pulseType) => {
-    if (!liveSessionData.value) return;
-    try {
-        await api.post(`/learning/live/${liveSessionData.value.session_id}/pulse/`, { pulse_type: pulseType });
-        myPulse.value = pulseType;
-    } catch (e) { console.error('Pulse error:', e); }
-};
-
-const answerLiveQuiz = async (quizId, answer) => {
-    if (!liveSessionData.value || quizAnswering.value) return;
-    quizAnswering.value = true;
-    try {
-        const { data } = await api.post(
-            `/learning/live/${liveSessionData.value.session_id}/quiz/${quizId}/answer/`,
-            { answer }
-        );
-        quizResult.value = data;
-        pendingQuiz.value = null;
-    } catch (e) {
-        if (e.response?.status === 409) {
-            // 이미 응답함
-            pendingQuiz.value = null;
-        } else {
-            alert('응답 실패: ' + (e.response?.data?.error || ''));
-        }
-    } finally { quizAnswering.value = false; }
-};
-
-const dismissQuizResult = () => { quizResult.value = null; };
-
-// --- Live Q&A State ---
-const liveQuestions = ref([]);
-const newQuestionText = ref('');
-const qaOpen = ref(false);
-
-const fetchLiveQuestions = async () => {
-    if (!liveSessionData.value) return;
-    try {
-        const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/questions/feed/`);
-        liveQuestions.value = data;
-    } catch {}
-};
-
-const askQuestion = async () => {
-    const text = newQuestionText.value.trim();
-    if (!text || !liveSessionData.value) return;
-    try {
-        await api.post(`/learning/live/${liveSessionData.value.session_id}/questions/ask/`, {
-            question: text,
-        });
-        newQuestionText.value = '';
-        await fetchLiveQuestions();
-    } catch (e) {
-        alert('질문 등록 실패: ' + (e.response?.data?.error || ''));
-    }
-};
-
-const upvoteQuestion = async (questionId) => {
-    if (!liveSessionData.value) return;
-    try {
-        await api.post(`/learning/live/${liveSessionData.value.session_id}/questions/${questionId}/upvote/`);
-        await fetchLiveQuestions();
-    } catch {}
-};
-
-const startLiveStatusPolling = () => {
-    stopLiveStatusPolling();
-    livePolling.value = setInterval(async () => {
-        if (!liveSessionData.value) return;
-        try {
-            const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/status/`);
-            liveSessionData.value = { ...liveSessionData.value, ...data };
-            if (data.status === 'ENDED') {
-                stopLiveStatusPolling();
-                // 노트 폴링 시작
-                startNotePolling();
-            }
-            // 펄스 통계
-            try {
-                const pulse = await api.get(`/learning/live/${liveSessionData.value.session_id}/pulse-stats/`);
-                livePulseStats.value = pulse.data;
-            } catch {}
-            // 미응답 퀴즈 체크
-            if (!pendingQuiz.value && !quizResult.value) {
-                try {
-                    const qr = await api.get(`/learning/live/${liveSessionData.value.session_id}/quiz/pending/`);
-                    if (qr.data.length > 0) {
-                        pendingQuiz.value = qr.data[0]; // 가장 최신 1개
-                    }
-                } catch {}
-            }
-            // Q&A 질문 목록 갱신
-            if (qaOpen.value) await fetchLiveQuestions();
-            // Phase 2-1: Weak Zone 알림 체크
-            await fetchWeakZoneAlerts();
-            // 교수자 STT 실시간 자막 수신
-            try {
-                const sttRes = await api.get(`/learning/live/${liveSessionData.value.session_id}/stt-feed/?after_seq=${lastSttSeq.value}`);
-                if (sttRes.data.length > 0) {
-                    const existingIds = new Set(sttLogs.value.map(l => l.id));
-                    for (const log of sttRes.data) {
-                        if (!existingIds.has(log.id)) {
-                            sttLogs.value.push({
-                                id: log.id,
-                                seq: log.seq,
-                                text_chunk: log.text,
-                                timestamp: log.timestamp,
-                            });
-                        }
-                        if (log.seq > lastSttSeq.value) lastSttSeq.value = log.seq;
-                    }
-                    // 자동 스크롤
-                    nextTick(() => {
-                        const el = document.querySelector('.subtitle-scroll');
-                        if (el) el.scrollTop = el.scrollHeight;
-                    });
-                }
-            } catch {}
-        } catch {}
-    }, 2000);
-};
-
-const stopLiveStatusPolling = () => {
-    if (livePolling.value) { clearInterval(livePolling.value); livePolling.value = null; }
-};
-
-const fetchLiveNote = async () => {
-    if (!liveSessionData.value) return;
-    try {
-        const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/note/`);
-        liveNote.value = data;
-        if (data.status === 'DONE' || data.status === 'FAILED') {
-            if (notePolling.value) { clearInterval(notePolling.value); notePolling.value = null; }
-            // Phase 2-3: 노트 완료 시 복습 루트 자동 로드
-            if (data.status === 'DONE') {
-                fetchMyReviewRoutes();
-                fetchFormative();
-            }
-        }
-    } catch {}
-};
-
-const startNotePolling = () => {
-    fetchLiveNote();
-    notePolling.value = setInterval(fetchLiveNote, 3000);
-};
-
-// --- Phase 2-3: Review Route + Spaced Rep ---
-const myReviewRoutes = ref([]);
-const srDueItems = ref([]);
-
-const fetchMyReviewRoutes = async () => {
-    try {
-        const { data } = await api.get('/learning/review-routes/my/');
-        myReviewRoutes.value = data.routes || [];
-    } catch (e) { /* silent */ }
-};
-
-const completeReviewItem = async (routeId, order) => {
-    try {
-        const { data } = await api.post(`/learning/review-routes/${routeId}/complete-item/`, { order });
-        // 해당 루트의 completed_items 업데이트
-        const route = myReviewRoutes.value.find(r => r.id === routeId);
-        if (route) {
-            route.completed_items = data.completed_items;
-            route.progress = data.progress;
-        }
-    } catch (e) { /* silent */ }
-};
-
-const fetchSRDue = async () => {
-    try {
-        const { data } = await api.get('/learning/spaced-repetition/due/');
-        srDueItems.value = data.due_items || [];
-    } catch (e) { /* silent */ }
-};
-
-const completeSR = async (itemId, answer) => {
-    try {
-        const { data } = await api.post(`/learning/spaced-repetition/${itemId}/complete/`, { answer });
-        if (data.is_correct) {
-            srDueItems.value = srDueItems.value.filter(i => i.id !== itemId);
-        }
-        return data;
-    } catch (e) { return null; }
-};
-
-// --- Phase 2-4: Formative Assessment ---
-const formativeData = ref(null);
-const formativeAnswers = ref({});
-const formativeResult = ref(null);
-const formativeSubmitting = ref(false);
-
-const fetchFormative = async () => {
-    if (!liveSessionData.value) return;
-    try {
-        const { data } = await api.get(`/learning/formative/${liveSessionData.value.session_id}/`);
-        if (data.available && !data.already_submitted) {
-            formativeData.value = data;
-        } else if (data.already_submitted) {
-            formativeResult.value = { score: data.score, total: data.total };
-        }
-    } catch (e) { /* silent */ }
-};
-
-const submitFormative = async () => {
-    if (!formativeData.value) return;
-    formativeSubmitting.value = true;
-    try {
-        const answers = Object.entries(formativeAnswers.value).map(([qId, answer]) => ({
-            question_id: parseInt(qId),
-            answer,
-        }));
-        const { data } = await api.post(`/learning/formative/${formativeData.value.assessment_id}/submit/`, { answers });
-        formativeResult.value = data;
-        formativeData.value = null;
-        // SR due 갱신
-        await fetchSRDue();
-    } catch (e) { /* silent */ }
-    formativeSubmitting.value = false;
-};
-
-// --- Phase 2-2: Adaptive Content ---
-const myAdaptiveContent = ref([]);
-const myStudentLevel = ref(2);
-
-const fetchMyContent = async () => {
-    if (!liveSessionData.value) return;
-    try {
-        const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/my-content/`);
-        myAdaptiveContent.value = data.contents || [];
-        myStudentLevel.value = data.student_level || 2;
-    } catch (e) { /* silent */ }
+// Wrap leaveLiveSession to also reset mode
+const leaveLiveSession = () => {
+    _leaveLiveSession();
+    mode.value = null;
 };
 
 const renderMarkdown = (text) => {
@@ -353,17 +70,7 @@ const renderMarkdown = (text) => {
         .replace(/\n/g, '<br/>');
 };
 
-const leaveLiveSession = () => {
-    stopLiveStatusPolling();
-    if (notePolling.value) { clearInterval(notePolling.value); notePolling.value = null; }
-    liveSessionData.value = null;
-    myPulse.value = null;
-    pendingQuiz.value = null;
-    quizResult.value = null;
-    liveNote.value = null;
-    mode.value = null;
-    liveSessionCode.value = '';
-};
+
 
 // --- Lecture Mode State ---
 const currentLectureId = ref(null);
@@ -498,13 +205,10 @@ const startNewClassSession = () => {
     selectMode('offline');
 };
 
-// --- State Management ---
-const isRecording = ref(false);
-const sttLogs = ref([]); 
-const recorder = ref(null);
-const logsContainer = ref(null);
-const sessionId = ref(null);
-const nextSequenceOrder = ref(1); // [FIX] Top-level ref for sequence tracking
+
+// State Management refs (isRecording, sttLogs, recorder, logsContainer, sessionId, nextSequenceOrder)
+// are declared at the top of the file.
+
 
 // Quiz State
 const quizData = ref(null);
@@ -670,8 +374,8 @@ onMounted(async () => {
         if (liveCode && liveCode.length === 6) {
             console.log(`📱 QR/URL 자동 입장 감지: ${liveCode}`);
             liveSessionCode.value = liveCode;
-            await joinLiveSession();
-            return; // 라이브 모드로 진입하므로 나머지 초기화 스킵
+            const joined = await joinLiveSession();
+            if (joined) mode.value = 'live';
         }
         
         // [NEW] Check for Lecture Mode (from Dashboard)
@@ -1321,7 +1025,7 @@ const openSessionReview = (id) => {
                         <input type="text" v-model="liveSessionCode" placeholder="코드 입력 (예: A3F2K9)" maxlength="6" 
                             style="text-align:center; font-size:24px; letter-spacing:8px; font-weight:700; text-transform:uppercase;" 
                             @keyup.enter="joinLiveSession" />
-                        <button class="btn btn-primary" @click="joinLiveSession">입장하기</button>
+                        <button class="btn btn-primary" @click="async () => { const ok = await joinLiveSession(); if(ok) mode = 'live'; }">입장하기</button>
                     </div>
                 </div>
 
