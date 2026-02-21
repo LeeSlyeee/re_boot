@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Re:Boot 전체 기능 흐름도 (Mermaid)</title>
+    <!-- Mermaid CDN (최신 버전 import) -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+
+        // 초기화 설정 (테마 및 로드 설정)
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default', // 'dark', 'forest', 'neutral' 등으로 변경 가능
+            securityLevel: 'loose',
+            flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
+        });
+    </script>
+    <style>
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f1f3f5;
+        }
+
+        h2 {
+            color: #343a40;
+            margin-bottom: 1.5rem;
+        }
+
+        .mermaid-container {
+            background: white;
+            padding: 2rem 4rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.05);
+            max-width: 90%;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>🌊 Re:Boot 핵심 기능 플로우 차트</h2>
+    <div class="mermaid-container">
+        <!-- 기존 flow.md 에 있던 내용 그대로 삽입 -->
+        <div class="mermaid">
+            flowchart TD
+            %% Phase 1: 진단 (수업 전 1회)
+            subgraph Phase1 [Phase 1: 수준 진단 및 갭 맵]
+            A[회원 가입 및 입학 진단 퀴즈] --> B[목표 설정]
+            B --> C[초기 실력 갭 맵 Gap Map 생성]
+            end
+
+            %% Phase 0: 라이브 세션 (수업 중)
+            subgraph Phase0 [Phase 0: 라이브 세션 인프라]
+            D[교수자: 세션 생성] --> E[학습자: 세션 입장]
+            E --> F{수업 중 상호작용}
+            F --> |이해도 확인| G[실시간 펄스 체크]
+            F --> |즉석 퀴즈 발동| H[키워드 감지 & Short-term STT]
+            F --> |질문| I[익명 Q&A 큐]
+            G & H & I --> J[교수자: 수업 종료]
+            end
+
+            %% Phase 0-6 & Phase 2: 사후 학습 (수업 직후)
+            subgraph PostSession [Phase 0-6 & Phase 2: AI 후처리 및 복습]
+            K[Batch STT & LLM 텍스트 요약] --> L[사전 교안 병합 및 교수자 승인]
+            L --> M[디지털 요약 노트 배포]
+            M --> N[AI 후속 형성평가 및 복습 제안]
+            N -.오답 및 학습 데이터.-> O[개인 갭 맵 업데이트 & 간격 반복 스케줄]
+            end
+
+            %% Phase 3: 교수자 대시보드 (데이터 종합)
+            subgraph Phase3 [Phase 3: 교수자 대시보드]
+            P[학습자 위험군 식별]
+            Q[다수 오답 취약 구간 분석]
+            R[AI 복습 제안 교수자 최종 승인]
+            end
+
+            Phase1 --> D
+            J --> K
+            O -.전체 누적 데이터.-> Phase3
+            Phase3 -.분석 인사이트.-> D
+
+            %% 하이라이트 스타일 (사용자 담당 역할)
+            classDef myRole fill:#ffeb3b,stroke:#f57f17,stroke-width:3px,color:#000
+            class H,K myRole
+        </div>
+    </div>
+</body>
+
+</html>
