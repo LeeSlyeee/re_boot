@@ -595,15 +595,25 @@ const isRecording = ref(false);
 
           <!-- Motivational CTA -->
           <div class="sc-motivation">
-            <div class="sc-motivation-text">
+            <div class="sc-motivation-text" v-if="(reportData.skill_connection.progress_percent || 0) >= 100">
+              <strong>🎉 모든 스킬 블록을 획득했습니다!</strong>
+              <p>
+                축하합니다! 학습 목표를 <strong>100%</strong> 달성했습니다.
+                이 역량을 바탕으로 포트폴리오를 생성하면 더 강력한 자기소개가 가능합니다.
+              </p>
+            </div>
+            <div class="sc-motivation-text" v-else>
               <strong>💡 학습이 곧 면접 경쟁력!</strong>
               <p>
                 현재 <strong>{{ reportData.skill_connection.progress_percent || 0 }}%</strong>의 스킬을 획득했습니다.
                 학습을 계속하면 더 풍부한 포트폴리오로 더 높은 면접 점수를 받을 수 있습니다.
               </p>
             </div>
-            <button class="sc-cta-btn" @click="router.push('/dashboard')">
-              📚 학습하러 가기
+            <button
+              class="sc-cta-btn"
+              @click="router.push((reportData.skill_connection.progress_percent || 0) >= 100 ? '/portfolio' : '/dashboard')"
+            >
+              {{ (reportData.skill_connection.progress_percent || 0) >= 100 ? '📄 포트폴리오 생성하기' : '📚 학습하러 가기' }}
             </button>
           </div>
         </div>
