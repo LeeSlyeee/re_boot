@@ -432,38 +432,45 @@ frontend/src/views/
 
 ---
 
-## ✅ 체크리스트
+## ✅ 체크리스트 (2026-02-23 코드 기반 재검증 완료)
 
 ### Phase 3-1. 학습자 수준 현황판
 
-- [x] `NoteViewLog` 모델 생성 + 마이그레이션
-- [x] NoteViewLog 자동 기록: `live/<pk>/note/` (live_views.py) — 학생 조회 시 get_or_create
-- [x] `analytics/overview/` API 구현
+- [x] `NoteViewLog` 모델 생성 + 마이그레이션 → `models/analytics.py:13`
+- [x] NoteViewLog 자동 기록: `live/<pk>/note/` (note_views.py) — 학생 조회 시 get_or_create
+- [x] `analytics/overview/` API 구현 → `analytics_views.py` AnalyticsOverviewView (line 26~231)
 - [x] 빈 데이터 방어: 세션 0건일 때 "아직 종료된 강의가 없습니다" 안내 반환
-- [x] 교수자: analytics 탭 + 레벨 분포 도넛 차트
-- [x] 교수자: 출석률 + 진도율(체크리스트 기반) 통계 카드
-- [x] 교수자: 위험군 학습자 테이블 + 결석생 보충 현황
-- [x] 교수자: 위험군 메시지 발송 모달 + API (`send-message/`)
+- [x] 교수자: analytics 탭 + 레벨 분포 도넛 차트 → `LectureDetailView.vue` line 1872+
+- [x] 교수자: 출석률 + 진도율(체크리스트 기반) 통계 카드 → `LectureDetailView.vue` an-stat-card
+- [x] 교수자: 위험군 학습자 테이블 + 결석생 보충 현황 → `LectureDetailView.vue` an-risk-section
+- [x] 교수자: 위험군 메시지 발송 모달 + API (`send-message/`) → `analytics_views.py` SendMessageView (line 234)
 
 ### Phase 3-2. 취약 구간 인사이트
 
-- [x] `analytics/weak-insights/` API 구현 (퀴즈 + 형성평가 통합)
+- [x] `analytics/weak-insights/` API 구현 (퀴즈 + 형성평가 통합) → `analytics_views.py` WeakInsightsView (line 265)
 - [x] 퀴즈 개념명 처리: `LiveQuiz.question_text` 기반 / `FormativeAssessment.questions[].concept_tag` 기반 병합
-- [x] 교수자: 취약 구간 랭킹 테이블 (오답률 바 + 교안 링크)
-- [x] 교수자: 차시별 비교 바 차트 (Bar 차트 사용 — Line 대신 기존 import 활용)
+- [x] 교수자: 취약 구간 랭킹 테이블 (오답률 바 + 교안 링크) → `LectureDetailView.vue` analyticsSubTab=weak
+- [x] 교수자: 차시별 비교 바 차트 (Bar 차트 사용) → `LectureDetailView.vue` session-comparison
 
 ### Phase 3-3. AI 제안 승인 흐름
 
-- [x] `analytics/ai-suggestions/` API 구현 (ReviewRoute/WeakZone/AdaptiveContent 통합)
-- [x] 교수자: AI 제안 카드 목록 + 승인/거부 버튼 + SuggestionActionView API
-- [x] 교수자: 최근 판단 이력
+- [x] `analytics/ai-suggestions/` API 구현 (ReviewRoute/WeakZone/AdaptiveContent 통합) → `analytics_views.py` AISuggestionsView (line 380)
+- [x] 교수자: AI 제안 카드 목록 + 승인/거부 버튼 + SuggestionActionView API → `analytics_views.py` SuggestionActionView (line 448)
+- [x] 교수자: 최근 판단 이력 → `LectureDetailView.vue` analyticsSubTab=ai
 
 ### Phase 3-4. 그룹별 개입 + 강의 품질 리포트
 
-- [x] `GroupMessage` 모델 생성 (read_by JSONField 포함) + 마이그레이션 0027
-- [x] `send-group-message/` API (레벨별 + 개별)
-- [x] `analytics/quality-report/` API (차시별 메트릭 + 추이 + 체크포인트 통과율 포함 + 재분류 제안)
-- [x] 학생 레벨 재분류 제안 + 교수자 승인 API (PlacementResult 새 레코드 생성, `order_by('-created_at').first()` 패턴)
-- [x] 교수자: 그룹 메시지 발송 폼 + 품질 리포트 카드
-- [x] 교수자: 레벨 재분류 제안 패널
-- [x] 학습자: `messages/my/` API + 대시보드 메시지 알림 + 목록 + 읽음 처리 (read_by 업데이트)
+- [x] `GroupMessage` 모델 생성 (read_by JSONField 포함) + 마이그레이션 → `models/analytics.py:27`
+- [x] `send-group-message/` API (레벨별 + 개별) → `analytics_views.py` SendGroupMessageView (line 496)
+- [x] `analytics/quality-report/` API (차시별 메트릭 + 추이 + 체크포인트 통과율 포함 + 재분류 제안) → `analytics_views.py` QualityReportView (line 522)
+- [x] 학생 레벨 재분류 제안 + 교수자 승인 API → `analytics_views.py` ApplyRedistributionView (line 693)
+- [x] 교수자: 그룹 메시지 발송 폼 + 품질 리포트 카드 → `LectureDetailView.vue` analyticsSubTab=report
+- [x] 교수자: 레벨 재분류 제안 패널 → `LectureDetailView.vue` redistribution section
+- [x] 학습자: `messages/my/` API + 대시보드 메시지 알림 + 목록 + 읽음 처리 → `analytics_views.py` MyMessagesView (line 720)
+
+### 스킬블록 시스템
+
+- [x] `SkillBlock` 모델 생성 → `models/placement.py:169`
+- [x] 스킬블록 자동 생성/갱신 API → `skillblock_views.py` SyncSkillBlocksView
+- [x] 갭 맵 vs 스킬블록 비교 → `skillblock_views.py` MySkillBlocksView
+- [x] 모의면접 연계 데이터 → `skillblock_views.py` MockInterviewDataView

@@ -15,7 +15,8 @@ from django.db.models import Count
 from .models import (
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog,
     Lecture, LearningSession, PulseCheck, PulseLog, LiveQuiz, LiveQuizResponse,
-    LiveQuestion, LiveSessionNote, WeakZoneAlert, NoteViewLog
+    LiveQuestion, LiveSessionNote, WeakZoneAlert, NoteViewLog,
+    PlacementResult
 )
 
 import openai
@@ -156,6 +157,12 @@ class LiveSessionViewSet(viewsets.ViewSet):
         active_count = session.participants.filter(is_active=True).count()
         total_count = session.participants.count()
 
+        # A2: 차시 자동 계산 (해당 강의의 종료된 세션 수 기반)
+        ended_count = LiveSession.objects.filter(
+            lecture=session.lecture, status='ENDED'
+        ).count()
+        week_number = ended_count + (1 if session.status != 'ENDED' else 0)
+
         data = {
             'id': session.id,
             'session_code': session.session_code,
@@ -168,17 +175,26 @@ class LiveSessionViewSet(viewsets.ViewSet):
             'active_participants': active_count,
             'total_participants': total_count,
             'is_instructor': is_instructor,
+            'week_number': week_number,  # A2: 차시 번호
         }
 
-        # 교수자에게만 참가자 목록 제공
+        # 교수자에게만 참가자 목록 제공 (A1: 학생 레벨 포함)
         if is_instructor:
             participants = session.participants.select_related('student').all()
+            # A1: 참가자별 최신 레벨 일괄 조회
+            student_ids = [p.student_id for p in participants]
+            level_map = {}
+            for pr in PlacementResult.objects.filter(student_id__in=student_ids).order_by('student_id', '-created_at'):
+                if pr.student_id not in level_map:
+                    level_map[pr.student_id] = pr.level
+
             data['participants'] = [
                 {
                     'id': p.id,
                     'username': p.student.username,
                     'is_active': p.is_active,
                     'joined_at': p.joined_at,
+                    'level': level_map.get(p.student_id),  # A1: 1/2/3 or null
                 }
                 for p in participants
             ]
@@ -293,10 +309,11 @@ class LiveSessionViewSet(viewsets.ViewSet):
 
     # ── Step B: STT 수신 + 키워드 스팟팅 ──
 
+    # 퀴즈 의도가 명확한 키워드만 (오발동 방지)
+    # "이해되셨나요", "질문 있나요" 등 수업 중 상시 사용되는 표현은 제외
     TRIGGER_KEYWORDS = [
-        '이해되셨나요', '이해하셨나요', '질문 있나요', '질문 있으신가요',
-        '여기까지 괜찮으시죠', '다음으로 넘어갈게요', '잠깐 퀴즈',
-        '여기까지 되셨나요', '이해가 되시나요', '알겠죠',
+        '퀴즈', '문제를 내', '문제 내', '문제를 풀', '문제 풀',
+        '확인 문제', '점검해', '체크해 보', '테스트',
     ]
 
     @action(detail=True, methods=['post'], url_path='stt')
@@ -331,7 +348,7 @@ class LiveSessionViewSet(viewsets.ViewSet):
         if keyword_detected:
             # 최근 5분 내 제안이 없을 때만 (스팸 방지)
             recent_suggestion = session.quizzes.filter(
-                is_suggestion=True, triggered_at__gte=timezone.now() - timedelta(minutes=3)
+                is_suggestion=True, triggered_at__gte=timezone.now() - timedelta(minutes=5)
             ).exists()
             if not recent_suggestion:
                 # 백그라운드에서 AI 퀴즈 제안 생성
@@ -596,6 +613,21 @@ class LiveSessionViewSet(viewsets.ViewSet):
         }
         if weak_zone_alert:
             resp['weak_zone_detected'] = True
+        # A3: 오답 시 보충 설명 제공
+        if not is_correct:
+            # WeakZone에서 AI 보충 설명 가져오기
+            recent_wz = WeakZoneAlert.objects.filter(
+                live_session=session, student=request.user,
+            ).order_by('-created_at').first()
+            if recent_wz and recent_wz.ai_suggested_content:
+                resp['supplement_content'] = recent_wz.ai_suggested_content
+            # 관련 교안 자료가 있으면 포함
+            materials = session.lecture.materials.all()[:3]
+            if materials:
+                resp['related_materials'] = [
+                    {'id': m.id, 'title': m.title, 'file_type': m.file_type}
+                    for m in materials
+                ]
         return Response(resp)
 
     @action(detail=True, methods=['get'], url_path=r'quiz/(?P<quiz_id>\d+)/results')
@@ -727,6 +759,7 @@ class LiveSessionViewSet(viewsets.ViewSet):
         """
         POST /api/learning/live/{id}/questions/ask/
         학생이 직접 Q&A 질문 등록 (익명)
+        B1: 유사 질문 AI 자동 클러스터링 (비동기)
         """
         session = get_object_or_404(LiveSession, id=pk, status='LIVE')
         if not session.participants.filter(student=request.user).exists():
@@ -741,6 +774,13 @@ class LiveSessionViewSet(viewsets.ViewSet):
             student=request.user,
             question_text=text,
         )
+
+        # B1: 비동기로 유사 질문 클러스터링
+        thread = threading.Thread(
+            target=_cluster_similar_question, args=(session.id, question.id)
+        )
+        thread.daemon = True
+        thread.start()
 
         return Response({
             'id': question.id,
@@ -1121,6 +1161,24 @@ def _generate_live_note(session_id, note_id):
         pulse_total = pulse_understand + pulse_confused
         understand_rate = round((pulse_understand / pulse_total) * 100, 1) if pulse_total > 0 else 0
 
+        # ── 4-1. C2: 교안 콘텐츠 수집 (링크된 교안의 텍스트 추출) ──
+        material_text = ''
+        try:
+            linked_mats = note.linked_materials.all() if hasattr(note, 'linked_materials') else []
+            if not linked_mats:
+                linked_mats = session.lecture.materials.all()[:3]
+            for mat in linked_mats:
+                if mat.file and hasattr(mat.file, 'path'):
+                    try:
+                        # 텍스트 파일이면 직접 읽기
+                        with open(mat.file.path, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()[:2000]
+                            material_text += f"\n[교안: {mat.title}]\n{content}\n"
+                    except:
+                        material_text += f"\n[교안: {mat.title}] (파일 읽기 불가)\n"
+        except:
+            pass
+
         # ── 5. 통계 저장 ──
         stats = {
             'total_participants': session.participants.count(),
@@ -1129,6 +1187,7 @@ def _generate_live_note(session_id, note_id):
             'question_count': len(qa_summary),
             'understand_rate': understand_rate,
             'duration_minutes': 0,
+            'material_count': len(material_text) > 0,  # C2: 교안 포함 여부
         }
         if session.started_at and session.ended_at:
             stats['duration_minutes'] = int((session.ended_at - session.started_at).total_seconds() / 60)
@@ -1151,7 +1210,10 @@ def _generate_live_note(session_id, note_id):
 
         prompt_content = f"""[강의 시간: 약 {stats['duration_minutes']}분 | 참가자: {stats['total_participants']}명 | 이해도: {understand_rate}%]
 
-=== 강의 STT 전문 ===
+=== 할 교안 원문 (텍스트 추출) ===
+{material_text[:3000] if material_text else '(교안 없음)'}
+
+=== 교수자 발화 STT 전문 ===
 {stt_text[:8000]}
 
 === 체크포인트 퀴즈 결과 ({len(quiz_summary)}건) ===
@@ -1168,12 +1230,17 @@ def _generate_live_note(session_id, note_id):
                 messages=[
                     {'role': 'system', 'content': (
                         '당신은 대학 강의를 전문적으로 정리하는 AI 어시스턴트입니다.\n'
-                        '아래 강의 데이터(STT 전문, 퀴즈 결과, 학생 질문)를 기반으로\n'
+                        '아래 강의 데이터(교안 원문, STT 전문, 퀴즈 결과, 학생 질문)를 기반으로\n'
                         '학생들이 복습하기 좋은 통합 노트를 작성하세요.\n\n'
+                        '핵심 규칙:\n'
+                        '- 교안에 있는 내용은 평문으로 정리하세요.\n'
+                        '- 교수자가 STT에서 교안에 없는 추가 설명/예시/노하우를 말한 부분은\n'
+                        '  "🎙️ 교수자 설명" 라벨을 붙여 구분하세요.\n'
+                        '- 교안과 STT를 주제별로 통합 정리하세요 (별도 섹션으로 분리하지 마세요).\n\n'
                         '형식:\n'
                         '# 📚 강의 통합 노트\n\n'
                         '## 📋 수업 개요\n- 시간, 참가자, 이해도 등\n\n'
-                        '## 📖 핵심 내용 정리\n### 1. 주제별 정리\n\n'
+                        '## 📖 핵심 내용 정리\n### 1. 주제별 정리 (교안+🎙️ 통합)\n\n'
                         '## ✅ 체크포인트 퀴즈 복습\n- 문제, 정답, 해설\n\n'
                         '## ❓ 주요 질의응답\n- 학생 질문과 답변 정리\n\n'
                         '## 🔑 핵심 키워드\n- 중요 용어\n\n'
@@ -1354,6 +1421,150 @@ def _generate_live_note(session_id, note_id):
             note.save()
         except:
             pass
+
+
+# ══════════════════════════════════════════════════════════
+# B1: 유사 질문 AI 클러스터링 (백그라운드)
+# ══════════════════════════════════════════════════════════
+
+def _cluster_similar_question(session_id, question_id):
+    """
+    신규 질문과 기존 질문들을 비교하여 유사하면 같은 cluster_id를 부여.
+    """
+    import django
+    django.setup()
+    try:
+        session = LiveSession.objects.get(id=session_id)
+        new_q = LiveQuestion.objects.get(id=question_id)
+        existing = session.questions.exclude(id=question_id).values_list('id', 'question_text', 'cluster_id')
+
+        if not existing:
+            # 첫 번째 질문 → cluster_id = question_id 자체
+            new_q.cluster_id = new_q.id
+            new_q.save()
+            return
+
+        # 기존 질문 목록 구성
+        existing_list = [{'id': e[0], 'text': e[1], 'cluster': e[2]} for e in existing]
+        existing_texts = '\n'.join([f"{i+1}. {e['text']}" for i, e in enumerate(existing_list)])
+
+        client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        response = client.chat.completions.create(
+            model='gpt-4o-mini',
+            messages=[
+                {'role': 'system', 'content': (
+                    '당신은 질문 유사도 판별 전문가입니다.\n'
+                    '새 질문이 기존 질문 중 하나와 같은 의미인지 판단하세요.\n'
+                    '같은 의미의 질문이 있으면 그 질문의 번호(1부터 시작)를 반환하세요.\n'
+                    '없으면 0을 반환하세요.\n'
+                    '숫자만 반환하세요. 설명 불필요.'
+                )},
+                {'role': 'user', 'content': f'기존 질문:\n{existing_texts}\n\n새 질문: {new_q.question_text}'}
+            ],
+            temperature=0,
+            max_tokens=10,
+        )
+        result = response.choices[0].message.content.strip()
+        match_idx = int(result) if result.isdigit() else 0
+
+        if 1 <= match_idx <= len(existing_list):
+            matched = existing_list[match_idx - 1]
+            # 매칭된 질문의 cluster_id 사용 (없으면 해당 질문 id)
+            new_q.cluster_id = matched['cluster'] or matched['id']
+        else:
+            new_q.cluster_id = new_q.id  # 새 클러스터
+        new_q.save()
+        print(f"✅ [Cluster] 질문 #{question_id} → cluster {new_q.cluster_id}")
+
+    except Exception as e:
+        print(f"⚠️ [Cluster] 클러스터링 실패: {e}")
+
+
+# ══════════════════════════════════════════════════════════
+# B2: 학습자 개인 요약 API
+# ══════════════════════════════════════════════════════════
+
+class StudentSessionSummaryView(APIView):
+    """
+    GET /api/learning/live/{session_id}/my-summary/
+    학생용: 세션 종료 후 개인 맞춤 요약 (퀴즈 결과 + 펄스 + 어려웠던 개념)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, session_id):
+        session = get_object_or_404(LiveSession, id=session_id, status='ENDED')
+        if not session.participants.filter(student=request.user).exists():
+            return Response({'error': '이 세션에 참가하지 않았습니다.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # 퀴즈 결과
+        my_responses = LiveQuizResponse.objects.filter(
+            quiz__live_session=session, student=request.user
+        ).select_related('quiz')
+        total_quiz = my_responses.count()
+        correct_quiz = my_responses.filter(is_correct=True).count()
+        wrong_concepts = [
+            r.quiz.question_text[:60] for r in my_responses if not r.is_correct
+        ]
+
+        # 펄스 기록
+        my_pulses = PulseLog.objects.filter(
+            live_session=session, student=request.user
+        )
+        pulse_total = my_pulses.count()
+        pulse_confused = my_pulses.filter(pulse_type='CONFUSED').count()
+
+        # WeakZone
+        my_weak_zones = WeakZoneAlert.objects.filter(
+            live_session=session, student=request.user
+        ).values_list('trigger_detail', 'ai_suggested_content')
+
+        weak_topics = []
+        supplements = []
+        for detail, ai_content in my_weak_zones:
+            if isinstance(detail, dict) and detail.get('recent_topic'):
+                weak_topics.append(detail['recent_topic'])
+            if ai_content:
+                supplements.append(ai_content[:200])
+
+        return Response({
+            'session_title': session.title or session.lecture.title,
+            'quiz_total': total_quiz,
+            'quiz_correct': correct_quiz,
+            'quiz_accuracy': round((correct_quiz / total_quiz) * 100, 1) if total_quiz > 0 else None,
+            'wrong_concepts': wrong_concepts,
+            'pulse_total': pulse_total,
+            'pulse_confused_count': pulse_confused,
+            'pulse_confused_rate': round((pulse_confused / pulse_total) * 100, 1) if pulse_total > 0 else 0,
+            'weak_topics': weak_topics,
+            'supplement_tips': supplements,
+            'message': _build_summary_message(total_quiz, correct_quiz, pulse_confused, pulse_total, weak_topics),
+        })
+
+
+def _build_summary_message(total_q, correct_q, confused, pulse_total, weak_topics):
+    """개인 요약 메시지 생성 (AI 호출 없이 규칙 기반)"""
+    parts = []
+    if total_q > 0:
+        acc = round((correct_q / total_q) * 100)
+        if acc >= 80:
+            parts.append(f"오늘 퀴즈 정답률 {acc}%로 훌륭합니다! 👏")
+        elif acc >= 50:
+            parts.append(f"퀴즈 정답률 {acc}%입니다. 오답 개념을 한번 더 복습해보세요.")
+        else:
+            parts.append(f"퀴즈 정답률이 {acc}%로 낮습니다. 아래 보충 자료로 개념을 다잡아보세요.")
+
+    if pulse_total > 0 and confused > 0:
+        rate = round((confused / pulse_total) * 100)
+        if rate >= 50:
+            parts.append(f"수업 중 혼란을 느낀 비율이 {rate}%입니다. 노트를 꼼꼼히 복습하세요. 📖")
+
+    if weak_topics:
+        parts.append(f"특히 '{', '.join(weak_topics[:3])}' 부분에 집중하면 좋겠습니다.")
+
+    if not parts:
+        parts.append("오늘 수업 수고하셨습니다! 통합 노트로 복습해보세요.")
+
+    return ' '.join(parts)
 
 
 # ══════════════════════════════════════════════════════════

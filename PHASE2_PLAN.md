@@ -549,43 +549,43 @@ Professor_dashboard/src/views/
 
 ---
 
-## ✅ 체크리스트
+## ✅ 체크리스트 (2026-02-23 코드 기반 검증 완료)
 
 ### [전처리]
 
-- [ ] `PulseLog` 모델 생성 + 마이그레이션
-- [ ] pulse API에 PulseLog.create() 추가
-- [ ] `LectureDetailView.vue`의 `lectureMaterials` → `materials` 수정 (3곳)
+- [x] `PulseLog` 모델 생성 + 마이그레이션 → `models/live.py:149`
+- [x] pulse API에 PulseLog.create() 추가 → `live_views.py` pulse action
+- [x] `LectureDetailView.vue`의 `lectureMaterials` → `materials` 수정 완료
 
 ### Phase 2-1. Weak Zone Alert
 
-- [ ] `WeakZoneAlert` 모델 생성
-- [ ] answer_quiz 내 오답 감지 트리거 삽입
-- [ ] pulse API 내 혼란 감지 트리거 삽입
-- [ ] AI 보충 설명 자동 생성 (감지 시점)
-- [ ] 교수자: Weak Zone 목록 + 푸시/거부 UI
-- [ ] 학습자: Weak Zone 알림 팝업
+- [x] `WeakZoneAlert` 모델 생성 → `models/live.py:268`
+- [x] answer_quiz 내 오답 감지 트리거 삽입 → `live_views.py` answer_quiz
+- [x] pulse API 내 혼란 감지 트리거 삽입 → `live_views.py` pulse action
+- [x] AI 보충 설명 자동 생성 (감지 시점) → `live_views.py` \_detect_weak_zone
+- [x] 교수자: Weak Zone 목록 + 푸시/거부 UI → `LectureDetailView.vue` live 탭
+- [x] 학습자: Weak Zone 알림 팝업 → `LearningView.vue` weak-zone-popup
 
 ### Phase 2-2. Adaptive Content Branching
 
-- [ ] `AdaptiveContent` 모델 생성
-- [ ] AI 교안 변형 API (MD 우선, PDF 2차)
-- [ ] 교수자: 레벨별 미리보기 + 승인/수정/거부
-- [ ] 학습자: 본인 레벨 자료 자동 표시 + 도전 토글
+- [x] `AdaptiveContent` 모델 생성 → `models/adaptive.py:14`
+- [x] AI 교안 변형 API (MD 우선, PDF 2차) → `adaptive_views.py` GenerateAdaptiveView
+- [x] 교수자: 레벨별 미리보기 + 승인/수정/거부 → `LectureDetailView.vue`
+- [x] 학습자: 본인 레벨 자료 자동 표시 + 도전 토글 → `LearningView.vue` adaptive-content-section
 
 ### Phase 2-3. AI Review Suggestion
 
-- [ ] `ReviewRoute` + `SpacedRepetitionItem` 모델 생성
-- [ ] 세션 종료 시 복습 루트 자동 생성 (AUTO_APPROVED 기본)
-- [ ] 학습자: 복습 루트 체크리스트 + 진행률
-- [ ] 교수자: 루트 관리 (수동 승인 모드 시)
-- [ ] 간격 반복: 5주기 스케줄 생성 + due 조회 + 미니 퀴즈
+- [x] `ReviewRoute` + `SpacedRepetitionItem` 모델 생성 → `models/adaptive.py:45, 72`
+- [x] 세션 종료 시 복습 루트 자동 생성 (AUTO_APPROVED 기본) → `live_views.py` \_generate_live_note 후단
+- [x] 학습자: 복습 루트 체크리스트 + 진행률 → `LearningView.vue` review-route-card
+- [x] 교수자: 루트 관리 (수동 승인 모드 시) → `review_views.py` PendingReviewRoutesView
+- [x] 간격 반복: 5주기 스케줄 생성 + due 조회 + 미니 퀴즈 → `review_views.py` SpacedRepetitionDueView, CompleteSpacedRepView
 
 ### Phase 2-4. Formative Assessment
 
-- [ ] `FormativeAssessment` + `FormativeResponse` 모델 생성
-- [ ] AI 형성평가 자동 생성 (노트 기반 3~5문항)
-- [ ] 교수자: 문항 검토 + 승인 & 배포
-- [ ] 학습자: 풀이 + 결과 + 오답→노트 바로가기
-- [ ] 오답 concept_tag → StudentSkill 매핑 + 갭 맵 업데이트
-- [ ] 오답 → SpacedRepetitionItem 5주기 자동 등록
+- [x] `FormativeAssessment` + `FormativeResponse` 모델 생성 → `models/adaptive.py:97, 130`
+- [x] AI 형성평가 자동 생성 (노트 기반 3~5문항) → `formative_views.py` GenerateFormativeView
+- [x] 교수자: 문항 검토 + 승인 & 배포 → `LectureDetailView.vue` formative-section
+- [x] 학습자: 풀이 + 결과 + 오답→노트 바로가기 → `LearningView.vue` formative-card
+- [x] 오답 concept_tag → StudentSkill 매핑 + 갭 맵 업데이트 → `formative_views.py` \_update_gap_map
+- [x] 오답 → SpacedRepetitionItem 5주기 자동 등록 → `formative_views.py` \_create_sr_from_wrong

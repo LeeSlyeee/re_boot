@@ -94,6 +94,7 @@ class NoteApproveView(APIView):
     """
     POST /api/learning/live/{id}/note/approve/
     교수자가 노트를 검토 후 승인 → 학생에게 공개
+    B4: 배포 범위(scope) 선택 지원
     """
     permission_classes = [IsAuthenticated]
 
@@ -106,15 +107,24 @@ class NoteApproveView(APIView):
 
         note.is_approved = True
         note.approved_at = timezone.now()
-        # 결석생 공개 여부 (선택)
-        make_public = request.data.get('is_public', False)
+
+        # B4: 배포 범위 선택
+        # scope: 'ALL' (전체), 'ATTENDEES' (출석자만), 'ABSENT' (결석자만), 'LEVEL_1/2/3' (특정 레벨만)
+        scope = request.data.get('scope', 'ALL')
+        make_public = request.data.get('is_public', scope in ('ALL', 'ABSENT'))
         note.is_public = make_public
+
+        # stats에 scope 정보 저장
+        current_stats = note.stats or {}
+        current_stats['distribution_scope'] = scope
+        note.stats = current_stats
         note.save()
 
         return Response({
             'ok': True,
             'is_approved': True,
             'is_public': note.is_public,
+            'scope': scope,
             'approved_at': note.approved_at,
         })
 
@@ -183,6 +193,7 @@ class AbsentNoteListView(APIView):
                 'session_date': n.live_session.started_at,
                 'content': n.content,
                 'stats': n.stats,
+                'has_self_test': True,  # C1: 셀프 테스트 가능 표시
                 'linked_materials': [
                     {'id': m.id, 'title': m.title, 'file_type': m.file_type, 'file_url': m.file.url if m.file else ''}
                     for m in n.linked_materials.all()
@@ -195,3 +206,52 @@ class AbsentNoteListView(APIView):
             'absent_notes': data,
             'total': len(data),
         })
+
+
+class AbsentSelfTestView(APIView):
+    """
+    POST /api/learning/absent-notes/{note_id}/self-test/
+    C1: 결석생 셀프 테스트 — 노트 내용 기반 미니 퀴즈 3문항 AI 생성
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, note_id):
+        import openai
+        import os
+        import json
+
+        note = get_object_or_404(LiveSessionNote, id=note_id, is_public=True, is_approved=True, status='DONE')
+        session = note.live_session
+
+        # 참가자가 아닌 학생만 (결석생)
+        if session.participants.filter(student=request.user).exists():
+            return Response({'error': '출석한 세션입니다. 셀프 테스트 대상이 아닙니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+            response = client.chat.completions.create(
+                model='gpt-4o-mini',
+                messages=[
+                    {'role': 'system', 'content': (
+                        '아래 강의 노트를 읽은 결석생이 핵심 내용을 이해했는지 확인하는 '
+                        '미니 퀴즈 3문항(4지선다)을 생성하세요.\n'
+                        '반드시 아래 JSON 배열 형식으로만 응답하세요:\n'
+                        '[{"question":"문제","options":["A","B","C","D"],"correct_answer":"정답","explanation":"해설"}, ...]'
+                    )},
+                    {'role': 'user', 'content': f'강의 노트:\n{note.content[:4000]}'}
+                ],
+                temperature=0.5,
+                max_tokens=1500,
+            )
+            raw = response.choices[0].message.content.strip()
+            if '```' in raw:
+                raw = raw.split('```')[1]
+                if raw.startswith('json'):
+                    raw = raw[4:]
+            questions = json.loads(raw)
+            return Response({'questions': questions, 'note_id': note_id})
+
+        except Exception as e:
+            return Response({'error': f'셀프 테스트 생성 실패: {str(e)}'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+

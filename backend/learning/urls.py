@@ -4,7 +4,8 @@ from .views import LearningSessionViewSet, EnrollLectureView, PublicLectureListV
 from .views_assessment import AssessmentViewSet
 from .professor_views import LectureViewSet
 from .rag_views import RAGViewSet
-from .live_views import LiveSessionViewSet, JoinLiveSessionView, LectureMaterialViewSet, LiveNoteView, NoteApproveView, NoteMaterialLinkView, AbsentNoteListView
+from .live_views import LiveSessionViewSet, JoinLiveSessionView, LectureMaterialViewSet, LiveNoteView, NoteApproveView, NoteMaterialLinkView, AbsentNoteListView, StudentSessionSummaryView
+from .note_views import AbsentSelfTestView
 from .placement_views import PlacementViewSet, GoalViewSet, GapMapViewSet, ProfessorDiagnosticView
 from .review_views import (
     MyReviewRoutesView, CompleteReviewItemView, PendingReviewRoutesView,
@@ -46,6 +47,10 @@ urlpatterns = [
     path('live/<int:pk>/note/approve/', NoteApproveView.as_view(), name='note-approve'),
     path('live/<int:pk>/note/materials/', NoteMaterialLinkView.as_view(), name='note-materials'),
     path('absent-notes/<int:lecture_id>/', AbsentNoteListView.as_view(), name='absent-notes'),
+    # B2: 학생 개인 세션 요약
+    path('live/<int:session_id>/my-summary/', StudentSessionSummaryView.as_view(), name='student-session-summary'),
+    # C1: 결석생 셀프 테스트
+    path('absent-notes/<int:note_id>/self-test/', AbsentSelfTestView.as_view(), name='absent-self-test'),
     # Phase 1: 교수자 진단 분석
     path('professor/<int:lecture_id>/diagnostics/', ProfessorDiagnosticView.as_view(), name='professor-diagnostics'),
     # Phase 2-3: 복습 루트 + 간격 반복

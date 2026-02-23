@@ -59,6 +59,72 @@ const leaveLiveSession = () => {
     mode.value = null;
 };
 
+// C3: QR 스캔 입장
+const qrScanning = ref(false);
+const qrVideo = ref(null);
+let qrStream = null;
+let qrAnimFrame = null;
+
+const startQRScan = async () => {
+    if (!('BarcodeDetector' in window)) {
+        // Fallback: BarcodeDetector 미지원 브라우저
+        const code = prompt('이 브라우저는 QR 스캔을 지원하지 않습니다.\n6자리 코드를 직접 입력하세요:');
+        if (code && code.length === 6) { liveSessionCode.value = code.toUpperCase(); }
+        return;
+    }
+    try {
+        qrScanning.value = true;
+        qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        await nextTick();
+        if (qrVideo.value) {
+            qrVideo.value.srcObject = qrStream;
+            const detector = new BarcodeDetector({ formats: ['qr_code'] });
+            const scanFrame = async () => {
+                if (!qrScanning.value) return;
+                try {
+                    const barcodes = await detector.detect(qrVideo.value);
+                    if (barcodes.length > 0) {
+                        const raw = barcodes[0].rawValue;
+                        // QR에서 ?live=XXXXXX 또는 6자리 코드 자체 추출
+                        let code = '';
+                        if (raw.includes('live=')) code = raw.split('live=')[1].substring(0, 6);
+                        else if (raw.length === 6) code = raw;
+                        if (code) {
+                            liveSessionCode.value = code.toUpperCase();
+                            stopQRScan();
+                            const ok = await joinLiveSession();
+                            if (ok) mode.value = 'live';
+                            return;
+                        }
+                    }
+                } catch {}
+                qrAnimFrame = requestAnimationFrame(scanFrame);
+            };
+            scanFrame();
+        }
+    } catch (e) {
+        alert('카메라 접근이 거부되었습니다.');
+        qrScanning.value = false;
+    }
+};
+
+const stopQRScan = () => {
+    qrScanning.value = false;
+    if (qrStream) { qrStream.getTracks().forEach(t => t.stop()); qrStream = null; }
+    if (qrAnimFrame) { cancelAnimationFrame(qrAnimFrame); qrAnimFrame = null; }
+};
+
+// B2: 학생 개인 세션 요약
+const mySessionSummary = ref(null);
+
+const fetchMySessionSummary = async () => {
+    if (!liveSessionData.value || liveSessionData.value.status !== 'ENDED') return;
+    try {
+        const { data } = await api.get(`/learning/live/${liveSessionData.value.id}/my-summary/`);
+        mySessionSummary.value = data;
+    } catch {}
+};
+
 const renderMarkdown = (text) => {
     if (!text) return '';
     return text
@@ -1020,12 +1086,20 @@ const openSessionReview = (id) => {
                 <div v-else-if="mode === 'live' && !liveSessionData">
                     <div class="back-link" @click="mode = null">← 뒤로가기</div>
                     <h2 class="text-headline">라이브 세션 입장</h2>
-                    <p style="text-align:center; color:#aaa; margin-bottom:20px;">교수자가 알려준 6자리 코드를 입력하세요.</p>
+                    <p style="text-align:center; color:#aaa; margin-bottom:20px;">교수자가 알려준 6자리 코드를 입력하거나 QR을 스쮨하세요.</p>
                     <div class="input-group">
                         <input type="text" v-model="liveSessionCode" placeholder="코드 입력 (예: A3F2K9)" maxlength="6" 
                             style="text-align:center; font-size:24px; letter-spacing:8px; font-weight:700; text-transform:uppercase;" 
                             @keyup.enter="joinLiveSession" />
                         <button class="btn btn-primary" @click="async () => { const ok = await joinLiveSession(); if(ok) mode = 'live'; }">입장하기</button>
+                    </div>
+                    <!-- C3: QR 스캔 버튼 -->
+                    <div style="text-align:center; margin-top:16px;">
+                        <button class="btn btn-secondary" @click="startQRScan" style="font-size:14px;">📷 QR 코드 스캔</button>
+                        <div v-if="qrScanning" class="qr-scanner-box">
+                            <video ref="qrVideo" autoplay playsinline style="width:100%; max-width:300px; border-radius:12px;"></video>
+                            <button class="btn btn-secondary" @click="stopQRScan" style="margin-top:8px;">取소</button>
+                        </div>
                     </div>
                 </div>
 
@@ -1055,6 +1129,23 @@ const openSessionReview = (id) => {
                 
                 <!-- 세션 종료 + 통합 노트 -->
                 <div v-if="liveSessionData.status === 'ENDED'" class="session-ended-notice">
+                    <!-- B2: 개인 요약 카드 -->
+                    <div v-if="mySessionSummary" class="personal-summary-card">
+                        <h4>📊 내 수업 요약</h4>
+                        <p class="summary-message">{{ mySessionSummary.message }}</p>
+                        <div class="summary-stats">
+                            <span v-if="mySessionSummary.quiz_accuracy !== null">🎯 퀴즈 {{ mySessionSummary.quiz_accuracy }}%</span>
+                            <span v-if="mySessionSummary.pulse_confused_rate > 0">😕 혼란 {{ mySessionSummary.pulse_confused_rate }}%</span>
+                        </div>
+                        <div v-if="mySessionSummary.wrong_concepts.length > 0" class="wrong-concepts">
+                            <p style="font-size:12px; color:#ef4444; margin:4px 0;">❌ 오답 개념:</p>
+                            <span v-for="(c,i) in mySessionSummary.wrong_concepts" :key="i" class="wrong-chip">{{ c }}</span>
+                        </div>
+                    </div>
+                    <div v-else>
+                        {{ fetchMySessionSummary() || '' }}
+                    </div>
+
                     <p v-if="!liveNote">📋 수업이 종료되었습니다. 통합 노트를 생성하고 있습니다...</p>
                     <div v-else-if="liveNote.status === 'PENDING'" class="note-loading">
                         <p>📝 AI가 통합 노트를 작성하고 있습니다... 잠시만 기다려주세요.</p>
@@ -1225,6 +1316,17 @@ const openSessionReview = (id) => {
                     <p><strong>내 답:</strong> {{ quizResult.your_answer }}</p>
                     <p><strong>정답:</strong> {{ quizResult.correct_answer }}</p>
                     <p v-if="quizResult.explanation" class="quiz-explanation">💡 {{ quizResult.explanation }}</p>
+                    <!-- A3: 오답 시 보충 설명 -->
+                    <div v-if="!quizResult.is_correct && quizResult.supplement_content" class="supplement-box">
+                        <p class="supplement-title">📚 보충 설명</p>
+                        <p class="supplement-text">{{ quizResult.supplement_content }}</p>
+                    </div>
+                    <div v-if="!quizResult.is_correct && quizResult.related_materials" class="supplement-materials">
+                        <p class="supplement-title">📎 관련 교안</p>
+                        <span v-for="m in quizResult.related_materials" :key="m.id" class="material-chip">
+                            {{ m.title }} ({{ m.file_type }})
+                        </span>
+                    </div>
                     <button class="btn btn-primary" @click="dismissQuizResult">확인</button>
                 </div>
             </div>
@@ -2381,6 +2483,38 @@ const openSessionReview = (id) => {
 .quiz-countdown { font-size: 20px; font-weight: 700; color: #3b82f6; }
 .quiz-countdown.urgent { color: #ef4444; animation: pulse-warn 0.5s infinite; }
 @keyframes pulse-warn { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+
+/* A3: 오답 보충 설명 */
+.supplement-box {
+    margin-top: 12px; padding: 12px; background: #fef3c7;
+    border: 1px solid #f59e0b; border-radius: 8px;
+}
+.supplement-title { font-size: 13px; font-weight: 700; color: #92400e; margin: 0 0 6px; }
+.supplement-text { font-size: 13px; color: #78350f; margin: 0; }
+.supplement-materials { margin-top: 8px; }
+.material-chip {
+    display: inline-block; padding: 3px 8px; margin: 3px 3px;
+    background: #dbeafe; color: #1e40af; border-radius: 6px; font-size: 11px;
+}
+
+/* B2: 개인 요약 카드 */
+.personal-summary-card {
+    padding: 16px; background: linear-gradient(135deg, #eff6ff, #dbeafe);
+    border: 1px solid #93c5fd; border-radius: 12px; margin-bottom: 16px;
+}
+.personal-summary-card h4 { margin: 0 0 8px; font-size: 16px; color: #1e40af; }
+.summary-message { font-size: 13px; color: #1e3a5f; margin: 0 0 8px; line-height: 1.6; }
+.summary-stats { display: flex; gap: 16px; font-size: 13px; font-weight: 600; color: #3b82f6; }
+.wrong-concepts { margin-top: 6px; }
+.wrong-chip {
+    display: inline-block; padding: 2px 8px; margin: 2px;
+    background: #fee2e2; color: #dc2626; border-radius: 6px; font-size: 11px;
+}
+
+/* C3: QR 스캐너 */
+.qr-scanner-box {
+    margin-top: 12px; display: flex; flex-direction: column; align-items: center;
+}
 
 /* ── Live Note ── */
 .note-loading { text-align: center; padding: 20px; }

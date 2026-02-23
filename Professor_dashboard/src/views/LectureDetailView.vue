@@ -308,16 +308,18 @@ const renderInsightMarkdown = (text) => {
 // ── Step E: 승인 + 교안 매핑 ──
 const makePublicForAbsent = ref(true);
 const selectedMaterialIds = ref([]);
+const noteDistributionScope = ref('ALL');  // B4: 배포 범위
 
 const approveNote = async () => {
     if (!liveSession.value) return;
     try {
         const { data } = await api.post(`/learning/live/${liveSession.value.id}/note/approve/`, {
             is_public: makePublicForAbsent.value,
+            scope: noteDistributionScope.value,  // B4: 배포 범위 전송
         });
         if (data.ok) {
             insightData.value = { ...insightData.value, is_approved: true, is_public: data.is_public };
-            alert('노트가 승인되어 학생에게 공개됩니다.');
+            alert(`노트가 승인되었습니다. (범위: ${data.scope})`);
         }
     } catch (e) { alert('승인 실패: ' + (e.response?.data?.error || '')); }
 };
@@ -860,6 +862,14 @@ const uploadMaterial = async (e) => {
 const deleteMaterial = async (id) => {
     if (!confirm('교안을 삭제하시겠습니까?')) return;
     try { await api.delete(`/learning/materials/${id}/delete/`); await fetchMaterials(); } catch { alert('삭제 실패'); }
+};
+
+// A4: 퀴즈 결과 프로젝터 공유 (전체화면)
+const projectQuizResult = () => {
+    const el = document.querySelector('.quiz-result-card');
+    if (!el) { alert('표시할 퀴즈 결과가 없습니다.'); return; }
+    if (el.requestFullscreen) el.requestFullscreen();
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
 };
 
 // ── Recording Upload Data ──
@@ -1485,6 +1495,7 @@ onMounted(fetchDashboard);
                     <span class="status-badge" :class="liveSession.status">
                         {{ liveSession.status === 'WAITING' ? '⏳ 대기 중' : liveSession.status === 'LIVE' ? '🔴 진행 중' : '종료됨' }}
                     </span>
+                    <span v-if="liveSession.week_number" class="week-badge">📅 {{ liveSession.week_number }}차시</span>
                     <span class="participant-count">
                         👥 {{ liveSession.active_participants || 0 }}명 참가 중
                     </span>
@@ -1579,6 +1590,7 @@ onMounted(fetchDashboard);
                             <div class="result-fill" :style="{ width: activeQuizResult.response_rate + '%' }"></div>
                         </div>
                         <p class="quiz-meta">{{ activeQuizResult.total_responses }}/{{ activeQuizResult.total_participants }}명 응답</p>
+                        <button class="btn-projector" @click="projectQuizResult" title="전체화면으로 공유">📺 프로젝터 공유</button>
                     </div>
 
                     <!-- 퀴즈 발동 버튼 -->
@@ -1610,6 +1622,7 @@ onMounted(fetchDashboard);
                         <div v-for="p in liveParticipants" :key="p.id" class="participant-chip" :class="{ active: p.is_active }">
                             <span class="dot" :class="{ online: p.is_active }"></span>
                             {{ p.username }}
+                            <span v-if="p.level" class="level-badge" :class="'level-' + p.level">Lv{{ p.level }}</span>
                         </div>
                     </div>
                 </div>
@@ -1751,6 +1764,14 @@ onMounted(fetchDashboard);
                                 <input type="checkbox" v-model="makePublicForAbsent" />
                                 결석생에게도 공개 (결석 보충용)
                             </label>
+                            <select v-model="noteDistributionScope" class="scope-select">
+                                <option value="ALL">🌐 전체 공개</option>
+                                <option value="ATTENDEES">✅ 출석자만</option>
+                                <option value="ABSENT">📩 결석생만</option>
+                                <option value="LEVEL_1">🌱 Level 1만</option>
+                                <option value="LEVEL_2">🌿 Level 2만</option>
+                                <option value="LEVEL_3">🌸 Level 3만</option>
+                            </select>
                         </div>
                         <button class="btn-approve" @click="approveNote">✅ 노트 승인 → 학생 공개</button>
                     </div>
@@ -2381,6 +2402,43 @@ tr:hover td { background: #fafbfc; }
 .participant-chip.active { background: #f0fdf4; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: #d1d5db; }
 .dot.online { background: #22c55e; }
+
+/* A1: 학생 레벨 배지 */
+.level-badge {
+    font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px;
+    margin-left: 4px; color: white;
+}
+.level-badge.level-1 { background: #f59e0b; }
+.level-badge.level-2 { background: #3b82f6; }
+.level-badge.level-3 { background: #8b5cf6; }
+
+/* A2: 차시 배지 */
+.week-badge {
+    font-size: 12px; font-weight: 600; color: #6366f1;
+    background: #eef2ff; padding: 3px 10px; border-radius: 12px;
+}
+
+/* A4: 프로젝터 공유 버튼 */
+.btn-projector {
+    margin-top: 8px; padding: 6px 14px; background: #1e1b4b; color: white;
+    border: none; border-radius: 6px; font-size: 12px; cursor: pointer;
+    transition: background 0.2s;
+}
+.btn-projector:hover { background: #312e81; }
+.quiz-result-card:fullscreen {
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    background: #0f172a; color: white; padding: 40px; font-size: 24px;
+}
+.quiz-result-card:fullscreen .quiz-q { font-size: 28px; }
+.quiz-result-card:fullscreen .quiz-accuracy { font-size: 40px; font-weight: 800; }
+.quiz-result-card:fullscreen .quiz-meta { font-size: 20px; }
+.quiz-result-card:fullscreen .btn-projector { display: none; }
+
+/* B4: 배포 범위 선택 */
+.scope-select {
+    margin-left: 12px; padding: 6px 10px; border: 1px solid #d1d5db;
+    border-radius: 8px; font-size: 13px; background: white; cursor: pointer;
+}
 
 .materials-section {
     margin-top: 24px; padding-top: 24px; border-top: 1px solid #eee;
