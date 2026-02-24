@@ -363,11 +363,29 @@ onMounted(fetchCurriculums);
 
 // ═══ Tabs ═══
 .cv-tabs {
-    display: flex; gap: 8px; margin-bottom: 24px;
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+    &::-webkit-scrollbar { display: none; }
 }
 .cv-tab {
-    padding: 8px 16px; background: #1a1a1a; border: 1px solid #333;
-    border-radius: 20px; color: #888; cursor: pointer; font-size: 13px;
+    padding: 8px 16px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 20px;
+    color: #888;
+    cursor: pointer;
+    font-size: 13px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     &.active { background: #1e3a5f; border-color: #4facfe; color: white; }
     &:hover:not(.active) { border-color: #555; }
 }

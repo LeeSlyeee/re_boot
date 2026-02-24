@@ -365,14 +365,16 @@ class Command(BaseCommand):
     def _test_curriculum(self, student, lecture):
         from learning.models import Curriculum, CurriculumItem, ReroutingLog
 
-        # 커리큘럼 생성
-        curriculum = Curriculum.objects.create(
+        # 커리큘럼 생성 (중복 방지)
+        curriculum, created = Curriculum.objects.get_or_create(
             student=student,
             title='웹 개발 마스터 로드맵',
-            course_name='풀스택 웹 개발',
-            target_date=(timezone.now() + timedelta(days=90)).date(),
+            defaults={
+                'course_name': '풀스택 웹 개발',
+                'target_date': (timezone.now() + timedelta(days=90)).date(),
+            }
         )
-        self._check('Curriculum 생성', curriculum.id is not None)
+        self._check('Curriculum 생성/조회', curriculum.id is not None)
 
         # 아이템 추가
         items_data = [
