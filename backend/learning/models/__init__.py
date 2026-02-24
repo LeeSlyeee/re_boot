@@ -10,6 +10,7 @@ from .base import (
     Syllabus,
     LearningObjective,
     StudentChecklist,
+    LectureNote,
 )
 
 # === 학습 세션 모델 ===
@@ -69,9 +70,18 @@ from .placement import (
     SkillBlock,
 )
 
+# === AI 튜터 챗봇 + 커리큘럼 리라우팅 모델 ===
+from .curriculum import (
+    AIChatSession,
+    AIChatMessage,
+    Curriculum,
+    CurriculumItem,
+    ReroutingLog,
+)
+
 __all__ = [
     # base
-    'VectorStore', 'Lecture', 'Syllabus', 'LearningObjective', 'StudentChecklist',
+    'VectorStore', 'Lecture', 'Syllabus', 'LearningObjective', 'StudentChecklist', 'LectureNote',
     # session
     'LearningSession', 'STTLog', 'SessionSummary', 'RecordingUpload',
     # quiz
@@ -88,4 +98,7 @@ __all__ = [
     # placement
     'Skill', 'CareerGoal', 'PlacementQuestion', 'PlacementResult',
     'StudentGoal', 'StudentSkill', 'SkillBlock',
+    # curriculum & AI chat
+    'AIChatSession', 'AIChatMessage',
+    'Curriculum', 'CurriculumItem', 'ReroutingLog',
 ]

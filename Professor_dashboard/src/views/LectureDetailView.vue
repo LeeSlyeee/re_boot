@@ -305,6 +305,41 @@ const renderInsightMarkdown = (text) => {
         .replace(/\n/g, '<br/>');
 };
 
+const renderMarkdown = (text) => {
+    if (!text) return '';
+    let html = text;
+    // 코드블록 (```)
+    html = html.replace(/```([\s\S]*?)```/g, '<pre style="background:#f3f4f6;padding:12px;border-radius:8px;overflow-x:auto;font-size:13px;">$1</pre>');
+    // 인라인 코드
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // 헤더
+    html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    // 볼드 / 이탤릭
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // 테이블 (간단 지원)
+    html = html.replace(/\|(.+)\|/g, (match) => {
+        if (match.includes('---')) return '';
+        const cells = match.split('|').filter(c => c.trim());
+        const cellHtml = cells.map(c => `<td style="border:1px solid #e5e7eb;padding:6px 10px;">${c.trim()}</td>`).join('');
+        return `<tr>${cellHtml}</tr>`;
+    });
+    // 리스트
+    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/^• (.+)$/gm, '<li>$1</li>');
+    // 블록인용
+    html = html.replace(/^> (.+)$/gm, '<blockquote style="border-left:3px solid #4facfe;padding-left:12px;color:#666;margin:8px 0;">$1</blockquote>');
+    // 수평선
+    html = html.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;">');
+    // 줄바꿈
+    html = html.replace(/\n/g, '<br/>');
+    return html;
+};
+
 // ── Step E: 승인 + 교안 매핑 ──
 const makePublicForAbsent = ref(true);
 const selectedMaterialIds = ref([]);
@@ -384,14 +419,17 @@ const generateFormative = async () => {
 // ── Phase 2-2: Adaptive Content ──
 const adaptiveGenerating = ref({});
 const adaptiveContents = ref({});
+const adaptivePreview = ref(null); // { materialId, level, title, content, status, acId }
 
 const generateAdaptive = async (materialId) => {
     adaptiveGenerating.value = { ...adaptiveGenerating.value, [materialId]: true };
     try {
         const { data } = await api.post(`/learning/materials/${materialId}/generate-adaptive/`);
         adaptiveContents.value = { ...adaptiveContents.value, [materialId]: data.levels };
+        // 생성 후 전체 내용 다시 fetch (content 포함)
+        await fetchAdaptiveContents(materialId);
     } catch (e) {
-        alert('AI 변형 생성 실패');
+        alert('AI 변형 생성 실패: ' + (e.response?.data?.error || e.message));
     }
     adaptiveGenerating.value = { ...adaptiveGenerating.value, [materialId]: false };
 };
@@ -403,11 +441,36 @@ const fetchAdaptiveContents = async (materialId) => {
     } catch (e) { /* silent */ }
 };
 
+// 교안 로드 후 기존 변형도 자동 로드
+const fetchAllAdaptive = async () => {
+    for (const m of materials.value) {
+        await fetchAdaptiveContents(m.id);
+    }
+};
+
 const approveAdaptive = async (acId, materialId) => {
     try {
         await api.post(`/learning/adaptive/${acId}/approve/`);
         await fetchAdaptiveContents(materialId);
+        if (adaptivePreview.value && adaptivePreview.value.acId === acId) {
+            adaptivePreview.value.status = 'APPROVED';
+        }
     } catch (e) { alert('승인 실패'); }
+};
+
+const openAdaptivePreview = (ac, materialId) => {
+    adaptivePreview.value = {
+        materialId,
+        level: ac.level,
+        title: ac.title || `Level ${ac.level}`,
+        content: ac.content || ac.content_preview || '(내용 없음)',
+        status: ac.status,
+        acId: ac.id,
+    };
+};
+
+const closeAdaptivePreview = () => {
+    adaptivePreview.value = null;
 };
 
 // ── Phase 3: Analytics State ──
@@ -845,7 +908,12 @@ const pulseWarning = computed(() => {
 });
 
 const fetchMaterials = async () => {
-    try { const { data } = await api.get(`/learning/materials/list/?lecture_id=${lectureId}`); materials.value = data; } catch {}
+    try {
+        const { data } = await api.get(`/learning/materials/list/?lecture_id=${lectureId}`);
+        materials.value = data;
+        // 기존 변형 자동 로드
+        await fetchAllAdaptive();
+    } catch {}
 };
 
 const uploadMaterial = async (e) => {
@@ -1051,6 +1119,25 @@ onMounted(fetchDashboard);
         <!-- Tab 1: 진도 모니터링 (기존) -->
         <!-- ══════════════════════════════════════ -->
         <div v-if="activeTab === 'monitor'">
+            <!-- 🚨 위험 학생 신호등 카드 -->
+            <div class="traffic-light-cards" v-if="students.length > 0">
+                <div class="tl-card tl-critical">
+                    <span class="tl-icon">🔴</span>
+                    <span class="tl-count">{{ students.filter(s => s.status === 'critical').length }}</span>
+                    <span class="tl-label">위험 (30%↓)</span>
+                </div>
+                <div class="tl-card tl-warning">
+                    <span class="tl-icon">🟡</span>
+                    <span class="tl-count">{{ students.filter(s => s.status === 'warning').length }}</span>
+                    <span class="tl-label">주의 (30~60%)</span>
+                </div>
+                <div class="tl-card tl-good">
+                    <span class="tl-icon">🟢</span>
+                    <span class="tl-count">{{ students.filter(s => s.status === 'good').length }}</span>
+                    <span class="tl-label">양호 (60%↑)</span>
+                </div>
+            </div>
+
             <div class="chart-container" v-if="students.length > 0">
                 <Bar :data="chartData" :options="chartOptions" />
             </div>
@@ -1073,7 +1160,7 @@ onMounted(fetchDashboard);
                             </td>
                             <td>
                                 <span class="status-badge" :class="student.status">
-                                    {{ student.status.toUpperCase() }}
+                                    {{ student.status === 'critical' ? '🔴 위험' : student.status === 'warning' ? '🟡 주의' : '🟢 양호' }}
                                 </span>
                             </td>
                             <td>
@@ -1685,24 +1772,59 @@ onMounted(fetchDashboard);
                 <h3>📄 교안 관리</h3>
                 <div class="material-upload-area">
                     <label class="upload-label">
-                        <input type="file" accept=".pdf,.ppt,.pptx,.md,.markdown" @change="uploadMaterial" hidden />
+                        <input type="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.md,.markdown,.txt,.hwp" @change="uploadMaterial" hidden />
                         {{ materialUploading ? '업로드 중...' : '+ 교안 파일 업로드' }}
                     </label>
                 </div>
                 <div v-if="materials.length > 0" class="material-list">
-                    <div v-for="m in materials" :key="m.id" class="material-item">
-                        <span class="material-type">{{ m.file_type }}</span>
-                        <span class="material-title">{{ m.title }}</span>
-                        <button class="btn-adaptive-gen" @click="generateAdaptive(m.id)" :disabled="adaptiveGenerating[m.id]" title="레벨별 AI 변형">
-                            {{ adaptiveGenerating[m.id] ? '⏳' : '🔄' }}
-                        </button>
-                        <button class="btn-material-delete" @click="deleteMaterial(m.id)">×</button>
-                        <!-- 변형 목록 -->
-                        <div v-if="adaptiveContents[m.id] && adaptiveContents[m.id].length > 0" class="adaptive-levels">
-                            <span v-for="ac in adaptiveContents[m.id]" :key="ac.id" class="adaptive-badge" :class="'ac-' + ac.status.toLowerCase()">
-                                L{{ ac.level }}
-                                <button v-if="ac.status === 'DRAFT'" class="ac-approve-btn" @click="approveAdaptive(ac.id, m.id)">✓</button>
-                            </span>
+                    <div v-for="m in materials" :key="m.id" class="material-card">
+                        <div class="material-card-header">
+                            <span class="material-type">{{ m.file_type }}</span>
+                            <span class="material-title">{{ m.title }}</span>
+                            <button class="btn-adaptive-gen" @click="generateAdaptive(m.id)" :disabled="adaptiveGenerating[m.id]" title="레벨별 AI 변형 생성">
+                                {{ adaptiveGenerating[m.id] ? '⏳ 생성 중...' : '🤖 AI 변형 생성' }}
+                            </button>
+                            <button class="btn-material-delete" @click="deleteMaterial(m.id)" title="삭제">✕</button>
+                        </div>
+
+                        <!-- 레벨별 변형 카드 -->
+                        <div v-if="adaptiveContents[m.id] && adaptiveContents[m.id].length > 0" class="adaptive-card-list">
+                            <div v-for="ac in adaptiveContents[m.id]" :key="ac.id" 
+                                 class="adaptive-card-item" :class="'ac-card-' + ac.status.toLowerCase()"
+                                 @click="openAdaptivePreview(ac, m.id)">
+                                <span class="ac-card-icon" :class="'ac-icon-' + ac.level">{{
+                                    ac.level === 1 ? '🌱' : ac.level === 2 ? '📚' : '🚀'
+                                }}</span>
+                                <div class="ac-card-info">
+                                    <span class="ac-card-level">{{
+                                        ac.level === 1 ? 'Level 1 — 쉽게 이해하기' : ac.level === 2 ? 'Level 2 — 핵심 정리' : 'Level 3 — 심화 완성'
+                                    }}</span>
+                                    <span class="ac-card-status" :class="ac.status === 'APPROVED' ? 'st-approved' : 'st-draft'">
+                                        {{ ac.status === 'APPROVED' ? '✅ 승인됨' : '📝 초안' }}
+                                    </span>
+                                </div>
+                                <button v-if="ac.status === 'DRAFT'" class="ac-card-approve-btn" @click.stop="approveAdaptive(ac.id, m.id)" title="승인">✅ 승인</button>
+                                <span class="ac-card-arrow">›</span>
+                            </div>
+                        </div>
+
+                        <!-- 적응형 콘텐츠 미리보기 모달 -->
+                        <div v-if="adaptivePreview && adaptivePreview.materialId === m.id" class="adaptive-preview-overlay" @click.self="closeAdaptivePreview">
+                            <div class="adaptive-preview-modal">
+                                <div class="apm-header">
+                                    <span class="apm-level-badge" :class="'apm-level-' + adaptivePreview.level">Level {{ adaptivePreview.level }}</span>
+                                    <span class="apm-title">{{ adaptivePreview.title }}</span>
+                                    <span :class="['apm-status', adaptivePreview.status === 'APPROVED' ? 'apm-approved' : 'apm-draft']">
+                                        {{ adaptivePreview.status === 'APPROVED' ? '✅ 승인됨' : '📝 초안' }}
+                                    </span>
+                                    <button class="apm-close" @click="closeAdaptivePreview">✕</button>
+                                </div>
+                                <div class="apm-content" v-html="renderMarkdown(adaptivePreview.content)"></div>
+                                <div class="apm-actions">
+                                    <button v-if="adaptivePreview.status === 'DRAFT'" class="btn-apm-approve" @click="approveAdaptive(adaptivePreview.acId, adaptivePreview.materialId)">✅ 승인하기</button>
+                                    <button class="btn-apm-close" @click="closeAdaptivePreview">닫기</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2105,7 +2227,22 @@ onMounted(fetchDashboard);
 .flex-2 { flex: 2; }
 .flex-1 { flex: 1; }
 
-/* ── Tables ── */
+/* 🚨 위험 학생 신호등 */
+.traffic-light-cards { display: flex; gap: 16px; margin-bottom: 24px; }
+.tl-card {
+    flex: 1; display: flex; align-items: center; gap: 12px;
+    padding: 16px 20px; border-radius: 12px; border: 1px solid #eee;
+    background: white; box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+.tl-icon { font-size: 28px; }
+.tl-count { font-size: 32px; font-weight: 800; }
+.tl-label { font-size: 13px; color: #888; }
+.tl-critical { border-left: 4px solid #ef4444; }
+.tl-critical .tl-count { color: #dc2626; }
+.tl-warning { border-left: 4px solid #f59e0b; }
+.tl-warning .tl-count { color: #d97706; }
+.tl-good { border-left: 4px solid #22c55e; }
+.tl-good .tl-count { color: #16a34a; }
 .table-container { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 1px solid #eee; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 15px; text-align: left; border-bottom: 1px solid #f0f0f0; }
@@ -2451,21 +2588,63 @@ tr:hover td { background: #fafbfc; }
     font-size: 13px; color: #555; transition: background 0.2s;
 }
 .upload-label:hover { background: #e5e7eb; }
-.material-list { display: flex; flex-direction: column; gap: 8px; }
-.material-item {
-    display: flex; align-items: center; gap: 12px;
-    padding: 10px 14px; background: #fafafa; border-radius: 8px;
+.material-list { display: flex; flex-direction: column; gap: 12px; }
+.material-card {
+    background: #fff; border-radius: 12px; border: 1px solid #e5e7eb;
+    overflow: hidden; transition: box-shadow 0.2s;
+}
+.material-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+.material-card-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; background: #fafafa; border-bottom: 1px solid #f0f0f0;
 }
 .material-type {
-    background: #dbeafe; color: #1e40af; padding: 2px 8px;
-    border-radius: 4px; font-size: 11px; font-weight: 600;
+    background: #dbeafe; color: #1e40af; padding: 3px 10px;
+    border-radius: 6px; font-size: 11px; font-weight: 700; white-space: nowrap;
 }
-.material-title { flex: 1; font-size: 13px; }
+.material-title { flex: 1; font-size: 14px; font-weight: 500; color: #333; }
+.btn-adaptive-gen {
+    padding: 6px 14px; background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff; border: none; border-radius: 8px; font-size: 12px;
+    font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.2s;
+}
+.btn-adaptive-gen:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.3); }
+.btn-adaptive-gen:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 .btn-material-delete {
-    background: none; border: none; color: #aaa; font-size: 18px;
-    cursor: pointer; padding: 0 4px;
+    background: none; border: none; color: #bbb; font-size: 16px;
+    cursor: pointer; padding: 4px 6px; border-radius: 4px; transition: all 0.15s;
 }
-.btn-material-delete:hover { color: #ef4444; }
+.btn-material-delete:hover { color: #ef4444; background: #fef2f2; }
+
+/* 레벨별 변형 카드 */
+.adaptive-card-list {
+    display: flex; flex-direction: column;
+}
+.adaptive-card-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; cursor: pointer;
+    border-bottom: 1px solid #f3f4f6; transition: background 0.15s;
+    min-height: 48px;
+}
+.adaptive-card-item:last-child { border-bottom: none; }
+.adaptive-card-item:hover { background: #f5f3ff; }
+.ac-card-icon { font-size: 20px; width: 32px; text-align: center; flex-shrink: 0; }
+.ac-card-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.ac-card-level { font-size: 13px; font-weight: 600; color: #333; }
+.ac-card-status { font-size: 11px; }
+.st-approved { color: #059669; }
+.st-draft { color: #b45309; }
+.ac-card-approve-btn {
+    padding: 6px 14px; background: #10b981; color: #fff; border: none;
+    border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: all 0.15s; white-space: nowrap;
+}
+.ac-card-approve-btn:hover { background: #059669; transform: translateY(-1px); }
+.ac-card-arrow { font-size: 20px; color: #ccc; font-weight: 300; flex-shrink: 0; }
+.ac-card-draft { }
+.ac-card-approved { background: #f0fdf4; }
+.ac-card-rejected { opacity: 0.5; }
+
 .empty-text { color: #aaa; font-size: 13px; }
 
 /* ── Pulse Gauge ── */
@@ -2707,12 +2886,65 @@ tr:hover td { background: #fafbfc; }
 .btn-formative-gen:disabled { opacity: 0.6; cursor: not-allowed; }
 .formative-ready { padding: 10px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; color: #16a34a; font-size: 13px; font-weight: 600; text-align: center; }
 
-/* ── Phase 2-2: Adaptive Content ── */
-.btn-adaptive-gen { background: none; border: none; font-size: 16px; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
-.btn-adaptive-gen:hover:not(:disabled) { background: rgba(99,102,241,0.1); }
-.btn-adaptive-gen:disabled { opacity: 0.5; cursor: not-allowed; }
-.adaptive-levels { display: flex; gap: 4px; margin-top: 4px; width: 100%; }
-.adaptive-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 10px; font-weight: 600; border-radius: 4px; }
+/* ── Phase 2-2: Adaptive Content (카드형 스타일은 위에서 정의됨) ── */
+
+/* 적응형 콘텐츠 미리보기 모달 */
+.adaptive-preview-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(3px);
+}
+.adaptive-preview-modal {
+    background: #fff; border-radius: 16px; width: 90%; max-width: 700px;
+    max-height: 80vh; display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.apm-header {
+    display: flex; align-items: center; gap: 10px; padding: 16px 20px;
+    border-bottom: 1px solid #e5e7eb; flex-shrink: 0;
+}
+.apm-level-badge {
+    padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; color: #fff;
+}
+.apm-level-1 { background: #10b981; }
+.apm-level-2 { background: #3b82f6; }
+.apm-level-3 { background: #8b5cf6; }
+.apm-title { flex: 1; font-size: 14px; font-weight: 600; color: #333; }
+.apm-status { font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+.apm-approved { background: #d1fae5; color: #065f46; }
+.apm-draft { background: #fef3c7; color: #92400e; }
+.apm-close { background: none; border: none; font-size: 18px; cursor: pointer; color: #999; padding: 4px; }
+.apm-close:hover { color: #333; }
+.apm-content {
+    padding: 20px; overflow-y: auto; flex: 1;
+    font-size: 14px; line-height: 1.7; color: #333;
+}
+.apm-content h1 { font-size: 20px; margin: 0 0 12px; color: #1a1a2e; border-bottom: 2px solid #4facfe; padding-bottom: 6px; }
+.apm-content h2 { font-size: 17px; margin: 20px 0 8px; color: #333; }
+.apm-content h3 { font-size: 15px; margin: 16px 0 6px; color: #555; }
+.apm-content ul, .apm-content ol { padding-left: 20px; }
+.apm-content li { margin: 4px 0; }
+.apm-content pre { background: #f3f4f6; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+.apm-content code { background: #e5e7eb; padding: 1px 4px; border-radius: 3px; font-size: 13px; }
+.apm-content strong { color: #1e40af; }
+.apm-content table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+.apm-content th, .apm-content td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; font-size: 13px; }
+.apm-content th { background: #f9fafb; font-weight: 600; }
+.apm-actions {
+    display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px;
+    border-top: 1px solid #e5e7eb; flex-shrink: 0;
+}
+.btn-apm-approve {
+    padding: 8px 20px; background: #10b981; color: #fff; border: none;
+    border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.btn-apm-approve:hover { background: #059669; }
+.btn-apm-close {
+    padding: 8px 20px; background: #f3f4f6; color: #666; border: none;
+    border-radius: 8px; font-size: 13px; cursor: pointer;
+}
+.btn-apm-close:hover { background: #e5e7eb; }
 .ac-draft { background: #fef3c7; color: #92400e; }
 .ac-approved { background: #d1fae5; color: #065f46; }
 .ac-rejected { background: #fee2e2; color: #991b1b; opacity: 0.6; }

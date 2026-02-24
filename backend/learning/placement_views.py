@@ -191,9 +191,89 @@ class GoalViewSet(viewsets.ViewSet):
                 'title': career.title,
                 'icon': career.icon,
                 'estimated_weeks': career.estimated_weeks,
+                'required_skills': [
+                    {'id': s.id, 'name': s.name, 'category': s.get_category_display()}
+                    for s in career.required_skills.all()
+                ],
             } if career else None,
             'custom_goal_text': goal.custom_goal_text,
         })
+
+    @action(detail=False, methods=['post'], url_path='create-custom')
+    def create_custom(self, request):
+        """
+        POST /api/learning/goals/create-custom/
+        학생이 직접 직무 + 스킬을 만들고 목표로 설정
+        Body: {
+            "title": "AI 엔지니어",
+            "description": "AI 모델 개발 및 배포",
+            "icon": "🤖",
+            "estimated_weeks": 16,
+            "skills": ["PyTorch", "데이터 전처리", "모델 배포"]
+        }
+        """
+        title = request.data.get('title', '').strip()
+        if not title:
+            return Response({'error': '직무명은 필수입니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        skill_names = request.data.get('skills', [])
+        if not skill_names or not isinstance(skill_names, list):
+            return Response({'error': '최소 1개 이상의 스킬을 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        description = request.data.get('description', '')
+        icon = request.data.get('icon', '🎯')
+        estimated_weeks = request.data.get('estimated_weeks', 12)
+
+        # 직무 생성
+        career = CareerGoal.objects.create(
+            title=title,
+            description=description,
+            icon=icon,
+            estimated_weeks=estimated_weeks,
+        )
+
+        # 스킬 생성 (기존에 같은 이름이 있으면 재사용)
+        created_skills = []
+        for skill_name in skill_names:
+            skill_name = skill_name.strip()
+            if not skill_name:
+                continue
+            skill, _ = Skill.objects.get_or_create(
+                name=skill_name,
+                defaults={
+                    'category': 'SOFT_SKILL',  # 사용자 생성 스킬은 기본 카테고리
+                    'difficulty_level': 2,
+                    'description': f'{title} 직무에 필요한 역량',
+                }
+            )
+            career.required_skills.add(skill)
+            created_skills.append({'id': skill.id, 'name': skill.name})
+
+        # 자동으로 이 목표를 설정
+        StudentGoal.objects.update_or_create(
+            student=request.user,
+            defaults={
+                'career_goal': career,
+                'custom_goal_text': '',
+            }
+        )
+
+        # 갭 맵 초기화
+        _initialize_gap_map(request.user, PlacementResult.objects.filter(
+            student=request.user
+        ).order_by('-created_at').first().level if PlacementResult.objects.filter(
+            student=request.user
+        ).exists() else 1)
+
+        return Response({
+            'id': career.id,
+            'title': career.title,
+            'icon': career.icon,
+            'description': career.description,
+            'estimated_weeks': career.estimated_weeks,
+            'skills': created_skills,
+            'message': f'"{title}" 직무가 생성되고 목표로 설정되었습니다!',
+        }, status=status.HTTP_201_CREATED)
 
 
 class GapMapViewSet(viewsets.ViewSet):

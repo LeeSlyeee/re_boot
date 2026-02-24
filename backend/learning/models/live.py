@@ -81,19 +81,36 @@ class LiveParticipant(models.Model):
 
 class LectureMaterial(models.Model):
     """
-    강의 전 교수자가 업로드하는 교안 (PDF, PPT, 마크다운)
+    강의 교안 및 학습 보조 자료.
+    파일 업로드(PDF, PPT 등)뿐 아니라 외부 링크(URL)나 마크다운 텍스트도 저장 가능.
     """
     FILE_TYPE_CHOICES = (
         ('PDF', 'PDF'),
         ('PPT', 'PowerPoint'),
+        ('DOCX', 'Word 문서'),
         ('MD', '마크다운'),
+        ('TXT', '텍스트'),
+        ('HWP', '한글 문서'),
         ('OTHER', '기타'),
     )
 
-    lecture = models.ForeignKey(Lecture, on_delete=models.CASCADE, related_name='materials')
-    title = models.CharField(max_length=200, help_text="교안 제목")
-    file = models.FileField(upload_to='materials/%Y/%m/')
+    CONTENT_TYPE_CHOICES = (
+        ('FILE', '파일 업로드'),
+        ('LINK', '외부 링크'),
+        ('MARKDOWN', '마크다운 텍스트'),
+    )
+
+    lecture = models.ForeignKey(Lecture, on_delete=models.CASCADE, null=True, blank=True, related_name='materials', help_text="NULL이면 공통 기초 자료")
+    title = models.CharField(max_length=200, help_text="자료 제목")
+
+    # 기존 파일 업로드 필드 (하위 호환 유지, 선택적으로 변경)
+    file = models.FileField(upload_to='materials/%Y/%m/', blank=True, null=True, help_text="파일 업로드 (FILE 타입일 때 사용)")
     file_type = models.CharField(max_length=10, choices=FILE_TYPE_CHOICES, default='PDF')
+
+    # ERD_260224 추가 필드: 링크/마크다운 텍스트 직접 저장
+    content_type = models.CharField(max_length=20, choices=CONTENT_TYPE_CHOICES, default='FILE', help_text="자료 유형 (FILE, LINK, MARKDOWN)")
+    content_data = models.TextField(blank=True, default='', help_text="URL 주소 또는 마크다운 텍스트 원본")
+
     uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
@@ -102,7 +119,7 @@ class LectureMaterial(models.Model):
         ordering = ['-uploaded_at']
 
     def __str__(self):
-        return f"[{self.file_type}] {self.title} ({self.lecture.title})"
+        return f"[{self.content_type}] {self.title} ({self.lecture.title})"
 
 
 class LiveSTTLog(models.Model):

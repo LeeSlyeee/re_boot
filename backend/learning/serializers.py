@@ -28,7 +28,7 @@ class LectureSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Lecture
-        fields = ['id', 'title', 'instructor', 'access_code', 'student_count', 'created_at', 'syllabi']
+        fields = ['id', 'title', 'instructor', 'access_code', 'student_count', 'created_at', 'syllabi', 'start_date', 'end_date']
         read_only_fields = ['instructor', 'access_code', 'created_at']
 
     def get_student_count(self, obj):
@@ -40,7 +40,7 @@ class PublicLectureSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Lecture
-        fields = ['id', 'title', 'instructor_name', 'created_at', 'is_enrolled']
+        fields = ['id', 'title', 'instructor_name', 'created_at', 'is_enrolled', 'start_date', 'end_date']
 
     def get_is_enrolled(self, obj):
         request = self.context.get('request')
@@ -91,3 +91,106 @@ class QuizAttemptSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuizAttempt
         fields = '__all__'
+
+
+# ═══════════════════════════════════════════════
+# AI 튜터 챗봇 Serializers
+# ═══════════════════════════════════════════════
+from .models import AIChatSession, AIChatMessage, Curriculum, CurriculumItem, ReroutingLog
+
+
+class AIChatMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AIChatMessage
+        fields = ['id', 'sender', 'message', 'sources', 'created_at']
+
+
+class AIChatSessionSerializer(serializers.ModelSerializer):
+    message_count = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AIChatSession
+        fields = ['id', 'lecture', 'title', 'is_active', 'start_time',
+                  'updated_at', 'message_count', 'last_message']
+        read_only_fields = ['start_time', 'updated_at']
+
+    def get_message_count(self, obj):
+        return obj.messages.count()
+
+    def get_last_message(self, obj):
+        last = obj.messages.last()
+        return {
+            'sender': last.sender,
+            'message': last.message[:100],
+            'created_at': last.created_at.isoformat(),
+        } if last else None
+
+
+class AIChatSessionDetailSerializer(serializers.ModelSerializer):
+    messages = AIChatMessageSerializer(many=True, read_only=True)
+    lecture_title = serializers.CharField(
+        source='lecture.title', read_only=True, default='일반'
+    )
+
+    class Meta:
+        model = AIChatSession
+        fields = ['id', 'lecture', 'lecture_title', 'title', 'is_active',
+                  'start_time', 'updated_at', 'messages']
+
+
+# ═══════════════════════════════════════════════
+# 커리큘럼 리라우팅 Serializers
+# ═══════════════════════════════════════════════
+
+class CurriculumItemSerializer(serializers.ModelSerializer):
+    lecture_title = serializers.CharField(
+        source='lecture.title', read_only=True, default=''
+    )
+
+    class Meta:
+        model = CurriculumItem
+        fields = ['id', 'lecture', 'lecture_title', 'title', 'item_type',
+                  'order_index', 'is_completed', 'is_supplementary',
+                  'completed_at', 'created_at']
+
+
+class ReroutingLogSerializer(serializers.ModelSerializer):
+    reason_display = serializers.CharField(
+        source='get_reason_display', read_only=True
+    )
+
+    class Meta:
+        model = ReroutingLog
+        fields = ['id', 'reason', 'reason_display', 'reason_detail',
+                  'old_path', 'new_path', 'items_added', 'items_removed',
+                  'ai_recommendation', 'created_at']
+
+
+class CurriculumSerializer(serializers.ModelSerializer):
+    item_count = serializers.SerializerMethodField()
+    completed_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Curriculum
+        fields = ['id', 'title', 'course_name', 'status', 'start_date',
+                  'target_date', 'progress_percent', 'created_at',
+                  'updated_at', 'item_count', 'completed_count']
+        read_only_fields = ['start_date', 'progress_percent', 'created_at', 'updated_at']
+
+    def get_item_count(self, obj):
+        return obj.items.count()
+
+    def get_completed_count(self, obj):
+        return obj.items.filter(is_completed=True).count()
+
+
+class CurriculumDetailSerializer(serializers.ModelSerializer):
+    items = CurriculumItemSerializer(many=True, read_only=True)
+    rerouting_logs = ReroutingLogSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Curriculum
+        fields = ['id', 'title', 'course_name', 'status', 'start_date',
+                  'target_date', 'progress_percent', 'created_at',
+                  'updated_at', 'items', 'rerouting_logs']

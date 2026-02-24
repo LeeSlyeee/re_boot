@@ -3,6 +3,7 @@ import LoginView from '../views/LoginView.vue';
 import DashboardView from '../views/DashboardView.vue';
 import LectureDetailView from '../views/LectureDetailView.vue';
 import SignupView from '../views/SignupView.vue';
+import ManagerView from '../views/ManagerView.vue';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -27,6 +28,12 @@ const router = createRouter({
         path: '/lecture/:id',
         name: 'lecture-detail',
         component: LectureDetailView,
+        meta: { requiresAuth: true }
+    },
+    {
+        path: '/manager',
+        name: 'manager',
+        component: ManagerView,
         meta: { requiresAuth: true }
     }
   ]

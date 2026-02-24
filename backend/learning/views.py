@@ -129,6 +129,11 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             audio_data = (file_name, audio_file.read(), audio_file.content_type or "audio/webm")
 
             # [UPGRADE] gpt-4o-transcribe: GPT-4o 언어 이해력 결합으로 환각 구조적 억제
+            # 오디오 크기가 너무 작으면 (8KB 미만) 침묵으로 간주
+            if audio_file.size < 8000:
+                stt_logger.debug(f"[{sequence_order}] Skipped: audio too small ({audio_file.size} bytes)")
+                return Response({'status': 'silence_skipped', 'text': '', 'reason': f'Audio too small ({audio_file.size}B)'}, status=status.HTTP_200_OK)
+
             transcript = client.audio.transcriptions.create(
                 model="gpt-4o-transcribe", 
                 file=audio_data, 
@@ -141,8 +146,8 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             stt_logger.debug(f"[{sequence_order}] RAW GPT-4o-TRANSCRIBE: {stt_text}")
             print(f"📝 GPT-4o-Transcribe Output: [{stt_text}]")
             
-            # [CRITICAL FIX] Hallucination & Valid Content Filter
-            # 1. Hallucination List (Updated from user logs)
+            # [CRITICAL FIX] Hallucination & Valid Content Filter (v2 강화)
+            # 1. Hallucination List (확장됨)
             HALLUCINATIONS = [
                 "시청해주셔서 감사합니다", "시청해 주셔서 감사합니다",
                 "구독과 좋아요", "좋아요와 구독", "구독&좋아요", "♥", 
@@ -157,7 +162,12 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                 "뷔 뷔 뷔 뷔", "ㅋㅋㅋㅋ",
                 "매주 일요일 업로드됩니다", 
                 "에이에이에이에이", "Paloalto",
-                "오늘도 봐주셔서 감사합니다", "유료광고", "투모로우바이투게더"
+                "오늘도 봐주셔서 감사합니다", "유료광고", "투모로우바이투게더",
+                "다음 영상에서 만나요", "좋아요 부탁드립니다",
+                "채널 구독 부탁드립니다", "알림 설정",
+                "BGM", "Outro", "소스 음악",
+                "www.", "http", ".com", ".kr",
+                "Amara.org", "자막 제공",
             ]
             
             cleaned_text = stt_text.strip()
@@ -167,6 +177,30 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             # 2. Empty Check
             if not cleaned_text:
                 return Response({'status': 'silence_skipped', 'text': '', 'reason': 'Empty'}, status=status.HTTP_200_OK)
+
+            # [NEW] 2.5. 너무 짧은 무의미 텍스트 필터 (5자 이하 한/영 단독)
+            import re as _re
+            if len(cleaned_text) <= 5:
+                # 의미있는 단어 (예: "변수", "함수", "배열")는 허용, 무의미한 것만 차단
+                meaningful_short = _re.search(r'[가-힣]{2,}|[a-zA-Z]{3,}', cleaned_text)
+                if not meaningful_short:
+                    stt_logger.debug(f"⚠️ Too Short Filtered: '{cleaned_text}'")
+                    return Response({'status': 'silence_skipped', 'text': '', 'reason': f'Too short: {cleaned_text}'}, status=status.HTTP_200_OK)
+
+            # [NEW] 2.6. 반복 음절 패턴 감지 (예: "아아아아", "음음음", "어어어어")
+            if _re.match(r'^(.{1,3})\1{2,}$', cleaned_text.replace(' ', '')):
+                stt_logger.debug(f"⚠️ Repeated Syllable Filtered: '{cleaned_text}'")
+                return Response({'status': 'silence_skipped', 'text': '', 'reason': f'Repeated syllable: {cleaned_text}'}, status=status.HTTP_200_OK)
+
+            # [NEW] 2.7. 한글 비율 검사 (강의 자막인데 한글이 30% 미만이면 환각 의심)
+            korean_chars = len(_re.findall(r'[가-힣]', cleaned_text))
+            total_alpha = len(_re.findall(r'[가-힣a-zA-Z]', cleaned_text))
+            if total_alpha > 10 and korean_chars / total_alpha < 0.3:
+                # 코드 블록이 아닌 경우에만 (코드는 영어 비율이 높으므로)
+                has_code_pattern = _re.search(r'[{}()\[\];=<>]', cleaned_text)
+                if not has_code_pattern:
+                    is_hallucination = True
+                    skip_reason = f'Low Korean ratio ({korean_chars}/{total_alpha})'
 
             # [NEW] Prompt Echo Check (Prevent looping previous context)
             # If current text is just a subset of previous context, it's a loop.
@@ -411,6 +445,21 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
         
         attendance_rate = round((attended_dates_count / total_class_dates * 100), 1) if total_class_dates > 0 else 0
 
+        # [New] 🔥 학습 스트릭 계산 (연속 학습일)
+        from datetime import timedelta, date as date_cls
+        all_session_dates = set(
+            LearningSession.objects.filter(student=user)
+            .values_list('session_date', flat=True)
+        )
+        streak = 0
+        check_date = date_cls.today()
+        # 오늘 아직 학습 안 했으면 어제부터 카운트
+        if check_date not in all_session_dates:
+            check_date -= timedelta(days=1)
+        while check_date in all_session_dates:
+            streak += 1
+            check_date -= timedelta(days=1)
+
         return Response({
             "finishedSessions": finished_count,
             "totalHours": total_hours,
@@ -423,7 +472,8 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             "totalClassDays": total_class_dates,
             "lastSessionDate": last_session_date,
             "lastSessionId": last_session.id if last_session else None,
-            "lastSessionUrl": last_session.youtube_url if last_session else None
+            "lastSessionUrl": last_session.youtube_url if last_session else None,
+            "streak": streak,
         }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='update-url')

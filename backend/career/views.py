@@ -2,7 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from .models import Portfolio
+from .models import Portfolio, PortfolioProject
 from .serializers import PortfolioSerializer
 from learning.models import SessionSummary, DailyQuiz
 import openai
@@ -208,3 +208,61 @@ class PortfolioViewSet(viewsets.ModelViewSet):
             },
             "categories": categories,
         })
+
+    @action(detail=True, methods=['get', 'post'], url_path='projects')
+    def projects(self, request, pk=None):
+        """
+        포트폴리오 프로젝트 CRUD
+        GET: 해당 포트폴리오의 프로젝트 목록
+        POST: 새 프로젝트 추가
+        """
+        portfolio = self.get_object()
+
+        if request.method == 'GET':
+            projects = portfolio.projects.all()
+            data = [{
+                'id': p.id,
+                'name': p.name,
+                'description': p.description,
+                'tech_stack': p.tech_stack,
+                'github_url': p.github_url,
+                'demo_url': p.demo_url,
+                'role': p.role,
+                'skill_block_id': p.skill_block_id,
+                'created_at': p.created_at,
+            } for p in projects]
+            return Response(data)
+
+        # POST
+        project = PortfolioProject.objects.create(
+            portfolio=portfolio,
+            name=request.data.get('name', ''),
+            description=request.data.get('description', ''),
+            tech_stack=request.data.get('tech_stack', []),
+            github_url=request.data.get('github_url', ''),
+            demo_url=request.data.get('demo_url', ''),
+            role=request.data.get('role', ''),
+            skill_block_id=request.data.get('skill_block_id'),
+        )
+        return Response({
+            'id': project.id,
+            'name': project.name,
+            'description': project.description,
+            'tech_stack': project.tech_stack,
+            'github_url': project.github_url,
+            'demo_url': project.demo_url,
+            'role': project.role,
+            'created_at': project.created_at,
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['delete'], url_path='projects/(?P<project_id>[^/.]+)')
+    def delete_project(self, request, pk=None, project_id=None):
+        """포트폴리오 프로젝트 삭제"""
+        portfolio = self.get_object()
+        try:
+            project = portfolio.projects.get(id=project_id)
+            project.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except PortfolioProject.DoesNotExist:
+            return Response({'error': '프로젝트를 찾을 수 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
+

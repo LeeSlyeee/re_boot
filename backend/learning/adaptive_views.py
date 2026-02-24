@@ -31,22 +31,74 @@ class GenerateAdaptiveView(APIView):
         # 텍스트 추출
         source_text = self._extract_text(material)
         if not source_text:
-            return Response({'error': '이 형식은 자동 변형이 지원되지 않습니다. 마크다운(MD) 파일을 사용해주세요.'},
-                          status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'error': f'텍스트를 추출할 수 없습니다. ({material.file_type} 형식)\n'
+                         f'지원 형식: MD, TXT, PDF, PPT/PPTX, DOCX\n'
+                         f'파일이 올바른 형식인지 확인해주세요. (.doc 구형식은 .docx로 변환 필요)'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3레벨 변형 생성
+        # 3레벨 변형 생성 (대상별 맞춤 프롬프트)
         levels_config = {
             1: {
-                'label': 'Level 1 - 기초',
-                'prompt': '전문 용어를 쉬운 표현으로 변환하고, 비유와 일상 예시를 추가하세요. 핵심 3줄 요약을 끝에 추가하세요.',
+                'label': 'Level 1 - 쉽게 이해하기',
+                'system': """당신은 **초등학생에게 설명하는 친절한 선생님**입니다.
+아래 원본 교안의 **주제와 과목을 정확히 파악**하고, **초등학생도 이해할 수 있는 수준**으로 변형해주세요.
+
+🎯 변형 원칙:
+1. **쉬운 말만 사용**: 어려운 전문 용어는 모두 쉬운 말로 바꿔주세요.
+2. **일상 비유**: 각 개념을 일상생활에서 볼 수 있는 것에 비유해서 설명하세요.
+3. **쉬운 예시**: 초등학생이 공감할 수 있는 쉬운 예시를 많이 넣어주세요.
+4. **이모지 활용**: 🍕🎒✏️ 등 이모지를 적극 활용해서 재미있게 구성하세요.
+5. **짧은 문장**: 한 문장은 20자 이내로, 짧고 명확하게 쓰세요.
+6. **핵심 정리**: 끝에 "📌 오늘 배운 것 정리!" 섹션을 추가하세요.
+
+⛔ 금지 사항:
+- **어려운 개념, 예외 사항, 주의할 점은 모두 빼세요.** 핵심만 쉽게 설명하세요.
+- 복잡한 규칙이나 심화 내용은 절대 넣지 마세요.
+- **원본 교안의 과목/주제를 벗어나는 내용은 절대 넣지 마세요.**
+
+마크다운 형식으로 작성하세요.""",
             },
             2: {
-                'label': 'Level 2 - 표준',
-                'prompt': '원본 내용을 유지하되 핵심 부분을 강조(볼드)하고, 실습 문제 2~3개를 추가하세요.',
+                'label': 'Level 2 - 핵심 정리',
+                'system': """당신은 **중학생을 가르치는 학교 선생님**입니다.
+아래 원본 교안의 **주제와 과목을 정확히 파악**하고, **중학생(간단한 기초 교육을 받은 학생)** 수준으로 변형해주세요.
+
+🎯 변형 원칙:
+1. **원본 구조 유지**: 원본의 목차와 흐름을 유지하세요.
+2. **개념 설명 보강**: 각 개념을 "왜 이런 규칙이 있는지" 간단한 이유와 함께 설명하세요.
+3. **적절한 예시**: 각 개념마다 이해를 돕는 예시를 2~3개 추가하세요.
+4. **핵심 강조**: 중요한 부분은 **볼드**로 표시하세요.
+5. **연습 문제**: "📝 연습 문제" 섹션에 쉬운~보통 난이도의 문제 3~5개를 추가하세요.
+   - 각 문제에 정답과 간단한 해설을 포함하세요.
+6. **💡 팁**: 자주 틀리는 부분을 "💡 이것만 기억하세요" 박스로 정리하세요.
+
+⚠️ 중요:
+- 요약이 아니라 **보강**입니다. 원본보다 길게 작성하세요.
+- **원본 교안의 과목/주제를 벗어나는 내용은 절대 넣지 마세요.**
+
+마크다운 형식으로 작성하세요.""",
             },
             3: {
-                'label': 'Level 3 - 심화',
-                'prompt': '심화 개념과 이론적 배경을 추가하고, "더 나아가기" 확장 과제와 실무 사례를 포함하세요.',
+                'label': 'Level 3 - 심화 완성',
+                'system': """당신은 **성인 학습자를 위한 전문 강사**입니다.
+아래 원본 교안의 **주제와 과목을 정확히 파악**하고, **기본적인 교육을 받은 성인 학습자** 수준으로 변형해주세요.
+
+🎯 변형 원칙:
+1. **체계적 정리**: 원본 내용을 논리적이고 체계적으로 정리하세요.
+2. **배경 지식 추가**: 각 개념의 "왜(Why)"와 원리를 간결하게 설명하세요.
+3. **실전 활용**: 실제 상황에서 어떻게 활용하는지 실용적 사례를 제시하세요.
+4. **주의사항**: 흔히 틀리는 부분과 예외 사항을 "⚠️ 주의" 박스로 정리하세요.
+5. **심화 연습 문제**: "📝 실전 문제" 섹션에 응용 문제 5개를 추가하세요.
+   - 각 문제에 정답과 상세한 해설을 포함하세요.
+6. **시험 대비**: "🎯 시험에 나올 수 있는 포인트"를 정리하세요.
+7. **추가 학습**: "📚 더 알아보기" 섹션에 관련 참고 자료를 추천하세요.
+
+⚠️ 중요:
+- 요약이 아니라 **확장**입니다. 원본보다 **2배 이상** 길고 깊이 있게 작성하세요.
+- **원본 교안의 과목/주제를 벗어나는 내용은 절대 넣지 마세요.**
+
+마크다운 형식으로 작성하세요.""",
             },
         }
 
@@ -69,18 +121,13 @@ class GenerateAdaptiveView(APIView):
 
             try:
                 response = client.chat.completions.create(
-                    model='gpt-4o-mini',
+                    model='gpt-4o',
                     messages=[
-                        {'role': 'system', 'content': f"""당신은 교육 콘텐츠 전문가입니다.
-아래 원본 교안을 **{config['label']}** 수준으로 변형해주세요.
-
-규칙: {config['prompt']}
-
-마크다운 형식으로 작성하세요."""},
-                        {'role': 'user', 'content': f'원본 교안:\n\n{source_text[:3000]}'},
+                        {'role': 'system', 'content': config['system']},
+                        {'role': 'user', 'content': f'원본 교안:\n\n{source_text[:6000]}'},
                     ],
-                    temperature=0.5,
-                    max_tokens=2000,
+                    temperature=0.6,
+                    max_tokens=4000,
                 )
 
                 ac.content = response.choices[0].message.content.strip()
@@ -136,6 +183,48 @@ class GenerateAdaptiveView(APIView):
             except ImportError:
                 pass
 
+        # DOCX: python-docx 시도
+        if material.file_type == 'DOCX' and material.file:
+            try:
+                from docx import Document
+                import io
+                # Django FileField를 통해 바이너리로 읽어서 전달 (한글 경로 이슈 방지)
+                material.file.open('rb')
+                file_bytes = material.file.read()
+                material.file.close()
+                doc = Document(io.BytesIO(file_bytes))
+                text = ''
+                for para in doc.paragraphs:
+                    text += para.text + '\n'
+                # 테이블 내용도 추출
+                for table in doc.tables:
+                    for row in table.rows:
+                        for cell in row.cells:
+                            text += cell.text + ' '
+                        text += '\n'
+                return text if text.strip() else None
+            except Exception as e:
+                print(f"⚠️ DOCX 텍스트 추출 실패: {e}")
+                # .doc (구 바이너리 형식)일 수 있음 → 안내 메시지
+                return None
+
+        # TXT: 직접 읽기
+        if material.file_type == 'TXT' and material.file:
+            try:
+                material.file.open('rb')
+                raw = material.file.read()
+                material.file.close()
+                # 인코딩 자동 감지
+                for enc in ['utf-8', 'euc-kr', 'cp949', 'latin-1']:
+                    try:
+                        text = raw.decode(enc)
+                        return text
+                    except UnicodeDecodeError:
+                        continue
+                return raw.decode('utf-8', errors='replace')
+            except Exception:
+                pass
+
         return None
 
 
@@ -153,6 +242,7 @@ class ListAdaptiveView(APIView):
                 'level': ac.level,
                 'level_label': ac.get_level_display(),
                 'title': ac.title,
+                'content': ac.content,
                 'content_preview': ac.content[:200] + '...' if len(ac.content) > 200 else ac.content,
                 'status': ac.status,
                 'created_at': ac.created_at,

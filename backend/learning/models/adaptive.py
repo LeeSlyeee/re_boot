@@ -13,7 +13,7 @@ from .live import LiveSession, LectureMaterial, LiveSessionNote, LiveQuiz
 
 class AdaptiveContent(models.Model):
     """레벨별 AI 변형 교안"""
-    LEVEL_CHOICES = ((1, 'Level 1 - 기초'), (2, 'Level 2 - 표준'), (3, 'Level 3 - 심화'))
+    LEVEL_CHOICES = ((1, 'Level 1 - 쉽게 이해하기'), (2, 'Level 2 - 핵심 정리'), (3, 'Level 3 - 심화 완성'))
     STATUS_CHOICES = (
         ('GENERATING', 'AI 생성 중'),
         ('DRAFT', 'AI 생성 초안'),

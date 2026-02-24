@@ -838,7 +838,9 @@ const processingCount = ref(0);
 const isProcessingAudio = computed(() => processingCount.value > 0);
 
 const handleAudioData = async (audioBlob) => {
-    if (audioBlob.size < 1000) {
+    // 8KB 미만은 침묵/노이즈일 가능성 높음 → Whisper 환각 방지
+    if (audioBlob.size < 8000) {
+        console.log(`⏭️ Skipped: audio too small (${audioBlob.size} bytes)`);
         return;
     }
 

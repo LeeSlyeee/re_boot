@@ -24,6 +24,37 @@ const newLectureTitle = ref('');
 const isSubmitting = ref(false);
 const modalError = ref('');
 
+// ── 강의 일정 수정 ──
+const editingSchedule = ref(null); // lecture id
+const editStart = ref('');
+const editEnd = ref('');
+
+const openScheduleEdit = (lec, e) => {
+    e.stopPropagation();
+    editingSchedule.value = lec.id;
+    editStart.value = lec.start_date || '';
+    editEnd.value = lec.end_date || '';
+};
+
+const saveSchedule = async (lecId, e) => {
+    e.stopPropagation();
+    try {
+        await api.patch(`/learning/lectures/${lecId}/`, {
+            start_date: editStart.value || null,
+            end_date: editEnd.value || null,
+        });
+        editingSchedule.value = null;
+        fetchLectures();
+    } catch (err) {
+        alert('일정 저장 실패: ' + (err.response?.data?.detail || err.message));
+    }
+};
+
+const cancelScheduleEdit = (e) => {
+    e.stopPropagation();
+    editingSchedule.value = null;
+};
+
 const openModal = () => {
     showModal.value = true;
     newLectureTitle.value = '';
@@ -97,6 +128,7 @@ onMounted(fetchLectures);
                 <button class="logout-btn" @click="handleLogout">로그아웃</button>
             </div>
             <button @click="openModal">+ New Class</button>
+            <button class="manager-btn" @click="router.push('/manager')">📊 학생 관리</button>
         </header>
         
         <div class="grid">
@@ -109,7 +141,30 @@ onMounted(fetchLectures);
                 </div>
                 <p class="code">Code: <span>{{ lecture.access_code }}</span></p>
                 <p>Students: {{ lecture.student_count || 0 }}</p>
-                <span class="date">{{ new Date(lecture.created_at).toLocaleDateString() }}</span>
+
+                <!-- 강의 일정 -->
+                <div v-if="editingSchedule === lecture.id" class="schedule-edit" @click.stop>
+                    <div class="schedule-row">
+                        <label>📅 첫 강의일</label>
+                        <input type="date" v-model="editStart" class="date-input" />
+                    </div>
+                    <div class="schedule-row">
+                        <label>🎓 종강일</label>
+                        <input type="date" v-model="editEnd" class="date-input" />
+                    </div>
+                    <div class="schedule-actions">
+                        <button class="btn-save" @click="saveSchedule(lecture.id, $event)">저장</button>
+                        <button class="btn-cancel-sm" @click="cancelScheduleEdit($event)">취소</button>
+                    </div>
+                </div>
+                <div v-else class="schedule-display" @click.stop="openScheduleEdit(lecture, $event)">
+                    <span v-if="lecture.start_date && lecture.end_date" class="schedule-badge">
+                        📅 {{ lecture.start_date }} ~ {{ lecture.end_date }}
+                    </span>
+                    <span v-else class="schedule-badge no-schedule">
+                        📅 강의 일정 설정하기 ✏️
+                    </span>
+                </div>
             </div>
         </div>
         
@@ -143,6 +198,8 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 .header-left { display: flex; align-items: center; gap: 20px; } /* 헤더 왼쪽 정렬용 */
 .logout-btn { background: #6c757d; font-size: 14px; padding: 8px 16px; margin-left: 10px; }
 .logout-btn:hover { background: #5a6268; }
+.manager-btn { background: #4facfe; margin-left: 8px; }
+.manager-btn:hover { background: #3d9be9; }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px; }
 
@@ -166,6 +223,26 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 
 p { color: #666; margin: 4px 0; }
 .code { font-weight: bold; color: #4facfe; font-size: 14px; background: rgba(79, 172, 254, 0.1); display: inline-block; padding: 2px 8px; border-radius: 4px; }
+
+/* 강의 일정 */
+.schedule-display { margin-top: 10px; cursor: pointer; }
+.schedule-badge {
+    display: inline-block; padding: 4px 10px; border-radius: 6px;
+    font-size: 13px; color: #333; background: #e8f4fd; border: 1px solid #b3d9f2;
+    transition: all 0.2s;
+}
+.schedule-badge:hover { background: #d0eafc; }
+.schedule-badge.no-schedule { background: #fff3cd; border-color: #ffc107; color: #856404; }
+.schedule-edit { margin-top: 10px; padding: 12px; background: #f8f9ff; border-radius: 8px; border: 1px solid #dee2e6; }
+.schedule-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.schedule-row label { font-size: 13px; color: #555; width: 80px; flex-shrink: 0; }
+.date-input {
+    flex: 1; padding: 6px 10px !important; border: 1px solid #ccc !important; border-radius: 6px !important;
+    font-size: 13px !important; margin-bottom: 0 !important;
+}
+.schedule-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.btn-save { padding: 6px 14px !important; background: #28a745 !important; font-size: 13px !important; border-radius: 6px !important; }
+.btn-cancel-sm { padding: 6px 14px !important; background: #6c757d !important; font-size: 13px !important; border-radius: 6px !important; }
 button { padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; }
 button:hover { background: #218838; }
 

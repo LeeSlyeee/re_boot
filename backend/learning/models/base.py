@@ -42,6 +42,8 @@ class Lecture(models.Model):
     instructor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='teaching_lectures')
     students = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='enrolled_lectures', blank=True)
     access_code = models.CharField(max_length=6, unique=True, blank=True, help_text="수강생 입장 코드")
+    start_date = models.DateField(null=True, blank=True, help_text="첫 강의일")
+    end_date = models.DateField(null=True, blank=True, help_text="종강일")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -102,3 +104,32 @@ class StudentChecklist(models.Model):
     class Meta:
         app_label = 'learning'
         unique_together = ['student', 'objective']
+
+
+class LectureNote(models.Model):
+    """
+    AI 요약 노트 (ERD: LectureNote)
+    강의별 AI 생성 요약본 + 핵심 키워드.
+    """
+    lecture = models.ForeignKey(
+        Lecture, on_delete=models.CASCADE, related_name='notes'
+    )
+    summary_content = models.TextField(help_text="AI 요약 노트")
+    key_concepts = models.JSONField(
+        default=list, blank=True,
+        help_text="추출된 핵심 키워드 (예: ['클로저', 'this 바인딩', '프로토타입'])"
+    )
+    source_session = models.ForeignKey(
+        'LearningSession', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='lecture_notes',
+        help_text="요약 생성에 사용된 세션"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = 'learning'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[Note] {self.lecture.title[:30]} — {len(self.key_concepts)}개 키워드"

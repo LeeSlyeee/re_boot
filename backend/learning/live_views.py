@@ -997,7 +997,10 @@ class LectureMaterialViewSet(viewsets.ViewSet):
         file_type_map = {
             'pdf': 'PDF',
             'ppt': 'PPT', 'pptx': 'PPT',
+            'doc': 'DOCX', 'docx': 'DOCX',
             'md': 'MD', 'markdown': 'MD',
+            'txt': 'TXT',
+            'hwp': 'HWP', 'hwpx': 'HWP',
         }
         file_type = file_type_map.get(ext, 'OTHER')
 

@@ -26,6 +26,11 @@ const skillsLoading = ref(false);
 const generating = ref(false);
 const selectedPortfolio = ref(null);
 
+// PortfolioProject State
+const projectsList = ref([]);
+const showProjectModal = ref(false);
+const newProject = ref({ name: '', description: '', tech_stack: '', github_url: '', demo_url: '', role: '' });
+
 // Error Modal State
 const showModal = ref(false);
 const errorMessage = ref("");
@@ -78,8 +83,38 @@ const handleGenerate = async (type) => {
   }
 };
 
-const selectPortfolio = (p) => {
+const selectPortfolio = async (p) => {
   selectedPortfolio.value = p;
+  await fetchProjects(p.id);
+};
+
+const fetchProjects = async (portfolioId) => {
+  try {
+    const { data } = await api.get(`/career/portfolios/${portfolioId}/projects/`);
+    projectsList.value = data;
+  } catch (e) { projectsList.value = []; }
+};
+
+const addProject = async () => {
+  if (!selectedPortfolio.value || !newProject.value.name) return;
+  try {
+    const payload = {
+      ...newProject.value,
+      tech_stack: newProject.value.tech_stack ? newProject.value.tech_stack.split(',').map(s => s.trim()) : [],
+    };
+    await api.post(`/career/portfolios/${selectedPortfolio.value.id}/projects/`, payload);
+    showProjectModal.value = false;
+    newProject.value = { name: '', description: '', tech_stack: '', github_url: '', demo_url: '', role: '' };
+    await fetchProjects(selectedPortfolio.value.id);
+  } catch (e) { alert('프로젝트 추가 실패'); }
+};
+
+const deleteProject = async (projectId) => {
+  if (!confirm('이 프로젝트를 삭제하시겠습니까?')) return;
+  try {
+    await api.delete(`/career/portfolios/${selectedPortfolio.value.id}/projects/${projectId}/`);
+    await fetchProjects(selectedPortfolio.value.id);
+  } catch (e) { /* silent */ }
 };
 
 const closeModal = () => {
@@ -300,12 +335,59 @@ const closeModal = () => {
             <div class="markdown-body">
               {{ selectedPortfolio.content }}
             </div>
+
+            <!-- PortfolioProject Section -->
+            <div class="projects-section">
+              <div class="projects-header">
+                <h3>🛠️ 프로젝트 ({{ projectsList.length }})</h3>
+                <button class="add-project-btn" @click="showProjectModal = true">
+                  <Plus :size="14" /> 프로젝트 추가
+                </button>
+              </div>
+              <div v-if="projectsList.length > 0" class="projects-grid">
+                <div v-for="proj in projectsList" :key="proj.id" class="project-card">
+                  <div class="project-top">
+                    <h4>{{ proj.name }}</h4>
+                    <button class="project-delete" @click="deleteProject(proj.id)">✕</button>
+                  </div>
+                  <p class="project-desc" v-if="proj.description">{{ proj.description }}</p>
+                  <div v-if="proj.role" class="project-role">👤 {{ proj.role }}</div>
+                  <div v-if="proj.tech_stack && proj.tech_stack.length" class="project-tags">
+                    <span v-for="t in proj.tech_stack" :key="t" class="tech-tag">{{ t }}</span>
+                  </div>
+                  <div class="project-links">
+                    <a v-if="proj.github_url" :href="proj.github_url" target="_blank" class="proj-link">GitHub →</a>
+                    <a v-if="proj.demo_url" :href="proj.demo_url" target="_blank" class="proj-link demo">Demo →</a>
+                  </div>
+                </div>
+              </div>
+              <p v-else class="no-projects">프로젝트를 추가하여 포트폴리오를 풍성하게 만드세요!</p>
+            </div>
           </div>
           <div v-else class="empty-state">
             <FileText size="48" />
             <p>왼쪽 목록에서 문서를 선택하거나 새로 생성해주세요.</p>
           </div>
         </main>
+      </div>
+
+      <!-- Add Project Modal -->
+      <div v-if="showProjectModal" class="modal-overlay" @click.self="showProjectModal = false">
+        <div class="modal-content glass-panel" style="width:500px">
+          <h2>🛠️ 프로젝트 추가</h2>
+          <div class="project-form">
+            <input v-model="newProject.name" placeholder="프로젝트명 *" />
+            <textarea v-model="newProject.description" placeholder="프로젝트 설명" rows="3"></textarea>
+            <input v-model="newProject.role" placeholder="담당 역할 (예: 프론트엔드 개발)" />
+            <input v-model="newProject.tech_stack" placeholder="기술 스택 (쉼표 구분: React, Django)" />
+            <input v-model="newProject.github_url" placeholder="GitHub URL (선택)" />
+            <input v-model="newProject.demo_url" placeholder="Demo URL (선택)" />
+          </div>
+          <div class="modal-footer" style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn-secondary" @click="showProjectModal = false">취소</button>
+            <button class="btn btn-primary" @click="addProject" :disabled="!newProject.name">추가</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -872,4 +954,38 @@ const closeModal = () => {
   border-radius: 16px;
   padding: 24px;
 }
+
+/* Project Section */
+.projects-section { margin-top: 40px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 24px; }
+.projects-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.projects-header h3 { font-size: 18px; color: #ddd; margin: 0; }
+.add-project-btn {
+  display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px;
+  background: rgba(79,172,254,0.15); color: #4facfe; border: 1px solid rgba(79,172,254,0.3);
+  cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s;
+  &:hover { background: rgba(79,172,254,0.25); }
+}
+.projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.project-card {
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px; padding: 16px; transition: all 0.2s;
+  &:hover { border-color: rgba(79,172,254,0.3); }
+}
+.project-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.project-top h4 { margin: 0; font-size: 15px; color: #eee; }
+.project-delete { background: none; border: none; color: #555; cursor: pointer; font-size: 14px; &:hover { color: #ff5555; } }
+.project-desc { font-size: 13px; color: #888; margin: 0 0 8px; line-height: 1.4; }
+.project-role { font-size: 12px; color: #999; margin-bottom: 8px; }
+.project-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.tech-tag { font-size: 11px; padding: 2px 8px; background: rgba(79,172,254,0.1); color: #4facfe; border-radius: 4px; }
+.project-links { display: flex; gap: 10px; }
+.proj-link { font-size: 12px; color: #4facfe; text-decoration: none; &:hover { text-decoration: underline; } &.demo { color: #43e97b; } }
+.no-projects { color: #555; font-size: 14px; text-align: center; padding: 20px; }
+
+.project-form {
+  display: flex; flex-direction: column; gap: 10px;
+  input, textarea { width: 100%; padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #eee; font-size: 14px; box-sizing: border-box; }
+  textarea { resize: vertical; }
+}
+.btn-primary { background: #4facfe; color: white; border: none; padding: 8px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; &:disabled { opacity: 0.5; } }
 </style>

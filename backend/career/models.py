@@ -54,3 +54,76 @@ class InterviewExchange(models.Model):
     
     class Meta:
         ordering = ['order']
+
+
+class PortfolioProject(models.Model):
+    """
+    포트폴리오 프로젝트 (ERD: PortfolioProject)
+    스킬블록과 연결되어 해당 스킬의 근거 자료로 활용.
+    """
+    portfolio = models.ForeignKey(
+        Portfolio, on_delete=models.CASCADE, related_name='projects'
+    )
+    skill_block_id = models.IntegerField(
+        null=True, blank=True,
+        help_text="관련 스킬블록 ID (learning.SkillBlock)"
+    )
+    name = models.CharField(max_length=200, help_text="프로젝트/기능 명")
+    description = models.TextField(blank=True, help_text="프로젝트 설명")
+    tech_stack = models.JSONField(
+        default=list, blank=True,
+        help_text="사용 기술 (예: ['React', 'Django', 'PostgreSQL'])"
+    )
+    github_url = models.URLField(blank=True, default='', help_text="GitHub 리포지토리 URL")
+    demo_url = models.URLField(blank=True, default='', help_text="데모/배포 URL")
+    role = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text="담당 역할 (예: 프론트엔드 개발)"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"[Project] {self.name} → {self.portfolio.student.username}"
+
+
+class InterviewPersona(models.Model):
+    """
+    면접 페르소나 (ERD: InterviewPersona)
+    AI 면접관의 성격/역할/난이도를 사전 정의.
+    MockInterview에서 persona FK로 참조.
+    """
+    ROLE_CHOICES = (
+        ('TECH_LEAD', '기술 팀장'),
+        ('HR', '인사 담당자'),
+        ('VC', '벤처 캐피탈리스트'),
+        ('PEER', '동료 개발자'),
+        ('CUSTOMER', '고객'),
+        ('STARTUP_CEO', '스타트업 대표'),
+        ('BIG_TECH', '빅테크 면접관'),
+    )
+    DIFFICULTY_CHOICES = (
+        ('EASY', '기본'),
+        ('NORMAL', '보통'),
+        ('HARD', '압박'),
+    )
+
+    name = models.CharField(max_length=100, help_text="페르소나 이름 (e.g. 까칠한 CTO)")
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='TECH_LEAD')
+    system_prompt = models.TextField(
+        help_text="AI 페르소나 정의 프롬프트"
+    )
+    difficulty = models.CharField(
+        max_length=10, choices=DIFFICULTY_CHOICES, default='NORMAL'
+    )
+    avatar_emoji = models.CharField(max_length=10, default='🤖', help_text="아바타 이모지")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['role', 'difficulty']
+
+    def __str__(self):
+        return f"[{self.role}] {self.name} ({self.get_difficulty_display()})"

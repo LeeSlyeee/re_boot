@@ -20,6 +20,14 @@ from .analytics_views import (
     QualityReportView, ApplyRedistributionView, MyMessagesView,
 )
 from .skillblock_views import SyncSkillBlocksView, MySkillBlocksView, MockInterviewDataView
+from .certificate_views import CertificateDataView
+from .chat_views import AIChatViewSet
+from .curriculum_views import CurriculumViewSet
+from .manager_views import (
+    ManagerDashboardView, ClassMonitorView, AtRiskStudentsView,
+    StudentProgressVisualization, QuizAnalyticsVisualization,
+    SkillHeatmapVisualization, EngagementVisualization,
+)
 
 router = DefaultRouter()
 router.register(r'sessions', LearningSessionViewSet, basename='session')
@@ -36,6 +44,10 @@ router.register(r'materials', LectureMaterialViewSet, basename='material')
 router.register(r'placement', PlacementViewSet, basename='placement')
 router.register(r'goals', GoalViewSet, basename='goals')
 router.register(r'gapmap', GapMapViewSet, basename='gapmap')
+
+# AI 튜터 챗봇 + 커리큘럼 리라우팅
+router.register(r'chat/sessions', AIChatViewSet, basename='chat-session')
+router.register(r'curriculum', CurriculumViewSet, basename='curriculum')
 
 urlpatterns = [
     path('enroll/', EnrollLectureView.as_view(), name='enroll-lecture'),
@@ -83,5 +95,16 @@ urlpatterns = [
     path('skill-blocks/sync/<int:lecture_id>/', SyncSkillBlocksView.as_view(), name='sync-skill-blocks'),
     path('skill-blocks/my/', MySkillBlocksView.as_view(), name='my-skill-blocks'),
     path('skill-blocks/interview-data/', MockInterviewDataView.as_view(), name='interview-data'),
+    # 수료증
+    path('certificate/<int:lecture_id>/', CertificateDataView.as_view(), name='certificate-data'),
+    # 매니저 대시보드 및 클래스 모니터링
+    path('manager/dashboard/', ManagerDashboardView.as_view(), name='manager-dashboard'),
+    path('manager/class/<int:class_id>/', ClassMonitorView.as_view(), name='class-monitor'),
+    path('manager/class/<int:class_id>/at-risk/', AtRiskStudentsView.as_view(), name='at-risk-students'),
+    # 시각화 데이터 피딩 API
+    path('visualization/student-progress/', StudentProgressVisualization.as_view(), name='viz-student-progress'),
+    path('visualization/quiz-analytics/', QuizAnalyticsVisualization.as_view(), name='viz-quiz-analytics'),
+    path('visualization/skill-heatmap/', SkillHeatmapVisualization.as_view(), name='viz-skill-heatmap'),
+    path('visualization/engagement/', EngagementVisualization.as_view(), name='viz-engagement'),
     path('', include(router.urls)),
 ]

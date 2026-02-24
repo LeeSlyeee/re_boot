@@ -5,7 +5,7 @@ import axios from 'axios';
 
 const router = useRouter();
 const API = axios.create({ baseURL: 'http://localhost:8000/api' });
-API.interceptors.request.use(c => { const t = localStorage.getItem('access'); if (t) c.headers.Authorization = `Bearer ${t}`; return c; });
+API.interceptors.request.use(c => { const t = localStorage.getItem('token'); if (t) c.headers.Authorization = `Bearer ${t}`; return c; });
 
 // ── 상태 ──
 const step = ref('loading'); // loading → quiz → result → goal → done
@@ -93,11 +93,70 @@ const selectGoal = async (career) => {
     submitting.value = false;
 };
 
+// ── 커스텀 직무 만들기 ──
+const showCustomForm = ref(false);
+const customCareer = ref({ title: '', description: '', icon: '🎯', estimated_weeks: 12 });
+const customSkillInput = ref('');
+const customSkills = ref([]);
+
+const addCustomSkill = () => {
+    const name = customSkillInput.value.trim();
+    if (name && !customSkills.value.includes(name)) {
+        customSkills.value.push(name);
+        customSkillInput.value = '';
+    }
+};
+
+const removeCustomSkill = (index) => {
+    customSkills.value.splice(index, 1);
+};
+
+const submitCustomCareer = async () => {
+    if (!customCareer.value.title.trim()) {
+        alert('직무명을 입력해주세요.');
+        return;
+    }
+    if (customSkills.value.length === 0) {
+        alert('최소 1개 이상의 스킬을 추가해주세요.');
+        return;
+    }
+    submitting.value = true;
+    try {
+        const { data } = await API.post('/learning/goals/create-custom/', {
+            title: customCareer.value.title,
+            description: customCareer.value.description,
+            icon: customCareer.value.icon,
+            estimated_weeks: customCareer.value.estimated_weeks,
+            skills: customSkills.value,
+        });
+        result.value = result.value || {};
+        alert(data.message);
+        step.value = 'done';
+    } catch (e) {
+        alert('직무 생성 실패: ' + (e.response?.data?.error || e.message));
+    }
+    submitting.value = false;
+};
+
 const goToGapMap = () => { router.push('/gapmap'); };
 const goToDashboard = () => { router.push('/dashboard'); };
 
+const retakePlacement = async () => {
+    // 기존 결과 초기화하고 다시 문항 로드
+    result.value = null;
+    answers.value = {};
+    currentQ.value = 0;
+    try {
+        const { data: qs } = await API.get('/learning/placement/questions/');
+        questions.value = qs;
+        step.value = 'quiz';
+    } catch (e) {
+        alert('문항을 불러올 수 없습니다.');
+    }
+};
+
 const levelLabel = computed(() => {
-    const labels = { 1: '완전 초보', 2: '기초 이해자', 3: '실습 경험자' };
+    const labels = { 1: '쉽게 이해하기', 2: '핵심 정리', 3: '심화 완성' };
     return labels[result.value?.level] || '';
 });
 const levelColor = computed(() => {
@@ -197,7 +256,7 @@ const levelIcon = computed(() => {
         <h1>🎯 당신은 어디로 가고 싶으신가요?</h1>
         <p class="goal-subtitle">목표 직무를 선택하면 필요한 역량 로드맵이 생성됩니다</p>
 
-        <div class="career-grid">
+        <div v-if="careers.length > 0" class="career-grid">
             <div v-for="career in careers" :key="career.id" class="career-card"
                 :class="{ selected: selectedCareer?.id === career.id }"
                 @click="selectGoal(career)">
@@ -218,6 +277,65 @@ const levelIcon = computed(() => {
                 </div>
             </div>
         </div>
+        <div v-else class="goal-empty">
+            <p>등록된 목표 직무가 없습니다.</p>
+        </div>
+
+        <!-- ── 직접 만들기 토글 ── -->
+        <div class="custom-toggle-area">
+            <button class="btn-custom-toggle" @click="showCustomForm = !showCustomForm">
+                {{ showCustomForm ? '✕ 닫기' : '✨ 원하는 직무 직접 만들기' }}
+            </button>
+        </div>
+
+        <!-- ── 커스텀 직무 폼 ── -->
+        <div v-if="showCustomForm" class="custom-form-card">
+            <h3>🛠️ 나만의 직무 만들기</h3>
+
+            <div class="form-row">
+                <label>직무명 *</label>
+                <input v-model="customCareer.title" placeholder="예: AI 엔지니어, UX 디자이너..." class="form-input" />
+            </div>
+
+            <div class="form-row">
+                <label>설명</label>
+                <input v-model="customCareer.description" placeholder="이 직무에 대한 간단한 설명" class="form-input" />
+            </div>
+
+            <div class="form-row">
+                <label>아이콘</label>
+                <div class="icon-picker">
+                    <button v-for="emoji in ['🎯','💻','🤖','🎨','📊','🔬','🏗️','📱','🌐','🛡️']" :key="emoji"
+                        class="icon-btn" :class="{ active: customCareer.icon === emoji }"
+                        @click="customCareer.icon = emoji">{{ emoji }}</button>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <label>필요 스킬 * (Enter로 추가)</label>
+                <div class="skill-input-row">
+                    <input v-model="customSkillInput" placeholder="스킬명 입력 후 Enter"
+                        class="form-input" @keydown.enter.prevent="addCustomSkill" />
+                    <button class="btn-add-skill" @click="addCustomSkill">+ 추가</button>
+                </div>
+                <div v-if="customSkills.length > 0" class="skill-tags">
+                    <span v-for="(skill, i) in customSkills" :key="i" class="custom-skill-tag">
+                        {{ skill }}
+                        <button class="tag-remove" @click="removeCustomSkill(i)">✕</button>
+                    </span>
+                </div>
+                <p v-else class="skill-hint">아직 추가된 스킬이 없습니다. 위에 입력해주세요.</p>
+            </div>
+
+            <button class="btn-create-career" :disabled="submitting" @click="submitCustomCareer">
+                {{ submitting ? '생성 중...' : '🚀 직무 생성 + 목표 설정' }}
+            </button>
+        </div>
+
+        <div class="goal-bottom-actions">
+            <button class="btn-skip" @click="step = 'done'">나중에 선택하기 →</button>
+            <button class="btn-retake" @click="retakePlacement">🔄 다시 진단하기</button>
+        </div>
     </div>
 
     <!-- ═══ 완료 ═══ -->
@@ -226,10 +344,15 @@ const levelIcon = computed(() => {
             <span class="done-icon">🎉</span>
             <h2>진단 + 목표 설정 완료!</h2>
             <p>이제 갭 맵에서 나에게 필요한 역량을 확인하세요.</p>
+            <div v-if="result" class="done-result-summary">
+                <span class="done-level" :style="{ background: levelColor }">Level {{ result.level }} — {{ levelLabel }}</span>
+                <span class="done-score">{{ result.score }}/{{ result.total }} ({{ result.ratio }}%)</span>
+            </div>
             <div class="done-actions">
                 <button class="btn-primary" @click="goToGapMap">🗺️ 갭 맵 보기</button>
                 <button class="btn-secondary" @click="goToDashboard">📊 대시보드로</button>
             </div>
+            <button class="btn-retake" @click="retakePlacement">🔄 다시 진단하기</button>
         </div>
     </div>
 </div>
@@ -308,6 +431,16 @@ const levelIcon = computed(() => {
 .goal-screen { max-width: 900px; width: 100%; }
 .goal-screen h1 { color: white; text-align: center; font-size: 28px; margin: 0 0 8px; }
 .goal-subtitle { color: #94a3b8; text-align: center; font-size: 14px; margin-bottom: 32px; }
+.goal-empty { text-align: center; color: #64748b; font-size: 14px; padding: 40px 0; }
+.goal-bottom-actions {
+    display: flex; justify-content: center; gap: 12px; margin-top: 32px; flex-wrap: wrap;
+}
+.btn-skip {
+    padding: 10px 24px; background: rgba(255,255,255,0.08); color: #e2e8f0;
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 8px;
+    font-size: 14px; cursor: pointer; transition: all 0.2s;
+}
+.btn-skip:hover { background: rgba(255,255,255,0.15); }
 .career-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .career-card {
     background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
@@ -332,4 +465,73 @@ const levelIcon = computed(() => {
 .done-actions { display: flex; gap: 12px; justify-content: center; }
 .btn-primary { padding: 12px 28px; background: #3b82f6; color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
 .btn-secondary { padding: 12px 28px; background: rgba(255,255,255,0.1); color: white; border: none; border-radius: 10px; font-size: 15px; cursor: pointer; }
+.btn-retake {
+    display: block; width: 100%; margin-top: 16px; padding: 10px;
+    background: none; border: 1px solid rgba(255,255,255,0.15); color: #94a3b8;
+    border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.2s;
+}
+.btn-retake:hover { border-color: rgba(255,255,255,0.3); color: white; }
+.done-result-summary {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    margin: 16px 0 24px; flex-wrap: wrap;
+}
+.done-level {
+    padding: 6px 16px; border-radius: 20px; color: white;
+    font-size: 14px; font-weight: 600;
+}
+.done-score { color: #94a3b8; font-size: 14px; }
+
+/* 커스텀 직무 만들기 */
+.custom-toggle-area { text-align: center; margin: 24px 0 8px; }
+.btn-custom-toggle {
+    padding: 12px 28px; background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    color: white; border: none; border-radius: 10px; font-size: 15px;
+    font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.btn-custom-toggle:hover { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(99,102,241,0.4); }
+.custom-form-card {
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(139,92,246,0.3);
+    border-radius: 16px; padding: 28px; margin-top: 16px;
+    animation: slideDown 0.3s ease;
+}
+@keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+.custom-form-card h3 { color: white; font-size: 18px; margin: 0 0 20px; }
+.form-row { margin-bottom: 16px; }
+.form-row label { display: block; color: #94a3b8; font-size: 12px; margin-bottom: 6px; font-weight: 600; }
+.form-input {
+    width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 8px;
+    color: white; font-size: 14px; outline: none; box-sizing: border-box;
+}
+.form-input:focus { border-color: #8b5cf6; }
+.form-input::placeholder { color: #64748b; }
+.icon-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+.icon-btn {
+    width: 38px; height: 38px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.05); font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+}
+.icon-btn:hover { border-color: rgba(255,255,255,0.3); }
+.icon-btn.active { border-color: #8b5cf6; background: rgba(139,92,246,0.2); }
+.skill-input-row { display: flex; gap: 8px; }
+.skill-input-row .form-input { flex: 1; }
+.btn-add-skill {
+    padding: 10px 16px; background: #8b5cf6; color: white; border: none;
+    border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.skill-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.custom-skill-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 5px 10px; background: rgba(139,92,246,0.2); color: #c4b5fd;
+    border-radius: 6px; font-size: 12px;
+}
+.tag-remove { background: none; border: none; color: #f87171; cursor: pointer; font-size: 12px; padding: 0; }
+.skill-hint { color: #64748b; font-size: 12px; margin-top: 8px; }
+.btn-create-career {
+    width: 100%; padding: 14px; background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+    color: white; border: none; border-radius: 10px; font-size: 16px;
+    font-weight: 600; cursor: pointer; margin-top: 8px; transition: all 0.2s;
+}
+.btn-create-career:hover { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(59,130,246,0.4); }
+.btn-create-career:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 </style>

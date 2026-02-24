@@ -145,6 +145,9 @@ onMounted(async () => {
     // 7. 스킬블록 로드
     fetchSkillBlocks();
     fetchInterviewData();
+    // 8. 결석 노트 & 형성평가 로드
+    fetchAbsentNotes();
+    fetchPendingFormative();
 });
 
 // --- Phase 2-3: Spaced Repetition ---
@@ -230,6 +233,32 @@ const syncSkillBlocks = async (lectureId) => {
     } catch (e) { /* silent */ }
 };
 
+// --- 결석 시 AI 요약 노트 ---
+const absentNotes = ref([]);
+const fetchAbsentNotes = async () => {
+    // 수강 중인 강의별로 absent-notes 가져오기
+    if (!myLectures.value.length) return;
+    const allNotes = [];
+    for (const lec of myLectures.value) {
+        try {
+            const { data } = await api.get(`/learning/absent-notes/${lec.id}/`);
+            if (data.absent_notes?.length) {
+                allNotes.push(...data.absent_notes.map(n => ({ ...n, lectureName: lec.title })));
+            }
+        } catch (e) { /* silent */ }
+    }
+    absentNotes.value = allNotes;
+};
+
+// --- 미완료 형성평가 ---
+const pendingFormative = ref([]);
+const fetchPendingFormative = async () => {
+    try {
+        const { data } = await api.get('/learning/formative/my-pending/');
+        pendingFormative.value = data.assessments || data || [];
+    } catch (e) { /* silent */ }
+};
+
 const startLearning = () => {
     router.push('/learning');
 };
@@ -283,6 +312,105 @@ const continueLearning = () => {
         startLearning();
     }
 };
+
+// ── 강의 일정 타임라인 유틸 ──
+const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+};
+
+const calcProgress = (startStr, endStr) => {
+    if (!startStr || !endStr) return 0;
+    const start = new Date(startStr).getTime();
+    const end = new Date(endStr).getTime();
+    const now = Date.now();
+    if (now <= start) return 0;
+    if (now >= end) return 100;
+    return Math.round(((now - start) / (end - start)) * 100);
+};
+
+const daysInfo = (startStr, endStr) => {
+    if (!startStr || !endStr) return '';
+    const now = new Date();
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+    const totalDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+    const elapsed = Math.ceil((now - start) / (1000 * 60 * 60 * 24));
+    const remaining = Math.ceil((end - now) / (1000 * 60 * 60 * 24));
+
+    if (now < start) return `📅 ${Math.abs(elapsed)}일 후 개강`;
+    if (now > end) return '🎓 종강 완료';
+    return `📊 ${totalDays}일 중 ${elapsed}일째 (${remaining}일 남음)`;
+};
+
+// ── 🎓 수료증 생성 ──
+const generateCertificate = async (lecId, e) => {
+    e.stopPropagation();
+    try {
+        const { data } = await api.get(`/learning/certificate/${lecId}/`);
+        const w = window.open('', '_blank', 'width=900,height=700');
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Noto Sans KR', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #f0f0f0; }
+  .cert {
+    width: 800px; padding: 60px; background: white; border: 3px solid #1e3a5f;
+    box-shadow: 0 0 0 8px white, 0 0 0 11px #1e3a5f;
+    text-align: center; position: relative;
+  }
+  .cert::before, .cert::after {
+    content: ''; position: absolute; width: 60px; height: 60px;
+    border: 2px solid #c9a96e;
+  }
+  .cert::before { top: 20px; left: 20px; border-right: none; border-bottom: none; }
+  .cert::after { bottom: 20px; right: 20px; border-left: none; border-top: none; }
+  .cert-header { color: #c9a96e; font-size: 14px; letter-spacing: 8px; margin-bottom: 8px; }
+  .cert-title { font-size: 42px; font-weight: 900; color: #1e3a5f; margin-bottom: 30px; }
+  .cert-name { font-size: 32px; font-weight: 700; color: #333; border-bottom: 2px solid #c9a96e; display: inline-block; padding-bottom: 4px; margin-bottom: 20px; }
+  .cert-desc { font-size: 15px; color: #555; line-height: 1.8; margin-bottom: 30px; }
+  .cert-stats { display: flex; justify-content: center; gap: 32px; margin-bottom: 30px; }
+  .stat { text-align: center; }
+  .stat-val { font-size: 28px; font-weight: 900; color: #1e3a5f; }
+  .stat-lbl { font-size: 12px; color: #888; margin-top: 2px; }
+  .cert-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }
+  .footer-info { text-align: left; font-size: 12px; color: #999; }
+  .footer-sign { text-align: right; }
+  .sign-name { font-size: 16px; font-weight: 700; color: #333; }
+  .sign-role { font-size: 12px; color: #888; }
+  .print-btn { position: fixed; bottom: 20px; right: 20px; padding: 12px 24px; background: #1e3a5f; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; font-weight: 700; }
+  @media print { .print-btn { display: none; } body { background: white; } }
+</style></head><body>
+<div class="cert">
+  <div class="cert-header">CERTIFICATE OF COMPLETION</div>
+  <h1 class="cert-title">수 료 증</h1>
+  <div class="cert-name">${data.student_name}</div>
+  <div class="cert-desc">
+    위 수강생은 <strong>${data.lecture_title}</strong> 과정을<br>
+    성실히 이수하였음을 증명합니다.
+  </div>
+  <div class="cert-stats">
+    <div class="stat"><div class="stat-val">${data.total_hours}h</div><div class="stat-lbl">총 학습시간</div></div>
+    <div class="stat"><div class="stat-val">${data.attendance_rate}%</div><div class="stat-lbl">출석률</div></div>
+    <div class="stat"><div class="stat-val">${data.avg_quiz_score}점</div><div class="stat-lbl">퀴즈 평균</div></div>
+    <div class="stat"><div class="stat-val">${data.completed_sessions}회</div><div class="stat-lbl">완료 수업</div></div>
+  </div>
+  <div class="cert-footer">
+    <div class="footer-info">발급일: ${data.issued_date}<br>Re:Boot Career Build-up Platform</div>
+    <div class="footer-sign">
+      <div class="sign-name">${data.instructor_name}</div>
+      <div class="sign-role">담당 강사</div>
+    </div>
+  </div>
+</div>
+<button class="print-btn" onclick="window.print()">🖨️ 인쇄 / PDF 저장</button>
+</body></html>`);
+        w.document.close();
+    } catch (err) {
+        alert('수료증 데이터를 불러올 수 없습니다: ' + (err.response?.data?.error || err.message));
+    }
+};
 </script>
 
 <template>
@@ -293,6 +421,15 @@ const continueLearning = () => {
                 <h1 class="text-headline">안녕하세요, <span class="highlight">{{ userName }}</span>님! 👋</h1>
                 <p class="subtitle">오늘도 새로운 지식을 쌓아볼까요?</p>
             </header>
+
+            <!-- 🔥 학습 스트릭 배너 -->
+            <div v-if="stats.streak > 0" class="streak-banner glass-panel">
+                <span class="streak-fire">{{ stats.streak >= 7 ? '🔥🔥🔥' : stats.streak >= 3 ? '🔥🔥' : '🔥' }}</span>
+                <div class="streak-info">
+                    <span class="streak-count">{{ stats.streak }}일 연속 학습 중!</span>
+                    <span class="streak-msg">{{ stats.streak >= 7 ? '대단해요! 학습 습관이 완성되고 있어요' : stats.streak >= 3 ? '좋은 흐름이에요! 계속 이어가세요' : '시작이 반! 내일도 함께해요' }}</span>
+                </div>
+            </div>
 
             <!-- Stats Grid -->
             <div class="stats-grid">
@@ -330,6 +467,46 @@ const continueLearning = () => {
                 </div>
             </div>
 
+            <!-- ═══ 수강 중인 클래스 (최상단) ═══ -->
+            <section v-if="myLectures.length > 0" class="my-classes-section glass-panel">
+                <div class="section-header">
+                    <h2>📚 수강 중인 클래스</h2>
+                </div>
+                <div class="class-cards">
+                    <div v-for="lec in myLectures" :key="lec.id" class="class-card" @click="selectLecture(lec)">
+                        <div class="class-card-top">
+                            <span class="class-emoji">📖</span>
+                            <div class="class-info">
+                                <h3>{{ lec.title }}</h3>
+                                <p>{{ lec.instructor_name }} 강사님</p>
+                            </div>
+                            <span class="class-arrow">→</span>
+                        </div>
+                        <!-- 타임라인 -->
+                        <div v-if="lec.start_date && lec.end_date" class="class-timeline">
+                            <div class="timeline-dates">
+                                <span class="tl-start">{{ formatDate(lec.start_date) }}</span>
+                                <span class="tl-today" :style="{ left: calcProgress(lec.start_date, lec.end_date) + '%' }">
+                                    📍 오늘
+                                </span>
+                                <span class="tl-end">{{ formatDate(lec.end_date) }}</span>
+                            </div>
+                            <div class="timeline-bar">
+                                <div class="timeline-fill" :style="{ width: calcProgress(lec.start_date, lec.end_date) + '%' }"></div>
+                                <div class="timeline-marker" :style="{ left: calcProgress(lec.start_date, lec.end_date) + '%' }"></div>
+                            </div>
+                            <div class="timeline-meta">
+                                <span>{{ daysInfo(lec.start_date, lec.end_date) }}</span>
+                                <button v-if="calcProgress(lec.start_date, lec.end_date) === 100" class="cert-btn" @click="generateCertificate(lec.id, $event)">🎓 수료증</button>
+                            </div>
+                        </div>
+                        <div v-else class="class-no-schedule">
+                            <span>📅 강의 일정 미설정</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Main Content Stack -->
             <div class="dashboard-main">
                 
@@ -354,7 +531,46 @@ const continueLearning = () => {
                         <h3>🏫 클래스 참여하기</h3>
                         <p class="desc">강사님께 전달받은 입장 코드를 입력하여<br>새로운 클래스에 참여하세요.</p>
                     </div>
+
+                    <div class="analysis-card clickable ai-tutor-card" @click="router.push('/ai-chat')">
+                        <h3>🤖 AI 튜터</h3>
+                        <p class="desc">강의 내용이 헷갈린다면?<br>AI 튜터에게 바로 물어보세요.</p>
+                    </div>
+
+                    <div class="analysis-card clickable curriculum-card" @click="router.push('/curriculum')">
+                        <h3>🗺️ 나의 로드맵</h3>
+                        <p class="desc">AI가 설계한 학습 경로를 확인하고<br>진도를 관리하세요.</p>
+                    </div>
                 </div>
+                </section>
+
+                <!-- 결석 노트 (Absent Notes) -->
+                <section v-if="absentNotes.length > 0" class="glass-panel mt-section absent-notes-section">
+                    <h2>📖 놓친 수업 AI 노트 ({{ absentNotes.length }}건)</h2>
+                    <p class="section-desc">결석한 수업의 AI 요약 노트를 확인하세요.</p>
+                    <div class="absent-list">
+                        <div v-for="note in absentNotes.slice(0, 5)" :key="note.id" class="absent-card">
+                            <div class="absent-header">
+                                <span class="absent-lecture">{{ note.lectureName }}</span>
+                                <span class="absent-date">{{ note.date }}</span>
+                            </div>
+                            <p class="absent-title">{{ note.title }}</p>
+                            <button class="btn-sm" @click="router.push('/learning')">노트 보기 →</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 미완료 형성평가 -->
+                <section v-if="pendingFormative.length > 0" class="glass-panel mt-section formative-section">
+                    <h2>📝 미완료 형성평가 ({{ pendingFormative.length }}건)</h2>
+                    <p class="section-desc">오늘 배운 내용을 확인하는 형성평가를 풀어보세요.</p>
+                    <div class="formative-list">
+                        <div v-for="fa in pendingFormative" :key="fa.id" class="formative-badge-card">
+                            <span class="fa-badge">📋 {{ fa.total_questions || '?' }}문항</span>
+                            <span>{{ fa.session_title || '형성평가' }}</span>
+                            <button class="btn-sm accent" @click="router.push('/learning')">풀러가기 →</button>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- Phase 2-3: 간격 반복 알림 -->
@@ -452,22 +668,7 @@ const continueLearning = () => {
                     </div>
                 </div>
 
-                <!-- 1.5 My Courses -->
-                <section v-if="myLectures.length > 0" class="lectures-section glass-panel mt-section">
-                    <div class="section-header">
-                        <h2>수강 중인 클래스</h2>
-                    </div>
-                    <div class="lecture-list-dash">
-                        <div v-for="lec in myLectures" :key="lec.id" class="lecture-card" @click="selectLecture(lec)">
-                            <div class="lec-icon">📚</div>
-                            <div class="lec-info">
-                                <h3>{{ lec.title }}</h3>
-                                <p>{{ lec.instructor_name }} 강사님</p>
-                            </div>
-                            <div class="lec-arrow">→</div>
-                        </div>
-                    </div>
-                </section>
+                <!-- 수강 클래스는 상단으로 이동됨 -->
 
                 <!-- 2. Recent Activity -->
                 <section class="history-section glass-panel mt-section">
@@ -963,4 +1164,109 @@ h3 { font-size: 16px; color: #888; margin-bottom: 20px; font-weight: normal; }
 .sb-gap-item { text-align: center; }
 .sb-gap-label { display: block; font-size: 11px; color: #94a3b8; }
 .sb-gap-val { display: block; font-size: 20px; font-weight: 700; color: #e2e8f0; }
+
+/* ═══ 수강 클래스 타임라인 ═══ */
+/* 🔥 학습 스트릭 배너 */
+.streak-banner {
+    display: flex; align-items: center; gap: 16px; margin-bottom: 20px;
+    padding: 16px 24px !important;
+    background: linear-gradient(135deg, rgba(251,146,60,0.15), rgba(239,68,68,0.1)) !important;
+    border: 1px solid rgba(251,146,60,0.3) !important;
+}
+.streak-fire { font-size: 32px; animation: flame-pulse 2s ease-in-out infinite; display: inline-block; }
+@keyframes flame-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+.streak-info { display: flex; flex-direction: column; gap: 2px; }
+.streak-count { font-size: 20px; font-weight: 800; color: #fb923c; }
+.streak-msg { font-size: 13px; color: #94a3b8; }
+
+.my-classes-section { margin-bottom: 24px; }
+.class-cards { display: flex; flex-direction: column; gap: 16px; }
+.class-card {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px; padding: 20px; cursor: pointer; transition: all 0.2s;
+    &:hover { border-color: var(--color-accent); transform: translateY(-2px); }
+}
+.class-card-top { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.class-emoji {
+    font-size: 28px; width: 48px; height: 48px; background: rgba(79,172,254,0.1);
+    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+}
+.class-info {
+    flex: 1;
+    h3 { font-size: 17px; font-weight: 700; color: white; margin: 0 0 4px; }
+    p { font-size: 13px; color: #888; margin: 0; }
+}
+.class-arrow { font-size: 18px; color: var(--color-accent); opacity: 0; transition: opacity 0.2s; }
+.class-card:hover .class-arrow { opacity: 1; }
+
+/* 타임라인 바 */
+.class-timeline { margin-top: 4px; }
+.timeline-dates {
+    display: flex; justify-content: space-between; align-items: center;
+    position: relative; margin-bottom: 6px;
+}
+.tl-start, .tl-end { font-size: 11px; color: #64748b; font-weight: 600; }
+.tl-today {
+    position: absolute; transform: translateX(-50%);
+    font-size: 10px; color: #fbbf24; font-weight: 700; white-space: nowrap;
+}
+.timeline-bar {
+    height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px;
+    position: relative; overflow: visible;
+}
+.timeline-fill {
+    height: 100%; border-radius: 4px; transition: width 0.6s ease;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+}
+.timeline-marker {
+    position: absolute; top: -3px; width: 14px; height: 14px;
+    background: #fbbf24; border: 2px solid #1e293b; border-radius: 50%;
+    transform: translateX(-50%); transition: left 0.6s ease;
+    box-shadow: 0 0 8px rgba(251,191,36,0.5);
+}
+.timeline-meta {
+    margin-top: 6px; display: flex; justify-content: space-between; align-items: center;
+    span { font-size: 12px; color: #94a3b8; }
+}
+.cert-btn {
+    padding: 4px 12px; font-size: 12px; font-weight: 700;
+    background: linear-gradient(135deg, #c9a96e, #dfc18e); color: #1e3a5f;
+    border: none; border-radius: 6px; cursor: pointer;
+    transition: all 0.2s;
+}
+.cert-btn:hover { transform: scale(1.05); box-shadow: 0 2px 8px rgba(201,169,110,0.4); }
+.class-no-schedule {
+    margin-top: 4px; padding: 8px 12px; background: rgba(255,255,255,0.03);
+    border-radius: 6px; text-align: center;
+    span { font-size: 12px; color: #64748b; }
+}
+
+/* 결석 노트 */
+.absent-notes-section h2 { font-size: 18px; margin-bottom: 4px; }
+.section-desc { font-size: 13px; color: #888; margin-bottom: 12px; }
+.absent-list { display: flex; flex-direction: column; gap: 8px; }
+.absent-card {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px; padding: 12px 16px;
+}
+.absent-header { display: flex; justify-content: space-between; font-size: 12px; color: #888; margin-bottom: 4px; }
+.absent-lecture { color: #4facfe; font-weight: 600; }
+.absent-title { font-size: 14px; margin: 4px 0 8px; color: #ddd; }
+.btn-sm { background: rgba(79,172,254,0.15); color: #4facfe; border: none; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.btn-sm:hover { background: rgba(79,172,254,0.25); }
+.btn-sm.accent { background: rgba(99,102,241,0.15); color: #a78bfa; }
+.btn-sm.accent:hover { background: rgba(99,102,241,0.25); }
+
+/* 형성평가 */
+.formative-section h2 { font-size: 18px; margin-bottom: 4px; }
+.formative-list { display: flex; flex-direction: column; gap: 8px; }
+.formative-badge-card {
+    display: flex; align-items: center; gap: 12px;
+    background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.15);
+    border-radius: 10px; padding: 10px 16px;
+}
+.fa-badge { background: rgba(99,102,241,0.15); color: #a78bfa; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
 </style>

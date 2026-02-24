@@ -53,6 +53,18 @@ const router = createRouter({
       component: () => import('../views/GapMapView.vue'),
       meta: { requiresAuth: true }
     },
+    {
+      path: '/ai-chat',
+      name: 'ai-chat',
+      component: () => import('../views/AIChatView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/curriculum',
+      name: 'curriculum',
+      component: () => import('../views/CurriculumView.vue'),
+      meta: { requiresAuth: true }
+    },
   ],
 });
 
