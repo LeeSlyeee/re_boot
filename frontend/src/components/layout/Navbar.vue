@@ -29,6 +29,7 @@ const authStore = useAuthStore();
         <RouterLink to="/dashboard" class="nav-item">대시보드</RouterLink>
         <RouterLink to="/portfolio" class="nav-item">포트폴리오</RouterLink>
         <RouterLink to="/interview/setup" class="nav-item">🎭 면접</RouterLink>
+        <RouterLink to="/onboarding" class="nav-item">🎓 온보딩</RouterLink>
       </div>
 
       <div class="nav-actions">

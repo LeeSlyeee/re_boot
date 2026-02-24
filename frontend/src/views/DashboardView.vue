@@ -541,6 +541,11 @@ const generateCertificate = async (lecId, e) => {
                         <h3>🗺️ 나의 로드맵</h3>
                         <p class="desc">AI가 설계한 학습 경로를 확인하고<br>진도를 관리하세요.</p>
                     </div>
+
+                    <div class="analysis-card clickable onboarding-card" @click="router.push('/onboarding')">
+                        <h3>🎓 학습 온보딩</h3>
+                        <p class="desc">수준 진단 · 목표 설정 · 갭맵<br>체크리스트 · 수료증</p>
+                    </div>
                 </div>
                 </section>
 
