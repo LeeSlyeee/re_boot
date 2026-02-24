@@ -983,6 +983,24 @@ const isDragOver = ref(false);
 const showSummaryModal = ref(false);
 const selectedSummary = ref('');
 
+// ── RAG Re-indexing ──
+const reindexing = ref(false);
+const reindexResult = ref(null);
+
+const reindexSession = async (sessionId) => {
+    if (!confirm('이 세션의 학습 데이터를 재인덱싱하시겠습니까?')) return;
+    reindexing.value = true;
+    reindexResult.value = null;
+    try {
+        const { data } = await api.post('/learning/rag/index-session/', { session_id: sessionId });
+        reindexResult.value = data;
+        alert(`✅ 재인덱싱 완료 (${data.indexed_count || 0}건 인덱싱됨)`);
+    } catch (e) {
+        alert('재인덱싱 실패: ' + (e.response?.data?.error || e.message));
+    }
+    reindexing.value = false;
+};
+
 const fetchRecordings = async () => {
     recordingsLoading.value = true;
     try {
@@ -1569,6 +1587,13 @@ onMounted(fetchDashboard);
                                     class="btn-micro" 
                                     @click="viewSummary(rec.session_id)"
                                 >📝 요약 보기</button>
+                                <button 
+                                    v-if="rec.status === 'COMPLETED' && rec.session_id"
+                                    class="btn-micro" 
+                                    style="margin-left:4px;"
+                                    @click="reindexSession(rec.session_id)"
+                                    :disabled="reindexing"
+                                >🔄 재인덱싱</button>
                                 <span v-else-if="rec.status === 'FAILED'" class="error-hint" :title="rec.error_message">{{ rec.error_message?.substring(0, 30) }}...</span>
                             </td>
                         </tr>
