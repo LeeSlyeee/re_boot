@@ -16,7 +16,7 @@ const lectureTitle = ref('');
 const lectureCode = ref('');
 
 // Tab Management
-const activeTab = ref('monitor'); // 'monitor' | 'attendance' | 'quiz' | 'recording' | 'live' | 'diagnostic'
+const activeTab = ref('monitor'); // 'monitor' | 'attendance' | 'quiz' | 'recording' | 'live' | 'diagnostic' | 'review'
 
 const copyCode = async () => {
     try {
@@ -208,6 +208,38 @@ const switchTab = (tab) => {
     if (tab === 'live') fetchLiveStatus();
     if (tab === 'diagnostic') fetchDiagnostics();
     if (tab === 'analytics') loadAnalytics();
+    if (tab === 'review') fetchPendingReviewRoutes();
+};
+
+// ── Phase 2: 복습 루트 관리 ──
+const pendingReviewRoutes = ref([]);
+const reviewRoutesLoading = ref(false);
+
+const fetchPendingReviewRoutes = async () => {
+    reviewRoutesLoading.value = true;
+    try {
+        const { data } = await api.get('/learning/review-routes/pending/');
+        pendingReviewRoutes.value = data.routes || data || [];
+    } catch (e) { pendingReviewRoutes.value = []; }
+    reviewRoutesLoading.value = false;
+};
+
+const approveReviewRoute = async (routeId) => {
+    try {
+        await api.post(`/learning/review-routes/${routeId}/approve/`);
+        pendingReviewRoutes.value = pendingReviewRoutes.value.filter(r => r.id !== routeId);
+    } catch (e) { alert('승인 실패: ' + (e.response?.data?.error || '')); }
+};
+
+const editReviewRouteTitle = async (routeId) => {
+    const route = pendingReviewRoutes.value.find(r => r.id === routeId);
+    if (!route) return;
+    const newTitle = prompt('복습 루트 이름 수정:', route.title);
+    if (!newTitle || newTitle === route.title) return;
+    try {
+        const { data } = await api.patch(`/learning/review-routes/${routeId}/`, { title: newTitle });
+        route.title = data.title || newTitle;
+    } catch (e) { alert('수정 실패'); }
 };
 
 // ── Live Session State ──
@@ -1112,6 +1144,11 @@ onMounted(fetchDashboard);
                 :class="['tab-btn', { active: activeTab === 'analytics' }]" 
                 @click="switchTab('analytics')">
                 📈 학습 분석
+            </button>
+            <button 
+                :class="['tab-btn', { active: activeTab === 'review' }]" 
+                @click="switchTab('review')">
+                🔄 복습 루트
             </button>
         </div>
 
@@ -2164,6 +2201,46 @@ onMounted(fetchDashboard);
             </div>
         </div>
 
+        <!-- ══════════════════════════════════════ -->
+        <!-- Tab: 복습 루트 관리 -->
+        <!-- ══════════════════════════════════════ -->
+        <div v-if="activeTab === 'review'" class="review-tab-content">
+            <h2>🔄 복습 루트 승인 관리</h2>
+            <p style="color:#888;font-size:14px;margin-bottom:16px;">AI가 생성한 복습 루트를 검토하고 학생에게 배포할 수 있습니다.</p>
+
+            <div v-if="reviewRoutesLoading" class="loading-state"><div class="spinner"></div>로딩 중...</div>
+
+            <div v-else-if="pendingReviewRoutes.length === 0" class="empty-state">
+                <p>🎉 승인 대기 중인 복습 루트가 없습니다.</p>
+            </div>
+
+            <div v-else class="review-list">
+                <div v-for="route in pendingReviewRoutes" :key="route.id" class="review-card">
+                    <div class="review-header">
+                        <div>
+                            <h3>{{ route.title || '복습 루트 #' + route.id }}</h3>
+                            <span class="review-meta">
+                                👤 {{ route.student_name || '학생' }} · ⏱️ {{ route.estimated_minutes || '?' }}분
+                            </span>
+                        </div>
+                        <span class="review-status pending">대기</span>
+                    </div>
+
+                    <div class="review-items" v-if="route.items?.length">
+                        <div v-for="(item, idx) in route.items" :key="idx" class="review-item">
+                            <span class="ri-num">{{ idx + 1 }}</span>
+                            <span>{{ item.title || item.content }}</span>
+                        </div>
+                    </div>
+
+                    <div class="review-actions">
+                        <button class="btn-approve" @click="approveReviewRoute(route.id)">✅ 승인</button>
+                        <button class="btn-edit-route" @click="editReviewRouteTitle(route.id)">✏️ 수정</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 </template>
 
@@ -3034,4 +3111,23 @@ tr:hover td { background: #fafbfc; }
 .an-modal h3 { margin-top: 0; }
 .an-modal-actions { display: flex; gap: 8px; margin-top: 12px; }
 .an-btn-cancel { background: #e0e0e0; color: #333; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; }
+
+/* ── Review Routes Tab ── */
+.review-tab-content { padding: 20px 0; }
+.review-tab-content h2 { margin: 0 0 4px; font-size: 22px; }
+.review-list { display: flex; flex-direction: column; gap: 12px; }
+.review-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; }
+.review-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+.review-header h3 { margin: 0 0 4px; font-size: 17px; color: #333; }
+.review-meta { font-size: 13px; color: #888; }
+.review-status { padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+.review-status.pending { background: #fff3e0; color: #e65100; }
+.review-items { margin-bottom: 12px; }
+.review-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px; color: #555; border-bottom: 1px solid #f5f5f5; }
+.ri-num { width: 22px; height: 22px; border-radius: 50%; background: #e3f2fd; color: #1976d2; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.review-actions { display: flex; gap: 8px; }
+.btn-approve { background: #4caf50; color: white; border: none; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-approve:hover { background: #388e3c; }
+.btn-edit-route { background: white; color: #333; border: 1px solid #ddd; padding: 8px 20px; border-radius: 8px; font-size: 13px; cursor: pointer; }
+.btn-edit-route:hover { background: #f5f5f5; }
 </style>

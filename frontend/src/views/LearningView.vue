@@ -215,6 +215,38 @@ const fetchMissedSessions = async (lectureId) => {
     }
 };
 
+// [Phase 2] 공유 노트 조회
+const sharedNotes = ref([]);
+const fetchSharedNotes = async (lectureId) => {
+    try {
+        const res = await api.get(`/learning/sessions/lectures/${lectureId}/shared-notes/`);
+        sharedNotes.value = res.data.notes || res.data || [];
+    } catch (e) { sharedNotes.value = []; }
+};
+
+// [Phase 2] 결석 셀프 테스트
+const selfTestData = ref(null);
+const selfTestAnswers = ref({});
+const selfTestResult = ref(null);
+const selfTestLoading = ref(false);
+
+const startSelfTest = async (noteId) => {
+    selfTestLoading.value = true;
+    try {
+        const { data } = await api.get(`/learning/absent-notes/${noteId}/self-test/`);
+        selfTestData.value = data;
+        selfTestAnswers.value = {};
+        selfTestResult.value = null;
+    } catch (e) { alert('셀프 테스트 로드 실패'); }
+    selfTestLoading.value = false;
+};
+
+const closeSelfTest = () => {
+    selfTestData.value = null;
+    selfTestAnswers.value = {};
+    selfTestResult.value = null;
+};
+
 const openSharedSession = async (missed) => {
     if (!missed.representative_session_id) return;
     
@@ -393,6 +425,9 @@ const selectLecture = async (lecture) => {
         
         // [New] Fetch missed sessions
         await fetchMissedSessions(lecture.id);
+        
+        // [Phase 2] Fetch shared notes
+        await fetchSharedNotes(lecture.id);
         
         // Only close modal and switch mode upon success
         showJoinModal.value = false;
