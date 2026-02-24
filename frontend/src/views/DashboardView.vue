@@ -3,6 +3,8 @@ import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { BookOpen, Trophy, Clock, PlayCircle, BarChart2, Trash2, Youtube as YoutubeIcon, MonitorPlay, Users } from 'lucide-vue-next'; // Users added
 import api from '../api/axios';
+import { useToast } from '../composables/useToast';
+const { showToast } = useToast();
 
 const router = useRouter();
 const userName = ref('학습자'); 
@@ -92,12 +94,12 @@ const joinClass = async () => {
     if (!joinCode.value || joinCode.value.length < 6) return;
     try {
         const res = await api.post('/learning/enroll/', { access_code: joinCode.value });
-        alert(`'${res.data.title}' 클래스 입장 완료!`);
+        showToast(`'${res.data.title}' 클래스 입장 완료!`, 'success');
         closeJoinModal();
         // [FIX] 바로 해당 강의실로 이동
         router.push({ path: '/learning', query: { lectureId: res.data.lecture_id } });
     } catch (e) {
-        alert(e.response?.data?.error || "코드가 올바르지 않거나 이미 가입된 클래스입니다.");
+        showToast(e.response?.data?.error || "코드가 올바르지 않거나 이미 가입된 클래스입니다.", 'error');
     }
 };
 
@@ -110,7 +112,7 @@ const selectLecture = (lecture) => {
         router.push({ path: '/learning', query: { lectureId: lecture.id } });
     } else {
         // 코드 입력창에 포커스?
-        alert("입장 코드를 입력하여 수강 신청해주세요.");
+        showToast("입장 코드를 입력하여 수강 신청해주세요.", 'error');
     }
 };
 
@@ -408,7 +410,7 @@ const generateCertificate = async (lecId, e) => {
 </body></html>`);
         w.document.close();
     } catch (err) {
-        alert('수료증 데이터를 불러올 수 없습니다: ' + (err.response?.data?.error || err.message));
+        showToast('수료증 데이터를 불러올 수 없습니다: ' + (err.response?.data?.error || err.message, 'error'));
     }
 };
 </script>

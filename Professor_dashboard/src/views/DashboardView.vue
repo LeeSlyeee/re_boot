@@ -3,6 +3,8 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { Trash2 } from 'lucide-vue-next';
 import api from '../api/axios';
+import { useToast } from '../composables/useToast';
+const { showToast } = useToast();
 
 const lectures = ref([]);
 const router = useRouter();
@@ -46,7 +48,7 @@ const saveSchedule = async (lecId, e) => {
         editingSchedule.value = null;
         fetchLectures();
     } catch (err) {
-        alert('일정 저장 실패: ' + (err.response?.data?.detail || err.message));
+        showToast('일정 저장 실패: ' + (err.response?.data?.detail || err.message), 'error');
     }
 };
 
@@ -103,7 +105,7 @@ const deleteLecture = async (id) => {
         fetchLectures();
     } catch (e) {
         console.error(e);
-        alert("강의 삭제 실패: " + (e.response?.data?.detail || "알 수 없는 오류"));
+        showToast("강의 삭제 실패: " + (e.response?.data?.detail || "알 수 없는 오류"), 'error');
     }
 };
 

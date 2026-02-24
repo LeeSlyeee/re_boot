@@ -1,5 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
+import { useToast } from '../composables/useToast';
+const { showToast } = useToast();
 import { useRouter } from 'vue-router';
 import { ArrowLeft, CheckCircle, Circle, Zap, RefreshCw, Clock, ChevronDown, ChevronUp, BookOpen, AlertTriangle } from 'lucide-vue-next';
 import { getCurriculums, getCurriculum, completeItem, rerouteCurriculum, getRerouteHistory } from '../api/learning';
@@ -66,7 +68,7 @@ const doReroute = async () => {
         await rerouteCurriculum(activeCurriculum.value.id);
         await selectCurriculum(activeCurriculum.value);
     } catch (e) {
-        alert('리라우팅 실패: ' + (e.response?.data?.error || e.message));
+        showToast('리라우팅 실패: ' + (e.response?.data?.error || e.message, 'error'));
     }
     isRerouting.value = false;
 };

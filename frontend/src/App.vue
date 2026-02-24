@@ -1,11 +1,13 @@
 <script setup>
 import { RouterView } from "vue-router";
 import Navbar from "./components/layout/Navbar.vue";
+import ToastContainer from "./components/ToastContainer.vue";
 </script>
 
 <template>
   <div class="app-wrapper">
     <Navbar />
+    <ToastContainer />
     <main>
       <router-view v-slot="{ Component }">
         <transition name="fade" mode="out-in">

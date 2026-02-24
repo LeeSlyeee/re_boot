@@ -115,29 +115,45 @@ class LiveSessionViewSet(viewsets.ViewSet):
         if session.status == 'ENDED':
             return Response({'error': '이미 종료된 세션입니다.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        session.status = 'ENDED'
-        session.ended_at = timezone.now()
-        session.save()
+        try:
+            session.status = 'ENDED'
+            session.ended_at = timezone.now()
+            # WAITING 상태에서 바로 종료 시 started_at이 None → 현재 시간으로 설정
+            if not session.started_at:
+                session.started_at = session.ended_at
+            session.save()
 
-        # 참가자 전원 비활성화
-        session.participants.update(is_active=False)
+            # 참가자 전원 비활성화
+            session.participants.update(is_active=False)
 
-        # 활성 퀴즈 비활성화
-        session.quizzes.filter(is_active=True).update(is_active=False)
+            # 활성 퀴즈 비활성화
+            session.quizzes.filter(is_active=True).update(is_active=False)
 
-        # 통합 노트 생성 시작 (비동기)
-        note = LiveSessionNote.objects.create(live_session=session, status='PENDING')
-        thread = threading.Thread(target=_generate_live_note, args=(session.id, note.id))
-        thread.daemon = True
-        thread.start()
+            # 통합 노트 생성 시작 (비동기) — 중복 방지
+            existing_note = LiveSessionNote.objects.filter(live_session=session).first()
+            if not existing_note:
+                note = LiveSessionNote.objects.create(live_session=session, status='PENDING')
+                thread = threading.Thread(target=_generate_live_note, args=(session.id, note.id))
+                thread.daemon = True
+                thread.start()
+                note_status = 'PENDING'
+            else:
+                note_status = existing_note.status
 
-        return Response({
-            'id': session.id,
-            'status': session.status,
-            'ended_at': session.ended_at,
-            'total_participants': session.participants.count(),
-            'note_status': 'PENDING',
-        })
+            return Response({
+                'id': session.id,
+                'status': session.status,
+                'ended_at': session.ended_at,
+                'total_participants': session.participants.count(),
+                'note_status': note_status,
+            })
+        except Exception as e:
+            print(f"❌ [EndSession] 세션 종료 처리 중 에러: {e}")
+            return Response(
+                {'error': f'세션 종료 처리 중 오류: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
     @action(detail=True, methods=['get'], url_path='status')
     def session_status(self, request, pk=None):

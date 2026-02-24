@@ -11,6 +11,9 @@ import { AudioRecorder } from '../api/audioRecorder';
 import api from '../api/axios';
 import ChecklistPanel from '../components/ChecklistPanel.vue';
 import { useLiveSession } from '../composables/useLiveSession';
+import { useToast } from '../composables/useToast';
+
+const { showToast } = useToast();
 
 const router = useRouter();
 const route = useRoute(); // Route access
@@ -103,7 +106,7 @@ const startQRScan = async () => {
             scanFrame();
         }
     } catch (e) {
-        alert('카메라 접근이 거부되었습니다.');
+        showToast('카메라 접근이 거부되었습니다.', 'error');
         qrScanning.value = false;
     }
 };
@@ -154,7 +157,7 @@ const fetchLectureSessions = async (lectureId) => {
         
     } catch (e) {
         if (e.response?.status === 401) {
-            alert("로그인이 필요합니다.");
+            showToast("로그인이 필요합니다.", "error");
             router.push('/login');
             // Stop further execution to prevent cascading errors
             throw e; 
@@ -199,7 +202,7 @@ const executeRecoveryPlan = async () => {
         });
         recoveryPlanContent.value = res.data.recovery_plan;
     } catch (e) {
-        alert("복구 플랜 생성에 실패했습니다.");
+        showToast("복구 플랜 생성에 실패했습니다.", "error");
         showRecoveryModal.value = false;
     } finally {
         isGeneratingRecovery.value = false;
@@ -237,7 +240,7 @@ const startSelfTest = async (noteId) => {
         selfTestData.value = data;
         selfTestAnswers.value = {};
         selfTestResult.value = null;
-    } catch (e) { alert('셀프 테스트 로드 실패'); }
+    } catch (e) { showToast('셀프 테스트 로드 실패', 'error'); }
     selfTestLoading.value = false;
 };
 
@@ -286,7 +289,7 @@ const openSharedSession = async (missed) => {
         }
         
     } catch (e) {
-        alert("공유 데이터를 불러오는데 실패했습니다.");
+        showToast("공유 데이터를 불러오는데 실패했습니다.", "error");
     } finally {
         isLoadingSession.value = false;
     }
@@ -407,7 +410,7 @@ const closeJoinModal = () => {
 const selectLecture = async (lecture) => {
     // [Security Fix] Prevent accessing unenrolled lectures
     if (!lecture.is_enrolled) {
-        alert("이 클래스를 수강하려면 [입장 코드]를 입력해야 합니다.\n상단의 '클래스 참여하기' 버튼을 이용해주세요.");
+        showToast("이 클래스를 수강하려면 입장 코드를 입력해야 합니다.", 'warning');
         selectedLectureId.value = lecture.id;
         // Optionally pre-fill or focus join input
         return;
@@ -436,10 +439,10 @@ const selectLecture = async (lecture) => {
     } catch (e) {
         console.error("Lecture Selection Failed:", e);
         if (e.response && e.response.status === 401) {
-            alert("로그인이 필요한 기능입니다.");
+            showToast("로그인이 필요한 기능입니다.", 'error');
             router.push('/login');
         } else {
-            alert("수업을 불러오는데 실패했습니다. (서버 오류)");
+            showToast("수업을 불러오는데 실패했습니다. (서버 오류)", 'error');
         }
     }
 };
@@ -451,7 +454,7 @@ const joinClass = async () => {
         const res = await api.post('/learning/enroll/', { access_code: joinCode.value });
         
         // 1. 성공 알림 및 모달 닫기
-        alert(`'${res.data.title}' 클래스 입장 완료! 수업을 시작합니다.`);
+        showToast(`'${res.data.title}' 클래스 입장 완료!`, 'success');
         closeJoinModal();
 
         // 2. 클래스 정보 설정 및 오프라인 모드 진입
@@ -461,7 +464,7 @@ const joinClass = async () => {
     } catch (e) {
         console.error(e);
         const msg = e.response?.data?.error || e.response?.data?.message || "코드가 올바르지 않거나 이미 가입된 클래스입니다.";
-        alert(msg);
+        showToast(msg, 'error');
     }
 };
 
@@ -562,10 +565,10 @@ const saveNote = async () => {
         if (res.data.content) {
             sessionSummary.value = res.data.content;
         }
-        alert('✅ 메모가 저장되었습니다.');
+        showToast('메모가 저장되었습니다.', 'success');
     } catch (e) {
         console.error('노트 저장 실패', e);
-        alert('메모 저장에 실패했습니다.');
+        showToast('메모 저장에 실패했습니다.', 'error');
     } finally {
         isSavingNote.value = false;
     }
@@ -590,7 +593,7 @@ const exportPdf = () => {
         window.URL.revokeObjectURL(downloadUrl);
     }).catch(e => {
         console.error('PDF 내보내기 실패', e);
-        alert('내보내기에 실패했습니다.');
+        showToast('내보내기에 실패했습니다.', 'error');
     });
 };
 
@@ -610,14 +613,14 @@ const generateSummary = async () => {
             // Alert removed
         } else {
             console.warn("⚠️ Summary response empty or invalid:", res.data);
-            alert("서버에서 요약 내용을 받지 못했습니다.");
+            showToast("서버에서 요약 내용을 받지 못했습니다.", "error");
         }
     } catch (e) {
         console.error("Summary Generation Failed:", e);
         if (e.response && e.response.status === 400) {
-            alert("⚠️ 요약할 자막 내용이 없습니다. (수업 내용을 먼저 녹음해주세요)");
+            showToast("요약할 자막 내용이 없습니다.", "warning");
         } else {
-            alert("요약 생성에 실패했습니다. (서버 오류)");
+            showToast("요약 생성에 실패했습니다.", "error");
         }
     } finally {
         isGeneratingSummary.value = false;
@@ -776,7 +779,7 @@ const selectMode = (selectedMode) => {
 // [FIX] URL 제출 로직 개선
 const submitYoutube = () => {
     if (!youtubeEmbedUrl.value) {
-        alert("올바른 유튜브 링크를 입력해주세요 (예: https://youtube.com/watch?v=...)");
+        showToast("올바른 유튜브 링크를 입력해주세요.", "warning");
         return;
     }
     
@@ -798,7 +801,7 @@ const submitYoutube = () => {
             console.log("✅ URL Saved to Backend");
         }).catch(err => {
             console.error("URL Save Failed:", err);
-            alert("저장 실패 (서버 오류)");
+            showToast("저장 실패 (서버 오류)", "error");
             isUrlSubmitted.value = false; // 실패 시 다시 열어줌
         });
     }
@@ -813,7 +816,7 @@ watch(sttLogs, async () => {
 const startRecording = async () => {
     // [FIX] 완료된 세션(복습 모드)에서는 녹음 불가
     if (isCompletedSession.value) {
-        alert("이 수업은 이미 완료되어 복습 모드로 실행 중입니다. (추가 녹음 불가)");
+        showToast("이 수업은 이미 완료되어 복습 모드입니다.", "info");
         return;
     }
 
@@ -834,10 +837,10 @@ const startRecording = async () => {
         } catch (e) {
             console.error("Session Create Error:", e);
             if (e.response && e.response.status === 401) {
-                alert("세션을 시작하려면 로그인이 필요합니다.");
+                showToast("세션을 시작하려면 로그인이 필요합니다.", "error");
                 router.push('/login');
             } else {
-                alert("세션 생성 실패. 다시 시도해주세요.");
+                showToast("세션 생성 실패. 다시 시도해주세요.", "error");
             }
             return;
         }
@@ -973,7 +976,7 @@ const loadQuiz = async () => {
         quizData.value = data; 
         showQuiz.value = true;
     } catch (e) {
-        alert("퀴즈 생성 실패: " + (e.response?.data?.error || "알 수 없는 오류"));
+        showToast("퀴즈 생성 실패: " + (e.response?.data?.error || "알 수 없는 오류"), "error");
     } finally {
         isGeneratingQuiz.value = false;
     }
@@ -1040,7 +1043,7 @@ const submitQuiz = async () => {
         });
         quizResult.value = data;
     } catch (e) {
-        alert("제출 실패: " + (e.response?.data?.error || "서버 오류"));
+        showToast("제출 실패: " + (e.response?.data?.error || "서버 오류"), "error");
     } finally {
         isSubmittingQuiz.value = false;
     }

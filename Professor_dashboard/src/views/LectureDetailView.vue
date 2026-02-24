@@ -2,6 +2,8 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../api/axios';
+import { useToast } from '../composables/useToast';
+const { showToast } = useToast();
 import QrcodeVue from 'qrcode.vue';
 import { Bar, Doughnut } from 'vue-chartjs';
 import { Chart as ChartJS, Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement } from 'chart.js';
@@ -21,7 +23,7 @@ const activeTab = ref('monitor'); // 'monitor' | 'attendance' | 'quiz' | 'record
 const copyCode = async () => {
     try {
         await navigator.clipboard.writeText(lectureCode.value);
-        alert(`입장 코드(${lectureCode.value})가 복사되었습니다.`);
+        showToast(`입장 코드(${lectureCode.value}, 'success')가 복사되었습니다.`);
     } catch (err) {
         console.error('Failed to copy: ', err);
     }
@@ -93,7 +95,7 @@ const addWeek = async () => {
         isAddingWeek.value = false;
         await fetchChecklist();
     } catch (e) {
-        alert("주차 추가 실패");
+        showToast("주차 추가 실패", 'error');
     }
 };
 
@@ -104,7 +106,7 @@ const addObjective = async (weekId) => {
         await api.post(`/learning/syllabus/${weekId}/objective/`, { content: text });
         await fetchChecklist();
     } catch (e) {
-        alert("목표 추가 실패");
+        showToast("목표 추가 실패", 'error');
     }
 };
 
@@ -114,7 +116,7 @@ const deleteObjective = async (objId) => {
         await api.delete(`/learning/objective/${objId}/`);
         await fetchChecklist();
     } catch (e) {
-        alert("삭제 실패");
+        showToast("삭제 실패", 'error');
     }
 };
 
@@ -228,7 +230,7 @@ const approveReviewRoute = async (routeId) => {
     try {
         await api.post(`/learning/review-routes/${routeId}/approve/`);
         pendingReviewRoutes.value = pendingReviewRoutes.value.filter(r => r.id !== routeId);
-    } catch (e) { alert('승인 실패: ' + (e.response?.data?.error || '')); }
+    } catch (e) { showToast('승인 실패: ' + (e.response?.data?.error || '', 'error')); }
 };
 
 const editReviewRouteTitle = async (routeId) => {
@@ -239,7 +241,7 @@ const editReviewRouteTitle = async (routeId) => {
     try {
         const { data } = await api.patch(`/learning/review-routes/${routeId}/`, { title: newTitle });
         route.title = data.title || newTitle;
-    } catch (e) { alert('수정 실패'); }
+    } catch (e) { showToast('수정 실패', 'error'); }
 };
 
 // ── Live Session State ──
@@ -282,7 +284,7 @@ const createLiveSession = async () => {
         if (e.response?.status === 409) {
             liveSession.value = e.response.data;
             startLivePolling();
-        } else { alert('세션 생성 실패: ' + (e.response?.data?.error || '')); }
+        } else { showToast('세션 생성 실패: ' + (e.response?.data?.error || '', 'error')); }
     } finally { liveLoading.value = false; }
 };
 
@@ -291,7 +293,7 @@ const startLiveSession = async () => {
     try {
         const { data } = await api.post(`/learning/live/${liveSession.value.id}/start/`);
         liveSession.value = { ...liveSession.value, ...data };
-    } catch (e) { alert('세션 시작 실패: ' + (e.response?.data?.error || '')); }
+    } catch (e) { showToast('세션 시작 실패: ' + (e.response?.data?.error || '', 'error')); }
 };
 
 const endLiveSession = async () => {
@@ -303,7 +305,7 @@ const endLiveSession = async () => {
         // 세션 종료 후 상태 유지 → 인사이트 폴링 시작
         liveSession.value = { ...liveSession.value, status: 'ENDED' };
         startInsightPolling();
-    } catch (e) { alert('세션 종료 실패'); }
+    } catch (e) { showToast('세션 종료 실패', 'error'); }
 };
 
 // ── 인사이트 리포트 폴링 ──
@@ -386,9 +388,9 @@ const approveNote = async () => {
         });
         if (data.ok) {
             insightData.value = { ...insightData.value, is_approved: true, is_public: data.is_public };
-            alert(`노트가 승인되었습니다. (범위: ${data.scope})`);
+            showToast(`노트가 승인되었습니다. (범위: ${data.scope}, 'success')`);
         }
-    } catch (e) { alert('승인 실패: ' + (e.response?.data?.error || '')); }
+    } catch (e) { showToast('승인 실패: ' + (e.response?.data?.error || '', 'error')); }
 };
 
 const linkMaterials = async () => {
@@ -397,8 +399,8 @@ const linkMaterials = async () => {
         const { data } = await api.post(`/learning/live/${liveSession.value.id}/note/materials/`, {
             material_ids: selectedMaterialIds.value,
         });
-        alert(`${data.linked_count}개 교안이 연결되었습니다.`);
-    } catch (e) { alert('교안 연결 실패'); }
+        showToast(`${data.linked_count}개 교안이 연결되었습니다.`, 'success');
+    } catch (e) { showToast('교안 연결 실패', 'error'); }
 };
 
 // ── Phase 2-1: Weak Zone ──
@@ -417,14 +419,14 @@ const pushWeakZone = async (wzId, materialId = null) => {
         const body = materialId ? { material_id: materialId } : {};
         await api.post(`/learning/live/${liveSession.value.id}/weak-zones/${wzId}/push/`, body);
         await fetchWeakZones();
-    } catch (e) { alert('보충 자료 전송 실패'); }
+    } catch (e) { showToast('보충 자료 전송 실패', 'error'); }
 };
 
 const dismissWeakZone = async (wzId) => {
     try {
         await api.post(`/learning/live/${liveSession.value.id}/weak-zones/${wzId}/dismiss/`);
         await fetchWeakZones();
-    } catch (e) { alert('거부 실패'); }
+    } catch (e) { showToast('거부 실패', 'error'); }
 };
 
 const activeWeakZones = computed(() => weakZones.value.filter(w => w.status === 'DETECTED'));
@@ -442,7 +444,7 @@ const generateFormative = async () => {
         formativeStatus.value = data.status;
         formativeCount.value = data.total_questions;
     } catch (e) {
-        alert('형성평가 문항 생성 실패');
+        showToast('형성평가 문항 생성 실패', 'error');
     } finally {
         formativeGenerating.value = false;
     }
@@ -461,7 +463,7 @@ const generateAdaptive = async (materialId) => {
         // 생성 후 전체 내용 다시 fetch (content 포함)
         await fetchAdaptiveContents(materialId);
     } catch (e) {
-        alert('AI 변형 생성 실패: ' + (e.response?.data?.error || e.message));
+        showToast('AI 변형 생성 실패: ' + (e.response?.data?.error || e.message, 'error'));
     }
     adaptiveGenerating.value = { ...adaptiveGenerating.value, [materialId]: false };
 };
@@ -487,7 +489,7 @@ const approveAdaptive = async (acId, materialId) => {
         if (adaptivePreview.value && adaptivePreview.value.acId === acId) {
             adaptivePreview.value.status = 'APPROVED';
         }
-    } catch (e) { alert('승인 실패'); }
+    } catch (e) { showToast('승인 실패', 'error'); }
 };
 
 const openAdaptivePreview = (ac, materialId) => {
@@ -603,9 +605,9 @@ const sendDirectMessage = async () => {
             content: msgContent.value,
             message_type: 'FEEDBACK',
         });
-        alert('메시지 발송 완료');
+        showToast('메시지 발송 완료', 'success');
         showMsgModal.value = false;
-    } catch (e) { alert('메시지 발송 실패'); }
+    } catch (e) { showToast('메시지 발송 실패', 'error'); }
 };
 
 const sendGroupMessage = async () => {
@@ -616,10 +618,10 @@ const sendGroupMessage = async () => {
             content: groupMsgContent.value,
             message_type: 'NOTICE',
         });
-        alert('그룹 메시지 발송 완료');
+        showToast('그룹 메시지 발송 완료', 'success');
         groupMsgTitle.value = '';
         groupMsgContent.value = '';
-    } catch (e) { alert('발송 실패'); }
+    } catch (e) { showToast('발송 실패', 'error'); }
 };
 
 // AI 제안 액션
@@ -629,7 +631,7 @@ const handleSuggestion = async (type, id, action) => {
             type, id, action,
         });
         await fetchAISuggestions();
-    } catch (e) { alert('처리 실패'); }
+    } catch (e) { showToast('처리 실패', 'error'); }
 };
 
 // 재분류 적용
@@ -640,9 +642,9 @@ const applyRedistribution = async () => {
         await api.post(`/learning/professor/${lectureId}/apply-redistribution/`, {
             changes: qualityReport.value.level_redistribution.changes,
         });
-        alert('레벨 재분류 적용 완료');
+        showToast('레벨 재분류 적용 완료', 'success');
         await loadAnalytics();
-    } catch (e) { alert('적용 실패'); }
+    } catch (e) { showToast('적용 실패', 'error'); }
 };
 
 const startLivePolling = () => {
@@ -697,7 +699,7 @@ const flushPendingSTT = async () => {
 
 const startSTT = () => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        alert('이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.');
+        showToast('이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.', 'warning');
         return;
     }
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -804,7 +806,7 @@ const approveQuizSuggestion = async () => {
             time_limit: 60
         });
         quizSuggestion.value = null;
-    } catch (e) { alert('퀴즈 발동 실패: ' + (e.response?.data?.error || '')); }
+    } catch (e) { showToast('퀴즈 발동 실패: ' + (e.response?.data?.error || '', 'error')); }
 };
 
 const dismissQuizSuggestion = () => {
@@ -824,9 +826,9 @@ const generateAIQuiz = async () => {
     try {
         const { data } = await api.post(`/learning/live/${liveSession.value.id}/quiz/generate/`);
         lastActiveQuizId.value = data.id;
-        alert(`AI 퀴즈 발동! (문제: ${data.question_text.substring(0, 40)}...)`);
+        showToast(`AI 퀴즈 발동! (문제: ${data.question_text.substring(0, 40, 'success')}...)`);
     } catch (e) {
-        alert('AI 퀴즈 생성 실패: ' + (e.response?.data?.error || ''));
+        showToast('AI 퀴즈 생성 실패: ' + (e.response?.data?.error || '', 'error'));
     } finally { quizGenerating.value = false; }
 };
 
@@ -875,7 +877,7 @@ const submitManualQuiz = async () => {
     if (!liveSession.value) return;
     const q = manualQuiz.value;
     if (!q.question || q.options.some(o => !o) || q.correctIndex === '') {
-        alert('모제와 보기 4개, 정답을 모두 입력해주세요.'); return;
+        showToast('모제와 보기 4개, 정답을 모두 입력해주세요.', 'warning'); return;
     }
     try {
         const { data } = await api.post(`/learning/live/${liveSession.value.id}/quiz/create/`, {
@@ -887,7 +889,7 @@ const submitManualQuiz = async () => {
         lastActiveQuizId.value = data.id;
         showManualQuizForm.value = false;
         manualQuiz.value = { question: '', options: ['', '', '', ''], correctIndex: '', explanation: '' };
-    } catch (e) { alert('퀴즈 생성 실패: ' + (e.response?.data?.error || '')); }
+    } catch (e) { showToast('퀴즈 생성 실패: ' + (e.response?.data?.error || '', 'error')); }
 };
 
 const fetchQuizResult = async () => {
@@ -919,11 +921,11 @@ const replyToQuestion = async (questionId) => {
         });
         qaReplyText.value[questionId] = '';
         await fetchLiveQuestions();
-    } catch (e) { alert('답변 실패: ' + (e.response?.data?.error || '')); }
+    } catch (e) { showToast('답변 실패: ' + (e.response?.data?.error || '', 'error')); }
 };
 const copyLiveCode = async () => {
     if (!liveSession.value?.session_code) return;
-    try { await navigator.clipboard.writeText(liveSession.value.session_code); alert('코드 복사 완료!'); } catch {}
+    try { await navigator.clipboard.writeText(liveSession.value.session_code); showToast('코드 복사 완료!', 'success'); } catch {}
 };
 
 // QR코드에 인코딩될 URL (학습자 프론트 + 세션코드)
@@ -955,19 +957,19 @@ const uploadMaterial = async (e) => {
         const fd = new FormData(); fd.append('file', file); fd.append('lecture_id', lectureId); fd.append('title', file.name);
         await api.post('/learning/materials/upload/', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
         await fetchMaterials();
-    } catch { alert('교안 업로드 실패'); }
+    } catch { showToast('교안 업로드 실패', 'error'); }
     finally { materialUploading.value = false; e.target.value = ''; }
 };
 
 const deleteMaterial = async (id) => {
     if (!confirm('교안을 삭제하시겠습니까?')) return;
-    try { await api.delete(`/learning/materials/${id}/delete/`); await fetchMaterials(); } catch { alert('삭제 실패'); }
+    try { await api.delete(`/learning/materials/${id}/delete/`); await fetchMaterials(); } catch { showToast('삭제 실패', 'error'); }
 };
 
 // A4: 퀴즈 결과 프로젝터 공유 (전체화면)
 const projectQuizResult = () => {
     const el = document.querySelector('.quiz-result-card');
-    if (!el) { alert('표시할 퀴즈 결과가 없습니다.'); return; }
+    if (!el) { showToast('표시할 퀴즈 결과가 없습니다.', 'warning'); return; }
     if (el.requestFullscreen) el.requestFullscreen();
     else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
 };
@@ -994,9 +996,9 @@ const reindexSession = async (sessionId) => {
     try {
         const { data } = await api.post('/learning/rag/index-session/', { session_id: sessionId });
         reindexResult.value = data;
-        alert(`✅ 재인덱싱 완료 (${data.indexed_count || 0}건 인덱싱됨)`);
+        showToast(`✅ 재인덱싱 완료 (${data.indexed_count || 0}건 인덱싱됨, 'success')`);
     } catch (e) {
-        alert('재인덱싱 실패: ' + (e.response?.data?.error || e.message));
+        showToast('재인덱싱 실패: ' + (e.response?.data?.error || e.message, 'error'));
     }
     reindexing.value = false;
 };
@@ -1080,7 +1082,7 @@ const viewSummary = async (sessionId) => {
         }
         showSummaryModal.value = true;
     } catch (e) {
-        alert('요약본을 불러올 수 없습니다.');
+        showToast('요약본을 불러올 수 없습니다.', 'warning');
     }
 };
 

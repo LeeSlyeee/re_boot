@@ -1,5 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from "vue";
+import { useToast } from '../composables/useToast';
+const { showToast } = useToast();
 import { useRouter } from "vue-router";
 import api from "../api/axios";
 import { getPortfolios } from "../api/career";
@@ -130,7 +132,7 @@ const reviewInterview = (id) => {
 
 const startInterview = async () => {
   if (!selectedPortfolio.value) {
-    alert("기반이 될 포트폴리오를 선택해주세요.");
+    showToast("기반이 될 포트폴리오를 선택해주세요.", 'warning');
     return;
   }
 
@@ -154,7 +156,7 @@ const startInterview = async () => {
     router.push(`/interview/${interviewId}`);
   } catch (e) {
     console.error(e);
-    alert("면접 세션 생성 실패: " + (e.response?.data?.error || e.message));
+    showToast("면접 세션 생성 실패: " + (e.response?.data?.error || e.message, 'error'));
   } finally {
     loading.value = false;
   }

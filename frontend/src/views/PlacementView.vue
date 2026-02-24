@@ -1,5 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { useToast } from '../composables/useToast';
+const { showToast } = useToast();
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 
@@ -75,7 +77,7 @@ const submitQuiz = async () => {
         await loadCareers();
         step.value = 'result';
     } catch (e) {
-        alert('제출 실패: ' + (e.response?.data?.error || ''));
+        showToast('제출 실패: ' + (e.response?.data?.error || '', 'error'));
     }
     submitting.value = false;
 };
@@ -88,7 +90,7 @@ const selectGoal = async (career) => {
         await API.post('/learning/goals/set/', { career_goal_id: career.id });
         step.value = 'done';
     } catch (e) {
-        alert('목표 설정 실패');
+        showToast('목표 설정 실패', 'error');
     }
     submitting.value = false;
 };
@@ -113,11 +115,11 @@ const removeCustomSkill = (index) => {
 
 const submitCustomCareer = async () => {
     if (!customCareer.value.title.trim()) {
-        alert('직무명을 입력해주세요.');
+        showToast('직무명을 입력해주세요.', 'warning');
         return;
     }
     if (customSkills.value.length === 0) {
-        alert('최소 1개 이상의 스킬을 추가해주세요.');
+        showToast('최소 1개 이상의 스킬을 추가해주세요.', 'warning');
         return;
     }
     submitting.value = true;
@@ -130,10 +132,10 @@ const submitCustomCareer = async () => {
             skills: customSkills.value,
         });
         result.value = result.value || {};
-        alert(data.message);
+        showToast(data.message, 'error');
         step.value = 'done';
     } catch (e) {
-        alert('직무 생성 실패: ' + (e.response?.data?.error || e.message));
+        showToast('직무 생성 실패: ' + (e.response?.data?.error || e.message, 'error'));
     }
     submitting.value = false;
 };
@@ -151,7 +153,7 @@ const retakePlacement = async () => {
         questions.value = qs;
         step.value = 'quiz';
     } catch (e) {
-        alert('문항을 불러올 수 없습니다.');
+        showToast('문항을 불러올 수 없습니다.', 'error');
     }
 };
 

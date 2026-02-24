@@ -2,6 +2,8 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../api/axios';
+import { useToast } from '../composables/useToast';
+const { showToast } = useToast();
 
 const router = useRouter();
 const activeTab = ref('placement');
@@ -33,7 +35,7 @@ const fetchPlacement = async () => {
 
 const submitPlacement = async () => {
   if (Object.keys(placementAnswers.value).length < placementQuestions.value.length) {
-    alert('모든 문항에 답변해주세요.');
+    showToast('모든 문항에 답변해주세요.', 'error');
     return;
   }
   placementSubmitting.value = true;
@@ -41,7 +43,7 @@ const submitPlacement = async () => {
     const { data } = await api.post('/learning/placement/submit/', { answers: placementAnswers.value });
     placementResult.value = data;
     hasExistingResult.value = true;
-  } catch (e) { alert('제출 실패: ' + (e.response?.data?.error || e.message)); }
+  } catch (e) { showToast('제출 실패: ' + (e.response?.data?.error || e.message, 'error')); }
   placementSubmitting.value = false;
 };
 
@@ -80,8 +82,8 @@ const setGoal = async (careerGoalId) => {
   try {
     const { data } = await api.post('/learning/goals/set/', { career_goal_id: careerGoalId });
     myGoal.value = data.goal || data;
-    alert('목표가 설정되었습니다!');
-  } catch (e) { alert('목표 설정 실패'); }
+    showToast('목표가 설정되었습니다!', 'success');
+  } catch (e) { showToast('목표 설정 실패', 'error'); }
 };
 
 const createCustomGoal = async () => {
@@ -94,8 +96,8 @@ const createCustomGoal = async () => {
     const { data } = await api.post('/learning/goals/create-custom/', payload);
     myGoal.value = data.goal || data;
     showCustomGoal.value = false;
-    alert('커스텀 목표가 설정되었습니다!');
-  } catch (e) { alert('생성 실패'); }
+    showToast('커스텀 목표가 설정되었습니다!', 'success');
+  } catch (e) { showToast('생성 실패', 'error'); }
 };
 
 // ─── 갭맵 (Gap Map) ───
@@ -142,14 +144,14 @@ const analyzeChecklist = async () => {
   try {
     const { data } = await api.get('/learning/checklist/analyze/');
     analysisResult.value = data;
-  } catch (e) { alert('분석 실패'); }
+  } catch (e) { showToast('분석 실패', 'error'); }
 };
 
 const getRecoveryPlan = async () => {
   try {
     const { data } = await api.post('/learning/checklist/recovery_plan/');
     recoveryPlan.value = data;
-  } catch (e) { alert('복구 플랜 생성 실패'); }
+  } catch (e) { showToast('복구 플랜 생성 실패', 'error'); }
 };
 
 const checklistProgress = computed(() => {

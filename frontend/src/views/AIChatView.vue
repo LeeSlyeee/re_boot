@@ -3,6 +3,8 @@ import { ref, onMounted, nextTick, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { MessageSquare, Send, Trash2, Plus, BookOpen, ArrowLeft, Sparkles, Link2, Search, X } from 'lucide-vue-next';
 import api from '../api/axios';
+import { useToast } from '../composables/useToast';
+const { showToast } = useToast();
 import { getChatSessions, createChatSession, getChatSession, deleteChatSession, askAITutor } from '../api/learning';
 
 const router = useRouter();
@@ -38,7 +40,7 @@ const searchRAG = async () => {
         searchResults.value = Array.isArray(data) ? data : [];
     } catch (e) {
         searchResults.value = [];
-        alert('검색 실패');
+        showToast('검색 실패', 'error');
     }
     isSearching.value = false;
 };

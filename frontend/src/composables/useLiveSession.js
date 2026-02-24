@@ -4,8 +4,10 @@
  */
 import { ref, computed, watch, nextTick } from 'vue';
 import api from '../api/axios';
+import { useToast } from './useToast';
 
 export function useLiveSession(sttLogs) {
+    const { showToast } = useToast();
     // --- Live Session State ---
     const liveSessionData = ref(null);
     const liveSessionCode = ref('');
@@ -85,14 +87,14 @@ export function useLiveSession(sttLogs) {
 
     const joinLiveSession = async () => {
         const code = liveSessionCode.value.trim().toUpperCase();
-        if (code.length !== 6) { alert('6자리 코드를 입력해주세요.'); return; }
+        if (code.length !== 6) { showToast('6자리 코드를 입력해주세요.', 'warning'); return; }
         try {
             const { data } = await api.post('/learning/live/join/', { session_code: code });
             liveSessionData.value = data;
             startLiveStatusPolling();
             return true;
         } catch (e) {
-            alert(e.response?.data?.error || '세션 입장 실패');
+            showToast(e.response?.data?.error || '세션 입장 실패', 'error');
             return false;
         }
     };
@@ -119,7 +121,7 @@ export function useLiveSession(sttLogs) {
             if (e.response?.status === 409) {
                 pendingQuiz.value = null;
             } else {
-                alert('응답 실패: ' + (e.response?.data?.error || ''));
+                showToast('응답 실패: ' + (e.response?.data?.error || ''), 'error');
             }
         } finally { quizAnswering.value = false; }
     };
@@ -144,7 +146,7 @@ export function useLiveSession(sttLogs) {
             newQuestionText.value = '';
             await fetchLiveQuestions();
         } catch (e) {
-            alert('질문 등록 실패: ' + (e.response?.data?.error || ''));
+            showToast('질문 등록 실패: ' + (e.response?.data?.error || ''), 'error');
         }
     };
 

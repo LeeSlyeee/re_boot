@@ -1,5 +1,7 @@
 <script setup>
 import { ref, onMounted, nextTick, computed, onUnmounted } from "vue";
+import { useToast } from '../composables/useToast';
+const { showToast } = useToast();
 import { useRoute, useRouter } from "vue-router";
 import api from "../api/axios";
 import { Send, Mic, StopCircle, Flag, Clock, Hash, Award, ArrowRight, TrendingUp, BookOpen } from "lucide-vue-next";
@@ -75,7 +77,7 @@ const fetchInterview = async () => {
     scrollToBottom();
   } catch (e) {
     console.error("Failed to load interview", e);
-    alert("면접 세션을 불러올 수 없습니다.");
+    showToast("면접 세션을 불러올 수 없습니다.", 'error');
     router.push("/portfolio");
   }
 };
@@ -103,7 +105,7 @@ const autoFinish = async () => {
     showReport.value = true;
   } catch (e) {
     console.error(e);
-    alert("면접 종료 처리 실패");
+    showToast("면접 종료 처리 실패", 'error');
   } finally {
     isFinishing.value = false;
   }
@@ -152,7 +154,7 @@ const sendAnswer = async () => {
     }
   } catch (e) {
     console.error(e);
-    alert("답변 전송 실패");
+    showToast("답변 전송 실패", 'error');
   } finally {
     loading.value = false;
     scrollToBottom();
@@ -173,7 +175,7 @@ const generateReport = async () => {
     showReport.value = true;
   } catch (e) {
     console.error(e);
-    alert("결과 생성 실패: " + (e.response?.data?.error || e.message));
+    showToast("결과 생성 실패: " + (e.response?.data?.error || e.message, 'error'));
   } finally {
     isFinishing.value = false;
   }

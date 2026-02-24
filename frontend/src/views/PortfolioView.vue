@@ -1,5 +1,7 @@
 <script setup>
 import { ref, onMounted } from "vue";
+import { useToast } from '../composables/useToast';
+const { showToast } = useToast();
 import { useRouter } from "vue-router";
 import { getPortfolios, generatePortfolio } from "../api/career";
 import api from "../api/axios"; // [New] for direct calls
@@ -56,7 +58,7 @@ onMounted(async () => {
     console.error("Skills Fetch Failed", e);
     // Only show critical errors, don't fallback to dummy
     if (e.response?.status !== 404) {
-      alert(`스킬 데이터 로딩 실패: ${e.message}`);
+      showToast(`스킬 데이터 로딩 실패: ${e.message}`, 'error');
     }
   } finally {
     loading.value = false;
@@ -106,7 +108,7 @@ const addProject = async () => {
     showProjectModal.value = false;
     newProject.value = { name: '', description: '', tech_stack: '', github_url: '', demo_url: '', role: '' };
     await fetchProjects(selectedPortfolio.value.id);
-  } catch (e) { alert('프로젝트 추가 실패'); }
+  } catch (e) { showToast('프로젝트 추가 실패', 'error'); }
 };
 
 const deleteProject = async (projectId) => {

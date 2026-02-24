@@ -2,6 +2,8 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../api/axios';
+import { useToast } from '../composables/useToast';
+const { showToast } = useToast();
 
 import { useAuthStore } from '../stores/auth';
 
@@ -26,18 +28,18 @@ const handleLogin = async () => {
         // Use Store Action
         authStore.login(data.access, { username: form.value.username });
         
-        alert(`환영합니다, ${form.value.username}님!`);
+        showToast(`환영합니다, ${form.value.username}님!`, 'success');
         router.push('/learning');
         
     } catch (e) {
         console.error(e);
-        alert('로그인 실패: 아이디와 비밀번호를 확인해주세요.');
+        showToast('로그인 실패: 아이디와 비밀번호를 확인해주세요.', 'error');
     }
 };
 
 const handleRegister = async () => {
     if (form.value.password !== form.value.confirmPassword) {
-        alert('비밀번호가 일치하지 않습니다.');
+        showToast('비밀번호가 일치하지 않습니다.', 'error');
         return;
     }
     
@@ -48,12 +50,12 @@ const handleRegister = async () => {
             email: form.value.email
         });
         
-        alert('회원가입 성공! 로그인해주세요.');
+        showToast('회원가입 성공! 로그인해주세요.', 'success');
         isLoginMode.value = true;
         
     } catch (e) {
         console.error(e);
-        alert('회원가입 실패: 이미 존재하는 아이디이거나 오류가 발생했습니다.');
+        showToast('회원가입 실패: 이미 존재하는 아이디이거나 오류가 발생했습니다.', 'error');
     }
 };
 </script>
