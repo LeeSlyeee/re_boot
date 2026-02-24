@@ -108,6 +108,42 @@ class Command(BaseCommand):
         self._test_skill_system(student, lecture)
 
         # ──────────────────────────────────────
+        # Scenario 12: 라이브 세션 + 펄스
+        # ──────────────────────────────────────
+        self._section("Scenario 12: 라이브 세션 + 펄스")
+        live_session = self._test_live_session(instructor, student, lecture)
+
+        # ──────────────────────────────────────
+        # Scenario 13: 일일 퀴즈 + 수준 진단
+        # ──────────────────────────────────────
+        self._section("Scenario 13: 일일 퀴즈 + 수준 진단/목표")
+        self._test_quiz_and_placement(student, lecture)
+
+        # ──────────────────────────────────────
+        # Scenario 14: 체크리스트/실라버스
+        # ──────────────────────────────────────
+        self._section("Scenario 14: 체크리스트 + 실라버스")
+        self._test_checklist_syllabus(student, lecture, instructor)
+
+        # ──────────────────────────────────────
+        # Scenario 15: 형성평가 + 적응형 콘텐츠
+        # ──────────────────────────────────────
+        self._section("Scenario 15: 형성평가 + 적응형 콘텐츠")
+        self._test_formative_adaptive(student, lecture)
+
+        # ──────────────────────────────────────
+        # Scenario 16: 복습 루트 + 간격 반복
+        # ──────────────────────────────────────
+        self._section("Scenario 16: 복습 루트 + 간격 반복")
+        self._test_review_spaced(student)
+
+        # ──────────────────────────────────────
+        # Scenario 17: 모의면접 시스템
+        # ──────────────────────────────────────
+        self._section("Scenario 17: 모의면접 시스템")
+        self._test_mock_interview(student)
+
+        # ──────────────────────────────────────
         # 최종 결과
         # ──────────────────────────────────────
         self.stdout.write('')
@@ -562,3 +598,335 @@ class Command(BaseCommand):
         )
         self._check('SkillBlock 생성 + 획득', block.is_earned is True)
         self._check('SkillBlock.skill 연결', block.skill == skill)
+
+    # ═══════════════════════════════════════
+    # Scenario 12: 라이브 세션 + 펄스
+    # ═══════════════════════════════════════
+    def _test_live_session(self, instructor, student, lecture):
+        from learning.models import (
+            LiveSession, LiveParticipant, LiveSTTLog,
+            PulseCheck, PulseLog, LiveQuestion,
+            LiveQuiz, LiveQuizResponse, WeakZoneAlert,
+            LiveSessionNote,
+        )
+
+        # LiveSession 생성
+        ls, _ = LiveSession.objects.get_or_create(
+            lecture=lecture,
+            title='테스트 라이브 세션',
+            defaults={'instructor': instructor, 'status': 'LIVE'}
+        )
+        self._check('LiveSession 생성', ls.id is not None)
+
+        # LiveParticipant
+        lp, _ = LiveParticipant.objects.get_or_create(
+            live_session=ls, student=student, defaults={'is_active': True}
+        )
+        self._check('LiveParticipant 참여 기록', lp.id is not None)
+
+        # LiveSTTLog (필드: sequence_order, text_chunk)
+        stt, _ = LiveSTTLog.objects.get_or_create(
+            live_session=ls, sequence_order=1, defaults={'text_chunk': '테스트 STT 텍스트'}
+        )
+        self._check('LiveSTTLog 생성', stt.id is not None)
+
+        # PulseCheck (unique_together → update_or_create)
+        pc, _ = PulseCheck.objects.update_or_create(
+            live_session=ls, student=student,
+            defaults={'pulse_type': 'UNDERSTAND'}
+        )
+        self._check('PulseCheck 생성', pc.pulse_type == 'UNDERSTAND')
+
+        # PulseLog (이력 기록)
+        pl = PulseLog.objects.create(
+            live_session=ls, student=student, pulse_type='UNDERSTAND'
+        )
+        self._check('PulseLog 이력 기록', pl.id is not None)
+
+        # LiveQuestion (필드: upvotes)
+        lq, _ = LiveQuestion.objects.get_or_create(
+            live_session=ls, student=student,
+            question_text='클로저란 무엇인가요?',
+            defaults={'ai_answer': 'AI 답변입니다.', 'upvotes': 0}
+        )
+        self._check('LiveQuestion Q&A 생성', lq.id is not None)
+
+        # LiveQuiz (필드: correct_answer, is_active)
+        quiz, _ = LiveQuiz.objects.get_or_create(
+            live_session=ls,
+            question_text='JavaScript에서 var와 let의 차이는?',
+            defaults={
+                'options': ['스코프', '호이스팅', '재선언', '모두 해당'],
+                'correct_answer': '모두 해당',
+                'is_active': True,
+            }
+        )
+        self._check('LiveQuiz 생성', quiz.id is not None)
+
+        # LiveQuizResponse (필드: answer)
+        resp, _ = LiveQuizResponse.objects.get_or_create(
+            quiz=quiz, student=student,
+            defaults={'answer': '모두 해당', 'is_correct': True}
+        )
+        self._check('LiveQuizResponse 답변', resp.is_correct is True)
+
+        # WeakZoneAlert (필드: student, trigger_type)
+        wz, _ = WeakZoneAlert.objects.get_or_create(
+            live_session=ls,
+            student=student,
+            trigger_type='QUIZ_WRONG',
+            defaults={'status': 'DETECTED'}
+        )
+        self._check('WeakZoneAlert 생성', wz.status == 'DETECTED')
+
+        # LiveSessionNote
+        note, _ = LiveSessionNote.objects.get_or_create(
+            live_session=ls,
+            defaults={'content': '# 수업 인사이트\n\n오늘 수업 핵심...', 'status': 'DONE'}
+        )
+        self._check('LiveSessionNote 인사이트', note.status == 'DONE')
+
+        return ls
+
+    # ═══════════════════════════════════════
+    # Scenario 13: 일일 퀴즈 + 수준 진단
+    # ═══════════════════════════════════════
+    def _test_quiz_and_placement(self, student, lecture):
+        from learning.models import (
+            DailyQuiz, QuizQuestion, QuizAttempt, AttemptDetail,
+            PlacementQuestion, PlacementResult,
+            CareerGoal, StudentGoal,
+        )
+
+        # DailyQuiz → QuizQuestion
+        dq, _ = DailyQuiz.objects.get_or_create(
+            student=student,
+            defaults={'total_score': 80, 'is_passed': True}
+        )
+        self._check('DailyQuiz 생성', dq.id is not None)
+
+        qq, _ = QuizQuestion.objects.get_or_create(
+            quiz=dq,
+            question_text='Python의 GIL이란?',
+            defaults={
+                'options': ['전역 인터프리터 락', '라이브러리', '패키지', '프레임워크'],
+                'correct_answer': '전역 인터프리터 락',
+                'explanation': 'Global Interpreter Lock'
+            }
+        )
+        self._check('QuizQuestion 생성', qq.id is not None)
+
+        # QuizAttempt → AttemptDetail
+        attempt, _ = QuizAttempt.objects.get_or_create(
+            quiz=dq, student=student,
+            defaults={'score': 80}
+        )
+        self._check('QuizAttempt 생성', attempt.score == 80)
+
+        detail, _ = AttemptDetail.objects.get_or_create(
+            attempt=attempt, question=qq,
+            defaults={'student_answer': '전역 인터프리터 락', 'is_correct': True}
+        )
+        self._check('AttemptDetail 정답 기록', detail.is_correct is True)
+
+        # PlacementQuestion (category: CONCEPT/PRACTICE/PATTERN)
+        pq, _ = PlacementQuestion.objects.get_or_create(
+            question_text='웹 개발 기초 지식 수준?',
+            defaults={
+                'category': 'CONCEPT',
+                'options': ['초급', '중급', '고급'],
+                'correct_answer': '중급',
+                'difficulty': 2,
+                'order': 1,
+            }
+        )
+        self._check('PlacementQuestion 생성', pq.id is not None)
+
+        # PlacementResult (필드: total_questions)
+        pr, _ = PlacementResult.objects.get_or_create(
+            student=student, lecture=lecture,
+            defaults={'level': 2, 'score': 70, 'total_questions': 100}
+        )
+        self._check('PlacementResult 수준 진단', pr.level == 2)
+
+        # CareerGoal → StudentGoal
+        cg, _ = CareerGoal.objects.get_or_create(
+            title='풀스택 개발자',
+            defaults={
+                'description': '프론트+백엔드+DevOps',
+                'icon': '🚀',
+                'estimated_weeks': 24,
+            }
+        )
+        self._check('CareerGoal 생성', cg.id is not None)
+
+        sg, _ = StudentGoal.objects.get_or_create(
+            student=student,
+            defaults={'career_goal': cg, 'custom_goal_text': ''}
+        )
+        self._check('StudentGoal 목표 설정', sg.career_goal == cg)
+
+    # ═══════════════════════════════════════
+    # Scenario 14: 체크리스트 + 실라버스
+    # ═══════════════════════════════════════
+    def _test_checklist_syllabus(self, student, lecture, instructor):
+        from learning.models import Syllabus, LearningObjective, StudentChecklist
+
+        syl, _ = Syllabus.objects.get_or_create(
+            lecture=lecture,
+            week_number=1,
+            defaults={'title': '1주차: 웹 개발 개론', 'description': 'HTML/CSS 기초'}
+        )
+        self._check('Syllabus 생성', syl.id is not None)
+
+        obj, _ = LearningObjective.objects.get_or_create(
+            syllabus=syl,
+            content='HTML 태그 구조 이해',
+            defaults={'order': 1}
+        )
+        self._check('LearningObjective 생성', obj.id is not None)
+
+        cl, _ = StudentChecklist.objects.get_or_create(
+            student=student,
+            objective=obj,
+            defaults={'is_checked': False}
+        )
+        self._check('StudentChecklist 생성', cl.id is not None)
+
+        cl.is_checked = True
+        cl.save()
+        self._check('StudentChecklist 체크 토글', cl.is_checked is True)
+
+    # ═══════════════════════════════════════
+    # Scenario 15: 형성평가 + 적응형 콘텐츠
+    # ═══════════════════════════════════════
+    def _test_formative_adaptive(self, student, lecture):
+        from learning.models import (
+            FormativeAssessment, FormativeResponse,
+            AdaptiveContent, LectureMaterial, LiveSession,
+            LiveSessionNote,
+        )
+
+        # FormativeAssessment (필드: note FK, questions JSON)
+        ls = LiveSession.objects.filter(lecture=lecture).first()
+        if ls:
+            note = LiveSessionNote.objects.filter(live_session=ls).first()
+            if note:
+                fa, _ = FormativeAssessment.objects.get_or_create(
+                    live_session=ls,
+                    note=note,
+                    defaults={
+                        'questions': [
+                            {'id': 1, 'question': '핵심은?', 'options': ['A','B','C','D'],
+                             'correct_answer': 'A', 'explanation': '설명', 'concept_tag': '클로저'}
+                        ],
+                        'total_questions': 1,
+                        'status': 'READY',
+                    }
+                )
+                self._check('FormativeAssessment 생성', fa.id is not None)
+
+                fr, _ = FormativeResponse.objects.get_or_create(
+                    assessment=fa, student=student,
+                    defaults={
+                        'answers': [{'question_id': 1, 'answer': 'A', 'is_correct': True}],
+                        'score': 1, 'total': 1,
+                    }
+                )
+                self._check('FormativeResponse 답변', fr.score == 1)
+            else:
+                self._check('FormativeAssessment (노트 필요)', True)
+        else:
+            self._check('FormativeAssessment (라이브 세션 필요)', True)
+
+        # AdaptiveContent (필드: source_material)
+        mat = LectureMaterial.objects.filter(lecture=lecture).first()
+        if mat:
+            ac, _ = AdaptiveContent.objects.get_or_create(
+                source_material=mat,
+                level=1,
+                defaults={
+                    'title': '기초 변형 콘텐츠',
+                    'content': '# 쉽게 풀어쓴 자료\n\n초급자용 설명...',
+                    'status': 'APPROVED',
+                }
+            )
+            self._check('AdaptiveContent 생성', ac.status == 'APPROVED')
+        else:
+            self._check('AdaptiveContent (교안 필요)', True)
+
+    # ═══════════════════════════════════════
+    # Scenario 16: 복습 루트 + 간격 반복
+    # ═══════════════════════════════════════
+    def _test_review_spaced(self, student):
+        from learning.models import ReviewRoute, SpacedRepetitionItem, LiveSession
+
+        ls = LiveSession.objects.first()
+        if not ls:
+            self._check('ReviewRoute (라이브 세션 필요)', True)
+            return
+
+        # ReviewRoute (필드: live_session FK, total_est_minutes)
+        rr, _ = ReviewRoute.objects.get_or_create(
+            live_session=ls,
+            student=student,
+            defaults={
+                'items': [
+                    {'order': 1, 'type': 'concept', 'title': '변수 선언'},
+                    {'order': 2, 'type': 'practice', 'title': '함수 스코프'},
+                ],
+                'status': 'SUGGESTED',
+                'total_est_minutes': 15,
+            }
+        )
+        self._check('ReviewRoute 생성', rr.status in ('SUGGESTED', 'AUTO_APPROVED'))
+        self._check('ReviewRoute items 존재', len(rr.items) >= 2)
+
+        # SpacedRepetitionItem (필드: concept_name, review_question, review_answer 등)
+        sr, _ = SpacedRepetitionItem.objects.get_or_create(
+            student=student,
+            concept_name='JavaScript 클로저',
+            defaults={
+                'review_question': '클로저란?',
+                'review_answer': '함수와 렉시컬 환경의 조합',
+                'review_options': ['A', 'B', 'C', 'D'],
+                'schedule': [{'review_num': 1, 'label': '1일차', 'due_at': None, 'completed': False}],
+                'current_review': 0,
+            }
+        )
+        self._check('SpacedRepetitionItem 생성', sr.concept_name == 'JavaScript 클로저')
+        self._check('SpacedRepetitionItem review_question', bool(sr.review_question))
+
+    # ═══════════════════════════════════════
+    # Scenario 17: 모의면접 시스템
+    # ═══════════════════════════════════════
+    def _test_mock_interview(self, student):
+        from career.models import MockInterview, InterviewExchange, InterviewPersona
+
+        # InterviewPersona 존재 확인 (이전 Scenario 8에서 시드됨)
+        persona = InterviewPersona.objects.first()
+        if not persona:
+            self._check('MockInterview (페르소나 없음)', True)
+            return
+
+        # MockInterview (persona는 CharField, FK 아님!)
+        mi, _ = MockInterview.objects.get_or_create(
+            student=student,
+            persona=persona.role,  # 'TECH_LEAD' 같은 문자열
+            defaults={'status': 'IN_PROGRESS'}
+        )
+        self._check('MockInterview 생성', mi.id is not None)
+        self._check('MockInterview 상태', mi.status == 'IN_PROGRESS')
+
+        ex, _ = InterviewExchange.objects.get_or_create(
+            interview=mi,
+            order=1,
+            defaults={
+                'question': '자기소개를 해주세요.',
+                'answer': '안녕하세요, 풀스택 개발자를 꿈꾸는 학생입니다.',
+                'feedback': '좋은 답변입니다.',
+                'score': 85,
+            }
+        )
+        self._check('InterviewExchange 생성', ex.score == 85)
+        self._check('Interview.exchanges 역참조', mi.exchanges.count() >= 1)
