@@ -12,7 +12,7 @@ from .review_views import (
     ApproveReviewRouteView, EditReviewRouteView,
     SpacedRepetitionDueView, CompleteSpacedRepView,
 )
-from .formative_views import GenerateFormativeView, GetFormativeView, SubmitFormativeView
+from .formative_views import GenerateFormativeView, GetFormativeView, SubmitFormativeView, MyPendingFormativeView
 from .adaptive_views import GenerateAdaptiveView, ListAdaptiveView, ApproveAdaptiveView, MyContentView
 from .analytics_views import (
     AnalyticsOverviewView, SendMessageView, WeakInsightsView,
@@ -23,6 +23,7 @@ from .skillblock_views import SyncSkillBlocksView, MySkillBlocksView, MockInterv
 from .certificate_views import CertificateDataView
 from .chat_views import AIChatViewSet
 from .curriculum_views import CurriculumViewSet
+from .syllabus_views import SyllabusListCreateView, ObjectiveCreateView, ObjectiveDeleteView
 from .manager_views import (
     ManagerDashboardView, ClassMonitorView, AtRiskStudentsView,
     StudentProgressVisualization, QuizAnalyticsVisualization,
@@ -77,6 +78,11 @@ urlpatterns = [
     path('formative/<int:session_id>/generate/', GenerateFormativeView.as_view(), name='formative-generate'),
     path('formative/<int:session_id>/', GetFormativeView.as_view(), name='formative-get'),
     path('formative/<int:fa_id>/submit/', SubmitFormativeView.as_view(), name='formative-submit'),
+    path('formative/my-pending/', MyPendingFormativeView.as_view(), name='formative-my-pending'),
+    # Syllabus + Objective CRUD
+    path('lectures/<int:lecture_id>/syllabus/', SyllabusListCreateView.as_view(), name='syllabus-list-create'),
+    path('syllabus/<int:week_id>/objective/', ObjectiveCreateView.as_view(), name='objective-create'),
+    path('objective/<int:obj_id>/', ObjectiveDeleteView.as_view(), name='objective-delete'),
     # Phase 2-2: 적응형 콘텐츠
     path('materials/<int:pk>/generate-adaptive/', GenerateAdaptiveView.as_view(), name='generate-adaptive'),
     path('materials/<int:pk>/adaptive/', ListAdaptiveView.as_view(), name='list-adaptive'),

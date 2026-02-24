@@ -16,8 +16,38 @@ from django.utils import timezone
 from .models import (
     FormativeAssessment, FormativeResponse,
     LiveSession, LiveSessionNote, SpacedRepetitionItem,
-    StudentSkill, Skill,
+    StudentSkill, Skill, LiveParticipant,
 )
+
+
+class MyPendingFormativeView(APIView):
+    """GET /api/learning/formative/my-pending/ — 미완료 형성평가 목록 (학생)"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # 내가 참여한 세션의 READY 형성평가 중, 아직 안 푼 것
+        my_sessions = LiveParticipant.objects.filter(
+            student=request.user
+        ).values_list('live_session_id', flat=True)
+
+        ready_fas = FormativeAssessment.objects.filter(
+            live_session_id__in=my_sessions,
+            status='READY',
+        ).exclude(
+            responses__student=request.user,
+        ).select_related('live_session')
+
+        data = []
+        for fa in ready_fas:
+            data.append({
+                'assessment_id': fa.id,
+                'session_id': fa.live_session_id,
+                'session_title': getattr(fa.live_session, 'title', ''),
+                'total_questions': fa.total_questions,
+                'created_at': fa.created_at.isoformat(),
+            })
+
+        return Response(data)
 
 
 class GenerateFormativeView(APIView):
