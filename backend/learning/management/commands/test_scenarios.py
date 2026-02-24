@@ -144,6 +144,12 @@ class Command(BaseCommand):
         self._test_mock_interview(student)
 
         # ──────────────────────────────────────
+        # Scenario 18: 실라버스/목표 CRUD + 미완료 형성평가 API
+        # ──────────────────────────────────────
+        self._section("Scenario 18: 실라버스 CRUD + FormativePending API")
+        self._test_syllabus_api(instructor, student, lecture)
+
+        # ──────────────────────────────────────
         # 최종 결과
         # ──────────────────────────────────────
         self.stdout.write('')
@@ -930,3 +936,75 @@ class Command(BaseCommand):
         )
         self._check('InterviewExchange 생성', ex.score == 85)
         self._check('Interview.exchanges 역참조', mi.exchanges.count() >= 1)
+
+    # ═══════════════════════════════════════
+    # Scenario 18: 실라버스 CRUD + 미완료 형성평가 API
+    # ═══════════════════════════════════════
+    def _test_syllabus_api(self, instructor, student, lecture):
+        """신규 뷰 4건의 API 레벨 테스트"""
+        from learning.syllabus_views import SyllabusListCreateView, ObjectiveCreateView, ObjectiveDeleteView
+        from learning.formative_views import MyPendingFormativeView
+
+        # --- Syllabus POST: 주차 생성 ---
+        try:
+            request = self.api_factory.post(
+                f'/api/learning/lectures/{lecture.id}/syllabus/',
+                {'week_number': 99, 'title': 'API 테스트 주차', 'description': 'API 테스트'},
+                format='json'
+            )
+            force_authenticate(request, user=instructor)
+            response = SyllabusListCreateView.as_view()(request, lecture_id=lecture.id)
+            self._check('Syllabus POST 201/200', response.status_code in (200, 201))
+            syl_id = response.data.get('id')
+            self._check('Syllabus id 반환', syl_id is not None)
+        except Exception as e:
+            self._check('Syllabus POST', False, str(e)[:100])
+            syl_id = None
+
+        # --- Syllabus GET: 주차 목록 ---
+        try:
+            request = self.api_factory.get(f'/api/learning/lectures/{lecture.id}/syllabus/')
+            force_authenticate(request, user=instructor)
+            response = SyllabusListCreateView.as_view()(request, lecture_id=lecture.id)
+            self._check('Syllabus GET 200', response.status_code == 200)
+            self._check('Syllabus 목록 반환', len(response.data) >= 1)
+        except Exception as e:
+            self._check('Syllabus GET', False, str(e)[:100])
+
+        # --- Objective POST: 목표 추가 ---
+        obj_id = None
+        if syl_id:
+            try:
+                request = self.api_factory.post(
+                    f'/api/learning/syllabus/{syl_id}/objective/',
+                    {'content': 'API 레벨 테스트 목표'},
+                    format='json'
+                )
+                force_authenticate(request, user=instructor)
+                response = ObjectiveCreateView.as_view()(request, week_id=syl_id)
+                self._check('Objective POST 201', response.status_code == 201)
+                obj_id = response.data.get('id')
+                self._check('Objective id 반환', obj_id is not None)
+            except Exception as e:
+                self._check('Objective POST', False, str(e)[:100])
+
+        # --- Objective DELETE: 목표 삭제 ---
+        if obj_id:
+            try:
+                request = self.api_factory.delete(f'/api/learning/objective/{obj_id}/')
+                force_authenticate(request, user=instructor)
+                response = ObjectiveDeleteView.as_view()(request, obj_id=obj_id)
+                self._check('Objective DELETE 204', response.status_code == 204)
+            except Exception as e:
+                self._check('Objective DELETE', False, str(e)[:100])
+
+        # --- Formative My-Pending (학생 API) ---
+        try:
+            request = self.api_factory.get('/api/learning/formative/my-pending/')
+            force_authenticate(request, user=student)
+            response = MyPendingFormativeView.as_view()(request)
+            self._check('FormativePending GET 200', response.status_code == 200)
+            self._check('FormativePending 리스트 반환', isinstance(response.data, list))
+        except Exception as e:
+            self._check('FormativePending GET', False, str(e)[:100])
+
