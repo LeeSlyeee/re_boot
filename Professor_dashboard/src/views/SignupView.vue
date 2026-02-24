@@ -2,7 +2,9 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../api/axios';
+import { useToast } from '../composables/useToast';
 
+const { showToast } = useToast();
 const router = useRouter();
 const username = ref('');
 const password = ref('');
@@ -24,7 +26,7 @@ const handleSignup = async () => {
             role: 'INSTRUCTOR' // 강사로 고정
         });
         
-        alert('회원가입이 완료되었습니다. 로그인해주세요.');
+        showToast('회원가입이 완료되었습니다. 로그인해주세요.', 'success');
         router.push('/login');
     } catch (e) {
         console.error(e);
