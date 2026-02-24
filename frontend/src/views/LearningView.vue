@@ -848,7 +848,7 @@ const startRecording = async () => {
 
     isRecording.value = true;
     nextSequenceOrder.value = sttLogs.value.length + 1; // Sync with current logs
-    recorder.value = new AudioRecorder(handleAudioData);
+    recorder.value = new AudioRecorder(handleAudioData, (msg) => showToast(msg, 'error', 5000));
     
     try {
         // [FIX] 영상 강의(하이브리드) 모드면 무조건 시스템 오디오(탭 오디오) 녹음

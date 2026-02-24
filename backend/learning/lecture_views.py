@@ -32,9 +32,12 @@ class EnrollLectureView(APIView):
     def post(self, request):
         access_code = request.data.get('access_code')
         if not access_code:
-            return Response({'error': 'Access code is required'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': '입장 코드를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        lecture = get_object_or_404(Lecture, access_code=access_code)
+        try:
+            lecture = Lecture.objects.get(access_code=access_code)
+        except Lecture.DoesNotExist:
+            return Response({'error': '코드가 올바르지 않거나 존재하지 않는 강의입니다.'}, status=status.HTTP_404_NOT_FOUND)
 
         # [BUGFIX] 실제 수강 등록 수행 (이전에 누락되어 있었음)
         if lecture.students.filter(id=request.user.id).exists():

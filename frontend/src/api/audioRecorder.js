@@ -1,6 +1,7 @@
 export class AudioRecorder {
-    constructor(onDataAvailable) {
+    constructor(onDataAvailable, onError = null) {
       this.onDataAvailable = onDataAvailable; 
+      this.onError = onError;  // 외부 에러 핸들러 (alert 대체)
       this.stream = null;
       this.audioStream = null;
       this.isRecording = false;
@@ -61,7 +62,8 @@ export class AudioRecorder {
             
             if (!audioTrack) {
                 this.stream.getTracks().forEach(t => t.stop());
-                alert("❌ 중요: 오디오가 감지되지 않았습니다!\n\n반드시 '현재 탭'을 선택하고 '오디오 공유'를 켜주세요.");
+                const msg = "오디오가 감지되지 않았습니다. '현재 탭'을 선택하고 '오디오 공유'를 켜주세요.";
+                if (this.onError) this.onError(msg);
                 throw new Error("No audio track detected");
             }
             
