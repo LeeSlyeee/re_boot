@@ -111,21 +111,40 @@ def check_pulse_weak_zone(session, student):
 
 
 def _generate_ai_supplement(alert):
-    """AI 보충 설명 생성 (GPT-4o-mini)"""
+    """AI 보충 설명 생성 (GPT-4o-mini + RAG)"""
     try:
         import openai
         topic = alert.trigger_detail.get('recent_topic', '현재 수업 내용')
 
-        response = openai.chat.completions.create(
-            model='gpt-4o-mini',
-            messages=[
-                {'role': 'system', 'content': '당신은 친절한 교육 보조 AI입니다. 학생이 어려워하는 개념을 쉽게 설명해주세요.'},
-                {'role': 'user', 'content': f"""학생이 '{topic}' 부분에서 어려움을 겪고 있습니다.
+        # [RAG] 공식 문서에서 관련 컨텍스트 검색
+        rag_context = ""
+        try:
+            from .rag import RAGService
+            rag = RAGService()
+            lecture_id = None
+            if alert.live_session and alert.live_session.lecture:
+                lecture_id = alert.live_session.lecture_id
+            related_docs = rag.search(query=topic, top_k=2, lecture_id=lecture_id)
+            if related_docs:
+                rag_context = "\n".join([f"- {doc.content[:200]}" for doc in related_docs])
+                print(f"✅ [RAG] Weak Zone 보충 설명에 공식 문서 {len(related_docs)}건 참조")
+        except Exception as rag_err:
+            print(f"⚠️ [RAG] Weak Zone 검색 실패 (일반 설명으로 대체): {rag_err}")
+
+        user_content = f"""학생이 '{topic}' 부분에서 어려움을 겪고 있습니다.
 
 다음 형식으로 200자 이내의 보충 설명을 작성하세요:
 1. 핵심 개념 한 줄 정리
 2. 쉬운 비유 또는 예시 1개
-3. "이것만 기억하세요" 한 줄"""},
+3. "이것만 기억하세요" 한 줄"""
+        if rag_context:
+            user_content += f"\n\n[공식 문서 참조 (정확한 정의 근거)]:\n{rag_context}"
+
+        response = openai.chat.completions.create(
+            model='gpt-4o-mini',
+            messages=[
+                {'role': 'system', 'content': '당신은 친절한 교육 보조 AI입니다. 학생이 어려워하는 개념을 공식 문서에 근거하여 쉽게 설명해주세요.'},
+                {'role': 'user', 'content': user_content},
             ],
             max_tokens=300,
             temperature=0.7,

@@ -45,6 +45,11 @@ export const createCurriculum = async (data) => {
     return res.data;
 };
 
+export const generateCurriculum = async () => {
+    const res = await api.post('/learning/curriculum/generate/', {}, { timeout: 120000 });
+    return res.data;
+};
+
 export const completeItem = async (curriculumId, itemId) => {
     const res = await api.post(`/learning/curriculum/${curriculumId}/complete_item/`, { item_id: itemId });
     return res.data;

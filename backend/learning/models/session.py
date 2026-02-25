@@ -34,9 +34,16 @@ class LearningSession(models.Model):
 
 
 class STTLog(models.Model):
+    SPEAKER_CHOICES = (
+        ('INSTRUCTOR', '교수자'),
+        ('STUDENT', '학생'),
+        ('UNKNOWN', '미분류'),
+    )
     session = models.ForeignKey(LearningSession, on_delete=models.CASCADE, related_name='stt_logs')
     sequence_order = models.IntegerField()
     text_chunk = models.TextField()
+    speaker = models.CharField(max_length=20, choices=SPEAKER_CHOICES, default='UNKNOWN', help_text="화자 구분")
+    video_offset = models.FloatField(null=True, blank=True, help_text="영상 시작 시점 기준 경과 시간(초)")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

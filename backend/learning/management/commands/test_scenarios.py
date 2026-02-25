@@ -376,6 +376,9 @@ class Command(BaseCommand):
         )
         self._check('Curriculum 생성/조회', curriculum.id is not None)
 
+        # [멱등성] 기존 아이템 삭제 후 재생성 (재실행 시 누적 방지)
+        curriculum.items.all().delete()
+
         # 아이템 추가
         items_data = [
             ('HTML/CSS 기초', 'LECTURE', 1),

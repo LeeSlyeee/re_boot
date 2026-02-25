@@ -229,16 +229,35 @@ class AbsentSelfTestView(APIView):
 
         try:
             client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+
+            # [RAG] 공식 문서에서 관련 컨텍스트 검색
+            rag_context = ""
+            try:
+                from .rag import RAGService
+                rag = RAGService()
+                lecture_id = session.lecture_id if session.lecture else None
+                related_docs = rag.search(query=note.content[:500], top_k=2, lecture_id=lecture_id)
+                if related_docs:
+                    rag_context = "\n".join([f"- {doc.content[:200]}" for doc in related_docs])
+                    print(f"✅ [RAG] 결석생 셀프 테스트에 공식 문서 {len(related_docs)}건 참조")
+            except Exception as rag_err:
+                print(f"⚠️ [RAG] 셀프 테스트 검색 실패: {rag_err}")
+
+            user_content = f'강의 노트:\n{note.content[:4000]}'
+            if rag_context:
+                user_content += f'\n\n[공식 문서 참조 (정확성 보장용)]:\n{rag_context}'
+
             response = client.chat.completions.create(
                 model='gpt-4o-mini',
                 messages=[
                     {'role': 'system', 'content': (
                         '아래 강의 노트를 읽은 결석생이 핵심 내용을 이해했는지 확인하는 '
                         '미니 퀴즈 3문항(4지선다)을 생성하세요.\n'
+                        '[공식 문서 참조]가 있으면 정확한 정의에 기반한 문제를 출제하세요.\n'
                         '반드시 아래 JSON 배열 형식으로만 응답하세요:\n'
                         '[{"question":"문제","options":["A","B","C","D"],"correct_answer":"정답","explanation":"해설"}, ...]'
                     )},
-                    {'role': 'user', 'content': f'강의 노트:\n{note.content[:4000]}'}
+                    {'role': 'user', 'content': user_content}
                 ],
                 temperature=0.5,
                 max_tokens=1500,

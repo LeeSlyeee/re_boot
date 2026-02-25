@@ -68,7 +68,7 @@ class LearningSessionSerializer(serializers.ModelSerializer):
 class STTLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = STTLog
-        fields = ['session', 'sequence_order', 'text_chunk', 'created_at']
+        fields = ['id', 'session', 'sequence_order', 'text_chunk', 'speaker', 'video_offset', 'created_at']
 
 class SessionSummarySerializer(serializers.ModelSerializer):
     class Meta:

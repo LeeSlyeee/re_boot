@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, nextTick, computed, watch } from 'vue';
+import { marked } from 'marked';
 import { useRouter, useRoute } from 'vue-router';
 import { MessageSquare, Send, Trash2, Plus, BookOpen, ArrowLeft, Sparkles, Link2, Search, X } from 'lucide-vue-next';
 import api from '../api/axios';
@@ -109,9 +110,20 @@ const startNewChat = async () => {
 };
 
 // Delete session
-const removeSession = async (sessionId, e) => {
+const pendingDeleteId = ref(null);
+const showDeleteConfirm = ref(false);
+
+const removeSession = (sessionId, e) => {
     e.stopPropagation();
-    if (!confirm('이 대화를 삭제하시겠습니까?')) return;
+    pendingDeleteId.value = sessionId;
+    showDeleteConfirm.value = true;
+};
+
+const confirmDelete = async () => {
+    const sessionId = pendingDeleteId.value;
+    showDeleteConfirm.value = false;
+    pendingDeleteId.value = null;
+    if (!sessionId) return;
     try {
         await deleteChatSession(sessionId);
         if (activeSession.value?.id === sessionId) {
@@ -187,9 +199,38 @@ watch(selectedLectureId, () => {
     messages.value = [];
 });
 
-onMounted(() => {
-    fetchLectures();
-    fetchSessions();
+onMounted(async () => {
+    await fetchLectures();
+    await fetchSessions();
+
+    // 커리큘럼에서 주제를 가지고 진입한 경우 자동 채팅 시작
+    const queryLectureId = route.query.lectureId;
+    const queryTopic = route.query.topic;
+
+    if (queryLectureId) {
+        selectedLectureId.value = Number(queryLectureId);
+        await fetchSessions();
+    }
+
+    if (queryTopic) {
+        try {
+            const lectureId = selectedLectureId.value || (myLectures.value[0]?.id);
+            if (!lectureId) return;
+            selectedLectureId.value = lectureId;
+
+            // 해당 주제로 새 채팅 세션 생성
+            const data = await createChatSession(lectureId, queryTopic);
+            await fetchSessions();
+            await selectSession(data);
+
+            // 첫 질문 자동 전송
+            const autoMsg = `"${queryTopic}" 주제에 대해 핵심 개념과 학습 포인트를 알려줘.`;
+            newMessage.value = autoMsg;
+            await sendMessage();
+        } catch (e) {
+            console.error('Auto-chat failed:', e);
+        }
+    }
 });
 </script>
 
@@ -354,6 +395,18 @@ onMounted(() => {
                 </div>
             </div>
         </div>
+
+        <!-- Delete confirm modal -->
+        <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="showDeleteConfirm = false">
+            <div class="new-chat-modal">
+                <h3>🗑️ 대화 삭제</h3>
+                <p style="color: #aaa; font-size: 14px; margin-bottom: 16px;">이 대화를 삭제하시겠습니까?<br>삭제된 대화는 복구할 수 없습니다.</p>
+                <div class="modal-actions">
+                    <button class="btn-cancel" @click="showDeleteConfirm = false">취소</button>
+                    <button class="btn-confirm" style="background: #ff5555;" @click="confirmDelete">삭제</button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
@@ -362,12 +415,7 @@ export default {
     methods: {
         renderMarkdown(text) {
             if (!text) return '';
-            return text
-                .replace(/## (.*)/g, '<h4>$1</h4>')
-                .replace(/# (.*)/g, '<h3>$1</h3>')
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/`([^`]+)`/g, '<code>$1</code>')
-                .replace(/\n/g, '<br>');
+            return marked.parse(text, { breaks: true });
         }
     }
 }
@@ -557,7 +605,18 @@ export default {
     &.system { background: #1a1a1a; color: #aaa; font-size: 13px; }
 
     code { background: #333; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #4facfe; }
-    h3, h4 { margin: 8px 0 4px; color: #4facfe; }
+    pre { background: #111; border: 1px solid #333; border-radius: 8px; padding: 14px; overflow-x: auto; margin: 8px 0;
+        code { background: none; padding: 0; color: #ddd; font-size: 13px; display: block; white-space: pre; }
+    }
+    h2, h3, h4 { margin: 12px 0 6px; color: #4facfe; }
+    blockquote { border-left: 3px solid #4facfe; margin: 8px 0; padding: 6px 12px; color: #aaa; background: rgba(79,172,254,0.05); border-radius: 0 6px 6px 0; }
+    ul, ol { margin: 6px 0; padding-left: 20px;
+        li { margin: 3px 0; }
+    }
+    table { width: 100%; border-collapse: collapse; margin: 8px 0;
+        th, td { border: 1px solid #333; padding: 6px 10px; font-size: 13px; }
+        th { background: #222; color: #4facfe; }
+    }
 
     &.typing {
         display: flex; gap: 6px; padding: 14px 20px;

@@ -73,9 +73,9 @@ class AssessmentViewSet(viewsets.ViewSet):
         if not full_context_text:
              return Response({"error": "오늘 학습한 내용(자막/요약)이 없어 퀴즈를 만들 수 없습니다."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3. GPT에게 퀴즈 생성 요청
+        # 3. GPT에게 퀴즈 생성 요청 (RAG 포함)
         try:
-            quiz_data = self._generate_quiz_from_ai(full_context_text)
+            quiz_data = self._generate_quiz_from_ai(full_context_text, lecture_id=target_session.lecture_id)
         except Exception as e:
             return Response({"error": f"AI 퀴즈 생성 실패: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -161,7 +161,7 @@ class AssessmentViewSet(viewsets.ViewSet):
             final_score = int((correct_count / total_questions) * 100) if total_questions > 0 else 0
             attempt.score = final_score
             
-            # [AI Review Generation] 틀린 문제가 있으면 오답노트 생성
+            # [AI Review Generation] 틀린 문제가 있으면 오답노트 생성 (RAG 포함)
             failed_details = AttemptDetail.objects.filter(attempt=attempt, is_correct=False).select_related('question')
             
             if failed_details.exists():
@@ -170,26 +170,41 @@ class AssessmentViewSet(viewsets.ViewSet):
                     client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
                     
                     review_prompt = "다음은 학생이 퀴즈에서 틀린 문제들입니다. 틀린 이유를 분석하고, 핵심 개념을 보충 설명해주세요.\n\n"
+                    question_keywords = []
                     for detail in failed_details:
                         q = detail.question
                         review_prompt += f"[문제] {q.question_text}\n"
                         review_prompt += f"- 학생 답: {detail.student_answer}\n"
-                        review_prompt += f"- 정답: {q.correct_answer}\n"
-                        # 기존 explanation이 있다면 참고용으로 추가
-                        # review_prompt += f"- 참고: {q.explanation}\n"
-                        review_prompt += "\n"
-                        
+                        review_prompt += f"- 정답: {q.correct_answer}\n\n"
+                        question_keywords.append(q.question_text)
+
+                    # [RAG] 틀린 문제 키워드로 공식 문서 검색
+                    rag_context = ""
+                    try:
+                        from .rag import RAGService
+                        rag = RAGService()
+                        search_query = " ".join(question_keywords)[:500]
+                        lecture_id = quiz.section.course.lectures.first().id if hasattr(quiz, 'section') and quiz.section else None
+                        related_docs = rag.search(query=search_query, top_k=3, lecture_id=lecture_id)
+                        if related_docs:
+                            rag_context = "\n".join([f"- {doc.content[:300]}" for doc in related_docs])
+                            print(f"✅ [RAG] 오답노트 생성에 공식 문서 {len(related_docs)}건 참조")
+                    except Exception as rag_err:
+                        print(f"⚠️ [RAG] 오답노트 검색 실패: {rag_err}")
+
                     review_prompt += """
                     [요청사항]
                     1. 각 문제별로 '💡 오답 분석'과 '📚 핵심 요약'을 제공하세요.
                     2. 학생이 헷갈려할 만한 부분을 짚어주세요.
                     3. Markdown 형식으로 가독성 있게 작성하세요.
                     """
+                    if rag_context:
+                        review_prompt += f"\n[공식 문서 참조 (정확한 설명 근거)]:\n{rag_context}"
                     
                     response = client.chat.completions.create(
                         model="gpt-4o",
                         messages=[
-                            {"role": "system", "content": "당신은 IT 교육 전문가입니다. 친절하고 명확하게 오답을 풀이해주세요."},
+                            {"role": "system", "content": "당신은 IT 교육 전문가입니다. 공식 문서 참조가 있으면 이를 근거로 친절하고 명확하게 오답을 풀이해주세요."},
                             {"role": "user", "content": review_prompt}
                         ]
                     )
@@ -211,9 +226,9 @@ class AssessmentViewSet(viewsets.ViewSet):
             
         return Response(QuizAttemptSerializer(attempt).data, status=status.HTTP_200_OK)
 
-    def _generate_quiz_from_ai(self, text):
+    def _generate_quiz_from_ai(self, text, lecture_id=None):
         """
-        GPT Output Format: JSON List
+        GPT Output Format: JSON List (RAG 통합)
         """
         # [Validation] 텍스트가 너무 짧으면 엉뚱한 문제가 나올 수 있음
         text_len = len(text)
@@ -224,16 +239,30 @@ class AssessmentViewSet(viewsets.ViewSet):
         if text_len < 200:
              raise ValueError(f"학습 내용이 부족하여 퀴즈를 생성할 수 없습니다. (현재 {text_len}자, 최소 200자 필요)")
 
+        # [RAG] 공식 문서에서 관련 컨텍스트 검색
+        rag_context = ""
+        try:
+            from .rag import RAGService
+            rag = RAGService()
+            search_query = text[:500]
+            related_docs = rag.search(query=search_query, top_k=3, lecture_id=lecture_id)
+            if related_docs:
+                rag_context = "\n".join([f"- {doc.content[:300]}" for doc in related_docs])
+                print(f"✅ [RAG] 퀴즈 생성에 공식 문서 {len(related_docs)}건 참조")
+        except Exception as rag_err:
+            print(f"⚠️ [RAG] 검색 실패 (퀴즈는 학습 텍스트만으로 진행): {rag_err}")
+
         system_prompt = """
         너는 '학습 내용 기반 퀴즈 생성 전문가'야.
-        제공된 [학습 텍스트]를 바탕으로 학습자가 내용을 잘 이해했는지 확인하는 퀴즈를 출제해.
+        제공된 [학습 텍스트]와 [공식 문서 참조]를 바탕으로 학습자가 내용을 잘 이해했는지 확인하는 퀴즈를 출제해.
         
         [원칙]
         1. 텍스트에 명시된 내용(팩트)에 기반하여 문제를 낼 것.
         2. '없는 내용'을 창조하지 말 것.
-        3. 만약 내용이 조금 부족하더라도, 텍스트에 등장하는 핵심 단어나 개념을 활용하여 어떻게든 5문제를 만들어.
-        4. 문제를 만들기 정 어렵다면, 같은 내용을 다르게 물어보는 방식으로라도 5문제를 채울 것.
-        5. [중요] 모든 질문, 보기, 정답, 해설은 반드시 '한국어(Korean)'로 작성해야 해. (영어 금지)
+        3. [공식 문서 참조]가 제공되면, 전문 용어의 정확한 정의에 기반한 문제를 포함할 것.
+        4. 만약 내용이 조금 부족하더라도, 텍스트에 등장하는 핵심 단어나 개념을 활용하여 어떻게든 5문제를 만들어.
+        5. 문제를 만들기 정 어렵다면, 같은 내용을 다르게 물어보는 방식으로라도 5문제를 채울 것.
+        6. [중요] 모든 질문, 보기, 정답, 해설은 반드시 '한국어(Korean)'로 작성해야 해. (영어 금지)
         """
 
         user_prompt = f"""
@@ -248,7 +277,13 @@ class AssessmentViewSet(viewsets.ViewSet):
 
         [학습 텍스트]
         {text}
-        
+        """
+        if rag_context:
+            user_prompt += f"""
+        [공식 문서 참조 (정확한 정의 및 예시 — 문제의 정확성 보장용)]
+        {rag_context}
+        """
+        user_prompt += """
         [JSON 출력 예시]
         [
             {{

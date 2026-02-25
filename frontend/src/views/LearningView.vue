@@ -35,6 +35,11 @@ const logsContainer = ref(null);
 const sessionId = ref(null);
 const nextSequenceOrder = ref(1);
 
+// --- YouTube Player API ---
+const ytPlayer = ref(null);
+const ytPlayerReady = ref(false);
+const videoStartTime = ref(null); // 녹음 시작 시 영상 재생 시간(초)
+
 // --- Live Session (Composable) ---
 const {
     liveSessionData, liveSessionCode, liveNoteTab, myPulse, livePulseStats,
@@ -764,6 +769,80 @@ const youtubeEmbedUrl = computed(() => {
     return videoId ? `https://www.youtube.com/embed/${videoId}` : '';
 });
 
+// YouTube 비디오 ID 추출
+const youtubeVideoId = computed(() => {
+    const url = youtubeUrl.value;
+    if (!url) return '';
+    if (url.includes('v=')) return url.split('v=')[1].split('&')[0];
+    if (url.includes('youtu.be/')) return url.split('youtu.be/')[1].split('?')[0];
+    if (url.includes('embed/')) return url.split('embed/')[1].split('?')[0];
+    if (url.includes('shorts/')) return url.split('shorts/')[1].split('?')[0];
+    return '';
+});
+
+// YouTube IFrame Player API 로드
+const loadYTAPI = () => {
+    if (window.YT && window.YT.Player) return Promise.resolve();
+    return new Promise((resolve) => {
+        if (document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+            const check = setInterval(() => {
+                if (window.YT && window.YT.Player) { clearInterval(check); resolve(); }
+            }, 100);
+            return;
+        }
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+        window.onYouTubeIframeAPIReady = () => resolve();
+    });
+};
+
+// YouTube Player 초기화
+const initYouTubePlayer = async (videoId) => {
+    if (!videoId) return;
+    await loadYTAPI();
+    // 기존 플레이어 제거
+    if (ytPlayer.value) { try { ytPlayer.value.destroy(); } catch(e) {} }
+    ytPlayerReady.value = false;
+
+    await nextTick();
+    const container = document.getElementById('yt-player-container');
+    if (!container) return;
+
+    ytPlayer.value = new window.YT.Player('yt-player-container', {
+        videoId,
+        width: '100%',
+        height: '100%',
+        playerVars: { autoplay: 0, rel: 0, modestbranding: 1 },
+        events: {
+            onReady: () => { ytPlayerReady.value = true; },
+        },
+    });
+};
+
+// 타임스탬프 클릭 → 영상 이동
+const seekToTime = (offset) => {
+    if (offset == null) return;
+    if (ytPlayer.value && ytPlayerReady.value) {
+        ytPlayer.value.seekTo(offset, true);
+    }
+};
+
+// 초 → MM:SS 포맷
+const formatOffset = (seconds) => {
+    if (seconds == null) return '';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
+// youtubeVideoId 변경 시 Player 재생성
+watch(youtubeVideoId, (newId) => {
+    if (newId && mode.value === 'youtube') {
+        initYouTubePlayer(newId);
+    }
+});
+
 const selectMode = (selectedMode) => {
     // [CHANGE] 새 모드 선택 시 기존 대기 세션 정보 파기 (Confirm 제거)
     if (pendingSessionId.value) {
@@ -805,6 +884,13 @@ const submitYoutube = () => {
             isUrlSubmitted.value = false; // 실패 시 다시 열어줌
         });
     }
+
+    // YouTube Player API 초기화 (seekTo 지원)
+    nextTick(() => {
+        if (youtubeVideoId.value) {
+            initYouTubePlayer(youtubeVideoId.value);
+        }
+    });
 };
 
 // --- Recording Logic ---
@@ -904,6 +990,15 @@ const handleAudioData = async (audioBlob) => {
     formData.append('audio_file', audioBlob, `chunk.${ext}`);
     formData.append('sequence_order', currentSeq);
 
+    // 영상 상대 시간 전송 (YouTube Player가 있을 때)
+    let currentVideoOffset = null;
+    if (ytPlayer.value && ytPlayerReady.value) {
+        try { currentVideoOffset = ytPlayer.value.getCurrentTime(); } catch(e) {}
+    }
+    if (currentVideoOffset !== null) {
+        formData.append('video_offset', currentVideoOffset.toFixed(1));
+    }
+
     try {
         const { data } = await api.post(`/learning/sessions/${sessionId.value}/audio/`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' }
@@ -916,8 +1011,10 @@ const handleAudioData = async (audioBlob) => {
         if (data.text) {
              const newLog = {
                 id: data.id || Date.now(),
-                sequence_order: currentSeq, // Use local tracked sequence
+                sequence_order: currentSeq,
                 text_chunk: data.text,
+                speaker: data.speaker || 'UNKNOWN',
+                video_offset: data.video_offset,
                 timestamp: new Date().toLocaleTimeString()
             };
             sttLogs.value.push(newLog);
@@ -988,7 +1085,7 @@ const endSession = async () => {
     isGeneratingQuiz.value = true;
 
     if (sessionId.value) {
-        // [NEW] 1. AI 요약 생성 요청
+        // 1. AI 요약 생성 요청
         try {
             console.log("📝 Generating Summary...");
             await api.post(`/learning/sessions/${sessionId.value}/summarize/`);
@@ -997,7 +1094,19 @@ const endSession = async () => {
             console.error("Summary Generation Failed:", e);
         }
 
-        // 2. 세션 종료 처리
+        // 2. 화자 일괄 분류 (전체 맥락 기반)
+        try {
+            console.log("🎙️ Classifying speakers...");
+            const classifyRes = await api.post(`/learning/sessions/${sessionId.value}/classify-speakers/`);
+            if (classifyRes.data?.logs) {
+                sttLogs.value = classifyRes.data.logs;
+                console.log(`✅ Speakers classified: ${classifyRes.data.updated} logs updated`);
+            }
+        } catch(e) {
+            console.error("Speaker classification failed (non-critical):", e);
+        }
+
+        // 3. 세션 종료 처리
         try { await api.post(`/learning/sessions/${sessionId.value}/end/`); } catch(e) {}
         
         // [FIX] 세션 종료 시 로컬 스토리지 + Vue 상태 모두 정리
@@ -1010,7 +1119,7 @@ const endSession = async () => {
         pendingSessionId.value = null;
     }
 
-    // 3. 퀴즈 생성 요청
+    // 4. 퀴즈 생성 요청
     await loadQuiz();
 };
 
@@ -1550,8 +1659,7 @@ const openSessionReview = (id) => {
 
             <!-- A. Youtube Player (New Vertical Layout) -->
             <section v-if="mode === 'youtube'" class="video-section">
-                <!-- Use youtubeEmbedUrl -->
-                <iframe :src="youtubeEmbedUrl" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+                <div id="yt-player-container"></div>
             </section>
             
             <!-- B. Offline / Universal Header (Legacy) -->
@@ -1613,8 +1721,16 @@ const openSessionReview = (id) => {
                 <!-- 1. STT View -->
                 <div v-show="activeTab === 'stt'" class="stt-container" ref="logsContainer">
                     <div v-if="sttLogs.length === 0" class="empty-state"><p>AI가 내용을 받아적습니다.</p></div>
-                    <div v-for="log in sttLogs" :key="log.id" class="stt-bubble">
-                        <span class="time">{{ log.timestamp }}</span>
+                    <div v-for="log in sttLogs" :key="log.id" class="stt-bubble" :class="{'speaker-instructor': log.speaker === 'INSTRUCTOR', 'speaker-student': log.speaker === 'STUDENT'}">
+                        <div class="stt-meta">
+                            <span v-if="log.speaker && log.speaker !== 'UNKNOWN'" class="speaker-badge" :class="log.speaker.toLowerCase()">
+                                {{ log.speaker === 'INSTRUCTOR' ? '👨‍🏫 교수자' : '🙋 학생' }}
+                            </span>
+                            <span class="time" :class="{ clickable: log.video_offset != null }" @click="seekToTime(log.video_offset)">
+                                <template v-if="log.video_offset != null">⏱ {{ formatOffset(log.video_offset) }}</template>
+                                <template v-else>{{ log.timestamp }}</template>
+                            </span>
+                        </div>
                         <p>{{ log.text_chunk }}</p>
                     </div>
                     <!-- Processing Indicator -->
@@ -2405,6 +2521,54 @@ const openSessionReview = (id) => {
     60% { content: ' ...'; }
     80%, 100% { content: ''; }
 }
+
+/* YouTube Player Container */
+#yt-player-container { width: 100%; aspect-ratio: 16/9; }
+#yt-player-container iframe { width: 100%; height: 100%; border-radius: 12px; }
+
+/* === 화자 구분 스타일 === */
+.stt-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.speaker-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+.speaker-badge.instructor {
+    background: rgba(79, 172, 254, 0.15);
+    color: #4facfe;
+}
+.speaker-badge.student {
+    background: rgba(67, 217, 173, 0.15);
+    color: #43d9ad;
+}
+
+/* 화자별 자막 버블 좌측 보더 */
+.stt-bubble.speaker-instructor {
+    border-left: 3px solid #4facfe;
+}
+.stt-bubble.speaker-student {
+    border-left: 3px solid #43d9ad;
+}
+
+/* 클릭 가능한 타임스탬프 */
+.time.clickable {
+    cursor: pointer;
+    color: #4facfe;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    transition: color 0.2s;
+}
+.time.clickable:hover {
+    color: #80c4ff;
+}
 </style>
 
 <!-- Add debug panel styles -->
@@ -2479,6 +2643,8 @@ const openSessionReview = (id) => {
 .mode-item.live-mode {
     background: linear-gradient(135deg, #f0fdf4, #ecfdf5) !important;
     border: 1px solid #22c55e33 !important;
+    h3 { color: #166534 !important; }
+    .desc { color: #15803d !important; }
 }
 
 /* ── Quiz Modal (학습자) ── */

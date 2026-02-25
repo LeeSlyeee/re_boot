@@ -1831,8 +1831,8 @@ onMounted(fetchDashboard);
                     </div>
                 </div>
 
-            <!-- 교안 업로드 영역 (항상 표시) -->
-            <div class="materials-section">
+            <!-- 교안 업로드 영역 (라이브 세션 생성 후 표시) -->
+            <div v-if="liveSession" class="materials-section">
                 <h3>📄 교안 관리</h3>
                 <div class="material-upload-area">
                     <label class="upload-label">

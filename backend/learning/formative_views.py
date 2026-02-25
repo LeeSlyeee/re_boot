@@ -81,11 +81,29 @@ class GenerateFormativeView(APIView):
 
             note_content = note.content[:3000]  # 토큰 절약
 
+            # [RAG] 공식 문서에서 관련 컨텍스트 검색
+            rag_context = ""
+            try:
+                from .rag import RAGService
+                rag = RAGService()
+                lecture_id = session.lecture_id if session.lecture else None
+                related_docs = rag.search(query=note_content[:500], top_k=3, lecture_id=lecture_id)
+                if related_docs:
+                    rag_context = "\n".join([f"- {doc.content[:300]}" for doc in related_docs])
+                    print(f"✅ [RAG] 형성평가 문항 생성에 공식 문서 {len(related_docs)}건 참조")
+            except Exception as rag_err:
+                print(f"⚠️ [RAG] 형성평가 검색 실패: {rag_err}")
+
+            user_content = f'아래 수업 노트를 기반으로 형성평가 5문항을 생성하세요:\n\n{note_content}'
+            if rag_context:
+                user_content += f'\n\n[공식 문서 참조 (정확한 정의 및 예시)]:\n{rag_context}'
+
             response = client.chat.completions.create(
                 model='gpt-4o-mini',
                 messages=[
                     {'role': 'system', 'content': """당신은 교육 평가 전문가입니다.
 주어진 수업 노트를 기반으로 형성평가 문항을 5개 생성하세요.
+[공식 문서 참조]가 있으면, 전문 용어의 정확한 정의에 기반한 문항을 포함하세요.
 
 반드시 아래 JSON 형식으로만 응답하세요 (마크다운 코드블럭 없이 순수 JSON):
 [
@@ -105,7 +123,7 @@ class GenerateFormativeView(APIView):
 2. correct_answer는 options 중 하나와 정확히 일치
 3. concept_tag는 2-4자 핵심 개념명 (예: 클로저, DOM, 비동기)
 4. 난이도: 이해력 확인 수준 (암기 X)"""},
-                    {'role': 'user', 'content': f'아래 수업 노트를 기반으로 형성평가 5문항을 생성하세요:\n\n{note_content}'}
+                    {'role': 'user', 'content': user_content}
                 ],
                 temperature=0.3,
                 max_tokens=2000,

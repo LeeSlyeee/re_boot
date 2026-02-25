@@ -507,16 +507,34 @@ class LiveSessionViewSet(viewsets.ViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
 
         try:
+            # [RAG] 공식 문서에서 관련 컨텍스트 검색
+            rag_context = ""
+            try:
+                from .rag import RAGService
+                rag = RAGService()
+                lecture_id = session.lecture_id if session.lecture else None
+                related_docs = rag.search(query=stt_text[:300], top_k=2, lecture_id=lecture_id)
+                if related_docs:
+                    rag_context = "\n".join([f"- {doc.content[:200]}" for doc in related_docs])
+                    print(f"✅ [RAG] 자동 퀴즈 생성에 공식 문서 {len(related_docs)}건 참조")
+            except Exception as rag_err:
+                print(f"⚠️ [RAG] 자동 퀴즈 검색 실패: {rag_err}")
+
+            quiz_prompt = f'강의 내용:\n{stt_text[:2000]}'
+            if rag_context:
+                quiz_prompt += f'\n\n[공식 문서 참조 (정확성 보장용)]:\n{rag_context}'
+
             response = openai.chat.completions.create(
                 model='gpt-4o-mini',
                 messages=[
                     {'role': 'system', 'content': (
                         '당신은 교육 전문가입니다. '
                         '주어진 강의 내용을 바탕으로 객관식 4지선다 퀴즈 1문제를 생성하세요. '
+                        '[공식 문서 참조]가 있으면 정확한 정의에 기반한 문제를 출제하세요.\n'
                         '반드시 JSON 형식으로 응답하세요:\n'
                         '{"question": "문제", "options": ["A", "B", "C", "D"], "correct_answer": "정답", "explanation": "해설"}'
                     )},
-                    {'role': 'user', 'content': f'강의 내용:\n{stt_text[:2000]}'}
+                    {'role': 'user', 'content': quiz_prompt}
                 ],
                 temperature=0.7,
                 max_tokens=500,
@@ -1094,6 +1112,23 @@ def _generate_quiz_suggestion(session_id):
 
         context_text = '\n'.join([c.text_chunk for c in reversed(recent_chunks)])
 
+        # [RAG] 공식 문서에서 관련 컨텍스트 검색
+        rag_context = ""
+        try:
+            from .rag import RAGService
+            rag = RAGService()
+            lecture_id = session.lecture_id if session.lecture else None
+            related_docs = rag.search(query=context_text[:300], top_k=2, lecture_id=lecture_id)
+            if related_docs:
+                rag_context = "\n".join([f"- {doc.content[:200]}" for doc in related_docs])
+                print(f"✅ [RAG] 라이브 퀴즈 제안에 공식 문서 {len(related_docs)}건 참조")
+        except Exception as rag_err:
+            print(f"⚠️ [RAG] 퀴즈 제안 검색 실패: {rag_err}")
+
+        quiz_prompt = f'방금 교수자가 설명한 내용:\n{context_text}'
+        if rag_context:
+            quiz_prompt += f'\n\n[공식 문서 참조 (정확성 보장용)]:\n{rag_context}'
+
         client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         response = client.chat.completions.create(
             model='gpt-4o-mini',
@@ -1101,11 +1136,12 @@ def _generate_quiz_suggestion(session_id):
                 {'role': 'system', 'content': (
                     '당신은 부트캠프 강의에서 교수자가 방금 설명한 내용을 바탕으로 '
                     '체크포인트 퀴즈를 생성하는 AI입니다.\n'
+                    '[공식 문서 참조]가 있으면 정확한 정의에 기반한 문제를 출제하세요.\n'
                     '반드시 아래 JSON 형식으로만 응답하세요:\n'
                     '{"question": "문제", "options": ["A", "B", "C", "D"], '
                     '"correct_answer": "정답", "explanation": "해설"}'
                 )},
-                {'role': 'user', 'content': f'방금 교수자가 설명한 내용:\n{context_text}'}
+                {'role': 'user', 'content': quiz_prompt}
             ],
             temperature=0.7,
             max_tokens=500,
@@ -1198,6 +1234,19 @@ def _generate_live_note(session_id, note_id):
         except:
             pass
 
+        # ── 4-2. [RAG] 공식 문서에서 관련 컨텍스트 검색 ──
+        rag_context = ''
+        try:
+            from .rag import RAGService
+            rag = RAGService()
+            search_query = stt_text[:500]
+            related_docs = rag.search(query=search_query, top_k=3, lecture_id=session.lecture_id if session.lecture else None)
+            if related_docs:
+                rag_context = "\n".join([f"- {doc.content[:300]}" for doc in related_docs])
+                print(f"✅ [RAG] 라이브 노트 생성에 공식 문서 {len(related_docs)}건 참조")
+        except Exception as rag_err:
+            print(f"⚠️ [RAG] 검색 실패 (노트는 STT만으로 진행): {rag_err}")
+
         # ── 5. 통계 저장 ──
         stats = {
             'total_participants': session.participants.count(),
@@ -1229,8 +1278,11 @@ def _generate_live_note(session_id, note_id):
 
         prompt_content = f"""[강의 시간: 약 {stats['duration_minutes']}분 | 참가자: {stats['total_participants']}명 | 이해도: {understand_rate}%]
 
-=== 할 교안 원문 (텍스트 추출) ===
+=== 교안 원문 (텍스트 추출) ===
 {material_text[:3000] if material_text else '(교안 없음)'}
+
+=== 공식 문서 참조 (RAG 검색 결과) ===
+{rag_context[:2000] if rag_context else '(참조 문서 없음)'}
 
 === 교수자 발화 STT 전문 ===
 {stt_text[:8000]}
@@ -1249,12 +1301,14 @@ def _generate_live_note(session_id, note_id):
                 messages=[
                     {'role': 'system', 'content': (
                         '당신은 대학 강의를 전문적으로 정리하는 AI 어시스턴트입니다.\n'
-                        '아래 강의 데이터(교안 원문, STT 전문, 퀴즈 결과, 학생 질문)를 기반으로\n'
+                        '아래 강의 데이터(교안 원문, 공식 문서 참조, STT 전문, 퀴즈 결과, 학생 질문)를 기반으로\n'
                         '학생들이 복습하기 좋은 통합 노트를 작성하세요.\n\n'
                         '핵심 규칙:\n'
                         '- 교안에 있는 내용은 평문으로 정리하세요.\n'
                         '- 교수자가 STT에서 교안에 없는 추가 설명/예시/노하우를 말한 부분은\n'
                         '  "🎙️ 교수자 설명" 라벨을 붙여 구분하세요.\n'
+                        '- [공식 문서 참조]가 있으면, 전문 용어의 정확한 정의와 코드 예시를\n'
+                        '  "📖 공식 문서" 라벨로 보충하세요.\n'
                         '- 교안과 STT를 주제별로 통합 정리하세요 (별도 섹션으로 분리하지 마세요).\n\n'
                         '형식:\n'
                         '# 📚 강의 통합 노트\n\n'

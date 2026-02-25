@@ -3,8 +3,8 @@ import { ref, onMounted, computed } from 'vue';
 import { useToast } from '../composables/useToast';
 const { showToast } = useToast();
 import { useRouter } from 'vue-router';
-import { ArrowLeft, CheckCircle, Circle, Zap, RefreshCw, Clock, ChevronDown, ChevronUp, BookOpen, AlertTriangle } from 'lucide-vue-next';
-import { getCurriculums, getCurriculum, completeItem, rerouteCurriculum, getRerouteHistory } from '../api/learning';
+import { ArrowLeft, CheckCircle, Circle, Zap, RefreshCw, Clock, ChevronDown, ChevronUp, BookOpen, AlertTriangle, ExternalLink } from 'lucide-vue-next';
+import { getCurriculums, getCurriculum, completeItem, rerouteCurriculum, getRerouteHistory, generateCurriculum } from '../api/learning';
 
 const router = useRouter();
 
@@ -14,6 +14,7 @@ const rerouteHistory = ref([]);
 const isLoading = ref(false);
 const isRerouting = ref(false);
 const showHistory = ref(false);
+const isGenerating = ref(false);
 
 const progressColor = computed(() => {
     if (!activeCurriculum.value) return '#333';
@@ -52,13 +53,20 @@ const fetchHistory = async (id) => {
 };
 
 const toggleComplete = async (item) => {
-    if (item.is_completed || !activeCurriculum.value) return;
+    if (!activeCurriculum.value) return;
     try {
         const data = await completeItem(activeCurriculum.value.id, item.id);
         activeCurriculum.value.progress_percent = data.progress_percent;
-        item.is_completed = true;
-        item.completed_at = new Date().toISOString();
+        item.is_completed = data.is_completed;
+        item.completed_at = data.is_completed ? new Date().toISOString() : null;
     } catch (e) { /* silent */ }
+};
+
+const goToItem = (item) => {
+    // 해당 주제로 AI 튜터 학습 페이지 진입
+    const query = { topic: item.title };
+    if (item.lecture) query.lectureId = item.lecture;
+    router.push({ path: '/ai-chat', query });
 };
 
 const doReroute = async () => {
@@ -82,6 +90,21 @@ const formatDate = (dateStr) => {
 const typeEmoji = (type) => {
     const map = { LECTURE: '📖', QUIZ: '📝', PROJECT: '🛠️', SUPPLEMENT: '📌', REVIEW: '🔄' };
     return map[type] || '📄';
+};
+
+const doGenerate = async () => {
+    if (isGenerating.value) return;
+    isGenerating.value = true;
+    try {
+        const data = await generateCurriculum();
+        activeCurriculum.value = data;
+        curriculums.value = [data];
+        showToast('🎉 AI 로드맵이 생성되었습니다!', 'success');
+    } catch (e) {
+        const errMsg = e.response?.data?.error || e.message;
+        showToast('로드맵 생성 실패: ' + errMsg, 'error');
+    }
+    isGenerating.value = false;
 };
 
 onMounted(fetchCurriculums);
@@ -111,8 +134,13 @@ onMounted(fetchCurriculums);
             <!-- No Curriculum -->
             <div v-if="!activeCurriculum && !isLoading" class="cv-empty glass-panel">
                 <div class="empty-icon">🗺️</div>
-                <h2>아직 커리큘럼이 없습니다</h2>
-                <p>강사에게 커리큘럼을 요청하거나,<br>수강 중인 클래스에서 자동 생성됩니다.</p>
+                <h2>아직 학습 로드맵이 없습니다</h2>
+                <p>수강 중인 강의를 기반으로<br>AI가 맞춤형 학습 경로를 설계해드립니다.</p>
+                <button class="generate-btn" @click="doGenerate" :disabled="isGenerating">
+                    <RefreshCw v-if="isGenerating" :size="18" class="spinning" />
+                    <span v-if="isGenerating">AI가 로드맵을 설계하고 있습니다...</span>
+                    <span v-else>🤖 AI 로드맵 생성하기</span>
+                </button>
             </div>
 
             <!-- Active Curriculum -->
@@ -163,12 +191,12 @@ onMounted(fetchCurriculums);
                             current: !item.is_completed && (idx === 0 || (activeCurriculum.items[idx-1]?.is_completed))
                         }">
                         <div class="timeline-line" v-if="idx > 0"></div>
-                        <div class="timeline-node" @click="toggleComplete(item)">
+                        <div class="timeline-node" @click.stop="toggleComplete(item)" :title="item.is_completed ? '완료 해제' : '완료 처리'">
                             <CheckCircle v-if="item.is_completed" :size="24" class="node-icon done" />
                             <Zap v-else-if="item.is_supplementary" :size="24" class="node-icon supplement" />
                             <Circle v-else :size="24" class="node-icon pending" />
                         </div>
-                        <div class="timeline-card" :class="{ clickable: !item.is_completed }" @click="toggleComplete(item)">
+                        <div class="timeline-card clickable" @click="goToItem(item)">
                             <div class="card-top">
                                 <span class="item-emoji">{{ typeEmoji(item.item_type) }}</span>
                                 <div class="card-info">
@@ -180,9 +208,10 @@ onMounted(fetchCurriculums);
                                         </span>
                                     </div>
                                 </div>
-                                <span v-if="item.completed_at" class="completed-date">
-                                    ✅ {{ formatDate(item.completed_at) }}
-                                </span>
+                                <ExternalLink :size="16" class="go-icon" />
+                            </div>
+                            <div v-if="item.completed_at" class="card-completed">
+                                ✅ {{ formatDate(item.completed_at) }} 완료
                             </div>
                         </div>
                     </div>
@@ -339,7 +368,28 @@ onMounted(fetchCurriculums);
     &.supp-tag { background: rgba(251,197,49,0.1); color: #fbc531; display: flex; align-items: center; gap: 3px; }
 }
 
-.completed-date { color: #00f260; font-size: 12px; white-space: nowrap; }
+.card-actions {
+    display: flex; align-items: center; gap: 10px;
+    flex-shrink: 0;
+}
+
+.check-btn {
+    background: none; border: none; cursor: pointer;
+    color: #555; padding: 4px;
+    border-radius: 50%; transition: all 0.2s;
+    display: flex; align-items: center;
+    &:hover { color: #4facfe; background: rgba(79,172,254,0.1); }
+    &.checked { color: #00f260; }
+    &.checked:hover { color: #ff5555; background: rgba(255,85,85,0.1); }
+}
+
+.go-icon { color: #555; flex-shrink: 0; }
+
+.card-completed {
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    font-size: 12px; color: #00f260;
+}
 
 // ═══ History ═══
 .cv-history { margin-top: 32px; }
@@ -394,6 +444,25 @@ onMounted(fetchCurriculums);
     text-align: center; padding: 60px;
     .empty-icon { font-size: 64px; margin-bottom: 16px; }
     h2 { font-size: 20px; margin-bottom: 12px; }
-    p { color: #888; line-height: 1.6; }
+    p { color: #888; line-height: 1.6; margin-bottom: 24px; }
+}
+
+.generate-btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 16px 32px;
+    background: linear-gradient(135deg, rgba(79,172,254,0.2), rgba(0,242,96,0.2));
+    border: 1px solid rgba(79,172,254,0.4);
+    border-radius: 14px;
+    color: #4facfe;
+    font-size: 16px; font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s;
+    &:hover:not(:disabled) {
+        background: linear-gradient(135deg, rgba(79,172,254,0.35), rgba(0,242,96,0.35));
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(79,172,254,0.2);
+    }
+    &:disabled { opacity: 0.6; cursor: not-allowed; }
+    .spinning { animation: spin 1s linear infinite; }
 }
 </style>

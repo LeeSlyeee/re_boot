@@ -24,7 +24,6 @@ const authStore = useAuthStore();
         <RouterLink to="/learning" class="nav-item">학습하기</RouterLink>
         <RouterLink to="/placement" class="nav-item">🎯 레벨테스트</RouterLink>
         <RouterLink to="/gapmap" class="nav-item">📊 갭 맵</RouterLink>
-        <RouterLink to="/ai-chat" class="nav-item">🤖 AI 튜터</RouterLink>
         <RouterLink to="/curriculum" class="nav-item">🗺️ 로드맵</RouterLink>
         <RouterLink to="/dashboard" class="nav-item">대시보드</RouterLink>
         <RouterLink to="/portfolio" class="nav-item">포트폴리오</RouterLink>

@@ -261,17 +261,27 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                 print(f"⚠️ Filtered: '{cleaned_text}' | Reason: {skip_reason}")
                 return Response({'status': 'silence_skipped', 'text': '', 'reason': skip_reason}, status=status.HTTP_200_OK)
 
-            # 5. Save STT Log
+            # 5. video_offset 처리 (프론트엔드에서 전송)
+            video_offset = request.data.get('video_offset')
+            if video_offset:
+                try:
+                    video_offset = float(video_offset)
+                except (ValueError, TypeError):
+                    video_offset = None
+
+            # 6. Save STT Log
             log = STTLog.objects.create(
                 session=session,
                 sequence_order=sequence_order,
-                text_chunk=stt_text 
+                text_chunk=stt_text,
+                video_offset=video_offset,
             )
             
             return Response({
                 'status': 'processed', 
                 'text': stt_text, 
-                'id': log.id
+                'id': log.id,
+                'video_offset': video_offset,
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
@@ -313,9 +323,9 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             print("DEBUG: Empty text. Returning 400.")
             return Response({'error': 'No content to summarize'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 2. AI 요약 요청 (Real OpenAI Call)
-        print("DEBUG: Calling OpenAI...")
-        summary_text = self._call_openai_summary(full_text)
+        # 2. AI 요약 요청 (Real OpenAI Call + RAG)
+        print("DEBUG: Calling OpenAI with RAG context...")
+        summary_text = self._call_openai_summary(full_text, lecture_id=session.lecture_id)
         print(f"DEBUG: OpenAI returned: {str(summary_text)[:50]}...")
         
         if not summary_text:
@@ -349,6 +359,91 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
         session.is_completed = True
         session.save()
         return Response({'status': 'session ended'}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='classify-speakers')
+    def classify_speakers(self, request, pk=None):
+        """
+        [후처리] 세션의 전체 STT 로그를 분석하여 화자(교수자/학생)를 일괄 분류
+        전체 대화 맥락을 보고 판단하므로 실시간보다 정확함
+        """
+        session = self.get_object()
+        logs = STTLog.objects.filter(session=session).order_by('sequence_order')
+        
+        if not logs.exists():
+            return Response({'error': 'STT 로그가 없습니다.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 번호 매긴 텍스트 목록 구성
+        numbered_lines = []
+        log_ids = []
+        for log in logs:
+            numbered_lines.append(f"[{log.sequence_order}] {log.text_chunk}")
+            log_ids.append((log.id, log.sequence_order))
+        
+        transcript_text = "\n".join(numbered_lines)
+        
+        # GPT-4o에게 전체 맥락으로 화자 분류 요청
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            
+            result = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": """너는 IT 강의 자막에서 화자를 구분하는 전문 분류기야.
+
+아래 번호가 매겨진 자막을 읽고, 각 줄이 교수자(INSTRUCTOR)의 발화인지 학생(STUDENT)의 발화인지 판단해.
+
+판단 기준:
+- 설명, 강의, 코드 설명, 개념 전달 → INSTRUCTOR
+- 질문, 짧은 응답("네", "아~"), 감탄, 되묻기 → STUDENT
+- 판단이 어려우면 INSTRUCTOR로 분류 (강의에서 교수자 발화 비율이 높으므로)
+
+반드시 아래 JSON 배열 형식으로만 출력해. 다른 텍스트는 절대 포함하지 마.
+[{"seq": 1, "speaker": "INSTRUCTOR"}, {"seq": 2, "speaker": "STUDENT"}, ...]"""},
+                    {"role": "user", "content": transcript_text}
+                ],
+                max_tokens=4000,
+                response_format={"type": "json_object"},
+            )
+            
+            import json
+            raw_response = result.choices[0].message.content
+            parsed = json.loads(raw_response)
+            
+            # 응답이 {"results": [...]} 또는 [...] 형태일 수 있음
+            classifications = parsed if isinstance(parsed, list) else parsed.get('results', parsed.get('data', []))
+            
+            if not isinstance(classifications, list):
+                # dict의 첫 번째 list 값을 찾음
+                for v in parsed.values():
+                    if isinstance(v, list):
+                        classifications = v
+                        break
+            
+            # DB 업데이트
+            updated = 0
+            seq_map = {item.get('seq'): item.get('speaker', 'UNKNOWN') for item in classifications if isinstance(item, dict)}
+            
+            for log_id, seq in log_ids:
+                speaker = seq_map.get(seq, 'UNKNOWN')
+                if speaker not in ('INSTRUCTOR', 'STUDENT'):
+                    speaker = 'UNKNOWN'
+                STTLog.objects.filter(id=log_id).update(speaker=speaker)
+                updated += 1
+            
+            # 업데이트된 로그 반환
+            updated_logs = STTLog.objects.filter(session=session).order_by('sequence_order')
+            serializer = STTLogSerializer(updated_logs, many=True)
+            
+            return Response({
+                'status': 'classified',
+                'updated': updated,
+                'logs': serializer.data,
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            print(f"Speaker classification error: {e}")
+            return Response({'error': f'분류 실패: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['get'], url_path='stats')
     def get_stats(self, request):
@@ -706,7 +801,7 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
         
         return Response(notes, status=status.HTTP_200_OK)
 
-    def _call_openai_summary(self, text):
+    def _call_openai_summary(self, text, lecture_id=None):
         from openai import OpenAI
         from django.conf import settings
         
@@ -714,11 +809,25 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
         client = OpenAI(api_key=settings.OPENAI_API_KEY, timeout=180.0)
         
         try:
+            # [RAG] 공식 문서에서 관련 컨텍스트 검색
+            rag_context = ""
+            try:
+                from .rag import RAGService
+                rag = RAGService()
+                # STT 텍스트에서 핵심 키워드 추출 (앞 500자 사용)
+                search_query = text[:500]
+                related_docs = rag.search(query=search_query, top_k=3, lecture_id=lecture_id)
+                if related_docs:
+                    rag_context = "\n".join([f"- {doc.content[:300]}" for doc in related_docs])
+                    print(f"✅ [RAG] 요약 생성에 공식 문서 {len(related_docs)}건 참조")
+            except Exception as rag_err:
+                print(f"⚠️ [RAG] 검색 실패 (요약은 STT만으로 진행): {rag_err}")
+
             # System prompt defined as a variable to avoid indentation issues
             system_prompt = (
                 "너는 IT 부트캠프의 '수석 정리 노트 작성자'야.\n"
                 "학생들이 수업 내용을 나중에 다시 보고 완벽하게 복습할 수 있도록, \n"
-                "제공된 [STT 스크립트]를 바탕으로 **구조화된 학습 자료(Lecture Note)**를 만들어줘.\n\n"
+                "제공된 [STT 스크립트]와 [공식 문서 참조]를 바탕으로 **구조화된 학습 자료(Lecture Note)**를 만들어줘.\n\n"
                 "반드시 아래 **Markdown 포맷**을 따라 작성해줘.\n\n"
                 "# [강의 제목: 핵심 주제]\n\n"
                 "## 1. 3줄 요약\n"
@@ -735,14 +844,20 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                 "[🚨 중요 필터링 규칙]\n"
                 "1. **잡담 및 소음 제거**: 강의 내용과 무관한 농담, 잡담, 주변 소음, 혼잣말은 완벽하게 제외할 것.\n"
                 "2. **학생 질문 분리**: 강의자(Instructor)의 설명 위주로 요약하고, 청중(학생)의 단순 질문이나 웅성거림은 노트에 포함하지 말 것.\n"
-                "3. **문맥 파악**: '잠시만요', '들리시나요', '네네' 같은 무의미한 추임새는 전부 삭제하고, 핵심 정보만 남길 것."
+                "3. **문맥 파악**: '잠시만요', '들리시나요', '네네' 같은 무의미한 추임새는 전부 삭제하고, 핵심 정보만 남길 것.\n"
+                "4. **공식 문서 참조**: [공식 문서 참조]가 제공되면, 전문 용어의 정확한 정의와 올바른 코드 예시를 반영할 것."
             )
+
+            # 사용자 프롬프트 구성 (RAG 컨텍스트 포함)
+            user_content = f"다음 수업 내용을 학습 자료로 정리해줘:\n\n{text}"
+            if rag_context:
+                user_content += f"\n\n[공식 문서 참조 (정확한 정의 및 예시)]:\n{rag_context}"
 
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"다음 수업 내용을 학습 자료로 정리해줘:\n\n{text}"}
+                    {"role": "user", "content": user_content}
                 ],
                 max_tokens=1500
             )
