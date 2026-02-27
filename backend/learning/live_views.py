@@ -22,9 +22,14 @@ from .models import (
 import openai
 import os
 import json
+import base64
+import logging
 import threading
+import numpy as np
 from datetime import timedelta
 openai.api_key = os.getenv('OPENAI_API_KEY')
+
+logger = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════
@@ -325,11 +330,13 @@ class LiveSessionViewSet(viewsets.ViewSet):
 
     # ── Step B: STT 수신 + 키워드 스팟팅 ──
 
-    # 퀴즈 의도가 명확한 키워드만 (오발동 방지)
-    # "이해되셨나요", "질문 있나요" 등 수업 중 상시 사용되는 표현은 제외
+    # 퀴즈 의도가 명확한 2어절 이상 키워드만 (STT 오인식 방지)
+    # "퀴즈", "테스트" 등 단일 단어는 STT가 오인식하므로 제외
     TRIGGER_KEYWORDS = [
-        '퀴즈', '문제를 내', '문제 내', '문제를 풀', '문제 풀',
-        '확인 문제', '점검해', '체크해 보', '테스트',
+        '퀴즈 내', '퀴즈 시작', '퀴즈 풀', '퀴즈 한번', '퀴즈를 내', '퀴즈를 풀',
+        '문제를 내', '문제 내볼', '문제를 풀', '문제 풀어',
+        '확인 문제', '점검해 보', '체크해 보',
+        '이해했는지', '이해도 확인',
     ]
 
     @action(detail=True, methods=['post'], url_path='stt')
@@ -380,6 +387,92 @@ class LiveSessionViewSet(viewsets.ViewSet):
             'keyword_detected': keyword_detected,
             'quiz_suggestion_triggered': quiz_suggestion_triggered,
         })
+
+    # ── Step B-2: DS-CNN 오디오 키워드 스포팅 ──
+
+    @action(detail=True, methods=['post'], url_path='audio-kws')
+    def audio_keyword_spotting(self, request, pk=None):
+        """
+        POST /api/learning/live/{id}/audio-kws/
+        교수자 브라우저 Web Audio API → 오디오 청크 수신 → DS-CNN 추론
+        기존 STT 텍스트 매칭과 병렬로 동작하는 듀얼 파이프라인
+        """
+        session = get_object_or_404(LiveSession, id=pk, instructor=request.user, status='LIVE')
+
+        audio_b64 = request.data.get('audio')
+        if not audio_b64:
+            return Response({'error': 'audio(base64)는 필수입니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Base64 → float32 배열 (16kHz, 1초)
+            audio_bytes = base64.b64decode(audio_b64)
+            audio_float32 = np.frombuffer(audio_bytes, dtype=np.float32)
+
+            # DS-CNN 추론
+            from .kws_engine import KWSEngine
+            engine = KWSEngine.get_instance()
+            result = engine.predict(audio_float32, session_id=session.id)
+
+        except Exception as e:
+            logger.error(f"KWS 추론 오류: {e}")
+            return Response({
+                'label': '_error_',
+                'confidence': 0.0,
+                'detected': False,
+                'error': str(e),
+            })
+
+        # 키워드 감지 시 퀴즈 제안 트리거 (기존 STT와 동일한 스팸 방지 로직 공유)
+        quiz_suggestion_triggered = False
+        if result['detected']:
+            recent_suggestion = session.quizzes.filter(
+                is_suggestion=True,
+                triggered_at__gte=timezone.now() - timedelta(minutes=5)
+            ).exists()
+            if not recent_suggestion:
+                thread = threading.Thread(
+                    target=_generate_quiz_suggestion, args=(session.id,)
+                )
+                thread.daemon = True
+                thread.start()
+                quiz_suggestion_triggered = True
+                logger.info(
+                    f"🎙️ DS-CNN 키워드 감지: session={session.id}, "
+                    f"label={result['label']}, confidence={result['confidence']:.2f}"
+                )
+
+        return Response({
+            'label': result['label'],
+            'confidence': result['confidence'],
+            'detected': result['detected'],
+            'quiz_suggestion_triggered': quiz_suggestion_triggered,
+        })
+
+    # ── Step B-3: 라즈베리파이 연결 관리 ──
+
+    @action(detail=False, methods=['get', 'post'], url_path='rpi-status')
+    def rpi_status(self, request):
+        """
+        GET  /api/learning/live/rpi-status/  → 연결 상태 조회
+        POST /api/learning/live/rpi-status/  → IP 변경 + 재연결
+             body: { "host": "172.16.206.43", "port": 9999 }
+        """
+        from .kws_engine import KWSEngine
+        engine = KWSEngine.get_instance()
+
+        if request.method == 'POST':
+            host = request.data.get('host')
+            port = request.data.get('port')
+            if not host:
+                return Response({'error': 'host는 필수입니다.'}, status=status.HTTP_400_BAD_REQUEST)
+            result = engine.reconnect_rpi(
+                host=host,
+                port=int(port) if port else None
+            )
+            logger.info(f"🔄 라즈베리파이 재연결: {host}:{port} → {'성공' if result['rpi_connected'] else '실패'}")
+            return Response(result)
+
+        return Response(engine.get_status())
 
     @action(detail=True, methods=['get'], url_path='stt-feed')
     def stt_feed(self, request, pk=None):
@@ -448,6 +541,18 @@ class LiveSessionViewSet(viewsets.ViewSet):
             'time_limit': quiz.time_limit,
             'triggered_at': quiz.triggered_at,
         })
+
+    @action(detail=True, methods=['post'], url_path=r'quiz/(?P<quiz_id>\d+)/dismiss')
+    def dismiss_quiz(self, request, pk=None, quiz_id=None):
+        """
+        POST /api/learning/live/{id}/quiz/{qid}/dismiss/
+        교수자가 AI 제안 퀴즈를 무시 → DB에서 삭제
+        """
+        session = get_object_or_404(LiveSession, id=pk, instructor=request.user)
+        deleted, _ = LiveQuiz.objects.filter(
+            id=quiz_id, live_session=session, is_suggestion=True
+        ).delete()
+        return Response({'dismissed': deleted > 0})
 
     # ── Step 3: 체크포인트 퀴즈 ──
 

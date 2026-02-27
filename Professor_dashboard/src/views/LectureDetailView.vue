@@ -290,6 +290,25 @@ const createLiveSession = async () => {
 
 const startLiveSession = async () => {
     if (!liveSession.value) return;
+
+    // 수업 시작 전 라즈베리파이 연결 시도 (입력된 IP가 있으면)
+    if (rpiHost.value.trim()) {
+        rpiConnecting.value = true;
+        try {
+            const { data: rpiData } = await api.post('/learning/live/rpi-status/', {
+                host: rpiHost.value.trim(),
+                port: parseInt(rpiPort.value) || 9999,
+            });
+            rpiConnected.value = rpiData.rpi_connected;
+            if (rpiData.rpi_connected) {
+                showToast(`🟢 라즈베리파이 연결 성공 (${rpiHost.value})`, 'success');
+            } else {
+                showToast('🔴 라즈베리파이 미연결 — 로컬 모드로 수업 시작', 'warning');
+            }
+        } catch (e) { /* 연결 실패해도 수업은 시작 */ }
+        rpiConnecting.value = false;
+    }
+
     try {
         const { data } = await api.post(`/learning/live/${liveSession.value.id}/start/`);
         liveSession.value = { ...liveSession.value, ...data };
@@ -649,6 +668,7 @@ const applyRedistribution = async () => {
 
 const startLivePolling = () => {
     stopLivePolling();
+    fetchRpiStatus();  // 라즈베리파이 연결 상태 초기 조회
     livePollingTimer.value = setInterval(async () => {
         if (!liveSession.value) return;
         try {
@@ -674,6 +694,134 @@ const startLivePolling = () => {
 
 const stopLivePolling = () => {
     if (livePollingTimer.value) { clearInterval(livePollingTimer.value); livePollingTimer.value = null; }
+};
+
+// ── DS-CNN 오디오 키워드 스포팅 (듀얼 파이프라인 — 경비원 2호) ──
+let kwsAudioContext = null;
+let kwsMediaStream = null;
+let kwsProcessor = null;
+let kwsAudioBuffer = new Float32Array(16000);  // 1초 분량 (16kHz)
+let kwsBufferOffset = 0;
+const kwsDetectionLog = ref('');  // UI 표시용
+
+const startKWSCapture = async () => {
+    try {
+        // 마이크 스트림 획득 (16kHz 모노)
+        kwsMediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true }
+        });
+        kwsAudioContext = new AudioContext({ sampleRate: 16000 });
+        const source = kwsAudioContext.createMediaStreamSource(kwsMediaStream);
+
+        // ScriptProcessorNode: 4096 samples 단위로 수집
+        kwsProcessor = kwsAudioContext.createScriptProcessor(4096, 1, 1);
+        kwsBufferOffset = 0;
+        kwsAudioBuffer = new Float32Array(16000);
+
+        kwsProcessor.onaudioprocess = (e) => {
+            const inputData = e.inputBuffer.getChannelData(0);
+            const remaining = 16000 - kwsBufferOffset;
+
+            if (inputData.length <= remaining) {
+                kwsAudioBuffer.set(inputData, kwsBufferOffset);
+                kwsBufferOffset += inputData.length;
+            } else {
+                // 버퍼 채우고 나머지는 다음 버퍼로
+                kwsAudioBuffer.set(inputData.subarray(0, remaining), kwsBufferOffset);
+                kwsBufferOffset = 16000;
+            }
+
+            // 1초 분량이 모이면 서버로 전송
+            if (kwsBufferOffset >= 16000) {
+                sendAudioKWS(kwsAudioBuffer);
+                kwsAudioBuffer = new Float32Array(16000);
+                kwsBufferOffset = 0;
+            }
+        };
+
+        source.connect(kwsProcessor);
+        kwsProcessor.connect(kwsAudioContext.destination);
+        console.log('🎤 DS-CNN KWS 오디오 캡처 시작');
+    } catch (e) {
+        console.error('KWS 오디오 캡처 실패:', e);
+    }
+};
+
+const sendAudioKWS = async (audioFloat32) => {
+    if (!liveSession.value) return;
+    try {
+        // Float32 → Base64
+        const bytes = new Uint8Array(audioFloat32.buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        const base64 = btoa(binary);
+
+        const { data } = await api.post(
+            `/learning/live/${liveSession.value.id}/audio-kws/`,
+            { audio: base64 }
+        );
+
+        if (data.detected) {
+            const label = data.label === 'quiz' ? '퀴즈' : '이해도 확인';
+            const src = data.source === 'rpi' ? '🟢RPI' : '💻LOCAL';
+            kwsDetectionLog.value = `🎙️ ${label} 감지! (${(data.confidence * 100).toFixed(0)}%) [${src}]`;
+            console.log(`🔥 DS-CNN 감지: ${data.label} (${(data.confidence * 100).toFixed(1)}%) [소스: ${data.source}]`);
+            // 5초 후 자동 제거
+            setTimeout(() => { kwsDetectionLog.value = ''; }, 5000);
+        } else {
+            console.debug(`📡 KWS: ${data.label} ${(data.confidence*100).toFixed(0)}% [${data.source||'?'}]`);
+        }
+    } catch (e) {
+        // 네트워크 오류 등은 무시 (STT가 메인이므로)
+        console.debug('KWS 전송 실패:', e.message);
+    }
+};
+
+const stopKWSCapture = () => {
+    if (kwsProcessor) { kwsProcessor.disconnect(); kwsProcessor = null; }
+    if (kwsAudioContext) { kwsAudioContext.close(); kwsAudioContext = null; }
+    if (kwsMediaStream) { kwsMediaStream.getTracks().forEach(t => t.stop()); kwsMediaStream = null; }
+    kwsDetectionLog.value = '';
+    console.log('🛑 DS-CNN KWS 오디오 캡처 종료');
+};
+
+// ── 모드 전환: STT+DS-CNN vs DS-CNN만 ──
+const kwsOnly = ref(false);  // true = DS-CNN만(라즈베리파이), false = STT+DS-CNN 듀얼
+
+// ── 🔌 라즈베리파이 연결 관리 ──
+const rpiHost = ref('172.16.206.43');
+const rpiPort = ref('9999');
+const rpiConnected = ref(false);
+const rpiConnecting = ref(false);
+
+const fetchRpiStatus = async () => {
+    try {
+        const { data } = await api.get('/learning/live/rpi-status/');
+        rpiConnected.value = data.rpi_connected;
+        rpiHost.value = data.rpi_host || rpiHost.value;
+        rpiPort.value = String(data.rpi_port || rpiPort.value);
+    } catch (e) { /* silent */ }
+};
+
+const connectRpi = async () => {
+    if (!rpiHost.value.trim()) { showToast('IP를 입력해주세요.', 'warning'); return; }
+    rpiConnecting.value = true;
+    try {
+        const { data } = await api.post('/learning/live/rpi-status/', {
+            host: rpiHost.value.trim(),
+            port: parseInt(rpiPort.value) || 9999,
+        });
+        rpiConnected.value = data.rpi_connected;
+        showToast(
+            data.rpi_connected
+                ? `🟢 라즈베리파이 연결 성공 (${rpiHost.value})`
+                : `🔴 연결 실패 — 로컬 모드로 동작`,
+            data.rpi_connected ? 'success' : 'warning'
+        );
+    } catch (e) {
+        showToast('연결 요청 실패: ' + (e.response?.data?.error || e.message), 'error');
+    }
+    rpiConnecting.value = false;
 };
 
 // ── STT (Web Speech API) ──
@@ -774,16 +922,29 @@ const startSTT = () => {
     recognition.start();
     sttRecognition.value = recognition;
     sttActive.value = true;
+
+    // DS-CNN 듀얼 파이프라인: STT와 동시에 오디오 캡처 시작
+    startKWSCapture();
+};
+
+// DS-CNN만 시작 (STT 없이 오디오 캡처만)
+const startKWSOnly = () => {
+    kwsOnly.value = true;
+    sttActive.value = true;  // UI 상태 활성화
+    sttLastText.value = '🤖 DS-CNN 전용 모드 (라즈베리파이)';
+    startKWSCapture();
 };
 
 const stopSTT = () => {
     if (sttRecognition.value) {
-        sttActive.value = false;
-        // 남은 interim 즉시 전송
         flushPendingSTT();
         sttRecognition.value.stop();
         sttRecognition.value = null;
     }
+    sttActive.value = false;
+    kwsOnly.value = false;
+    // DS-CNN 듀얼 파이프라인: 오디오 캡처도 함께 종료
+    stopKWSCapture();
 };
 
 // ── 퀴즈 제안 (AI 자동 생성 → 교수자 승인) ──
@@ -809,7 +970,12 @@ const approveQuizSuggestion = async () => {
     } catch (e) { showToast('퀴즈 발동 실패: ' + (e.response?.data?.error || '', 'error')); }
 };
 
-const dismissQuizSuggestion = () => {
+const dismissQuizSuggestion = async () => {
+    if (quizSuggestion.value && liveSession.value) {
+        try {
+            await api.post(`/learning/live/${liveSession.value.id}/quiz/${quizSuggestion.value.id}/dismiss/`);
+        } catch {}
+    }
     quizSuggestion.value = null;
 };
 
@@ -1665,6 +1831,24 @@ onMounted(fetchDashboard);
                     </div>
                 </div>
 
+                <!-- 🔌 수업 시작 전 라즈베리파이 설정 -->
+                <div v-if="liveSession.status === 'WAITING'" class="rpi-panel rpi-setup">
+                    <div class="rpi-header">
+                        <span>🔌 DS-CNN 라즈베리파이 연결 (선택)</span>
+                        <span :class="['rpi-dot', rpiConnected ? 'connected' : 'disconnected']">
+                            {{ rpiConnected ? '🟢 연결됨' : '⚪ 미설정' }}
+                        </span>
+                    </div>
+                    <p class="rpi-desc">라즈베리파이 IP를 입력하면 수업 시작 시 자동 연결됩니다. 비워두면 로컬 모드로 동작합니다.</p>
+                    <div class="rpi-controls">
+                        <input v-model="rpiHost" placeholder="IP (예: 172.16.206.43)" class="rpi-input" />
+                        <input v-model="rpiPort" placeholder="포트" class="rpi-input rpi-port" />
+                        <button class="rpi-btn rpi-btn-test" @click="connectRpi" :disabled="rpiConnecting">
+                            {{ rpiConnecting ? '테스트 중...' : '연결 테스트' }}
+                        </button>
+                    </div>
+                </div>
+
                 <!-- 컨트롤 버튼 -->
                 <div class="live-controls">
                     <button v-if="liveSession.status === 'WAITING'" class="btn-live-start" @click="startLiveSession">
@@ -1674,17 +1858,36 @@ onMounted(fetchDashboard);
                         ⏹️ 세션 종료
                     </button>
                     <button v-if="liveSession.status === 'LIVE' && !sttActive" class="btn-stt-start" @click="startSTT">
-                        🎙️ 음성 인식 시작
+                        🎙️ STT + DS-CNN 시작
+                    </button>
+                    <button v-if="liveSession.status === 'LIVE' && !sttActive" class="btn-kws-only" @click="startKWSOnly">
+                        🤖 DS-CNN만 시작
                     </button>
                     <button v-if="liveSession.status === 'LIVE' && sttActive" class="btn-stt-stop" @click="stopSTT">
-                        🔴 음성 인식 중...
+                        🔴 {{ kwsOnly ? 'DS-CNN 중...' : '음성 인식 중...' }}
                     </button>
                 </div>
 
-                <!-- STT 최근 인식 텍스트 -->
-                <div v-if="sttActive && sttLastText" class="stt-preview">
-                    <span class="stt-label">🎙️ 마지막 인식:</span>
+                <!-- 현재 모드 표시 -->
+                <div v-if="sttActive" class="stt-preview" :class="{ 'kws-only-mode': kwsOnly }">
+                    <span class="stt-label">{{ kwsOnly ? '🤖 DS-CNN 전용:' : '🎙️ 마지막 인식:' }}</span>
                     <span class="stt-text">{{ sttLastText }}</span>
+                </div>
+
+                <!-- DS-CNN 키워드 감지 상태 -->
+                <div v-if="sttActive && kwsDetectionLog" class="kws-detection-bar">
+                    {{ kwsDetectionLog }}
+                </div>
+
+                <!-- 🔌 수업 중 라즈베리파이 상태 (연결됨일 때 간략 표시) -->
+                <div v-if="liveSession && liveSession.status === 'LIVE'" class="rpi-status-mini">
+                    <span>🔌 DS-CNN:</span>
+                    <span :class="rpiConnected ? 'rpi-on' : 'rpi-off'">
+                        {{ rpiConnected ? `🟢 ${rpiHost} 연결됨` : '로컬 모드' }}
+                    </span>
+                    <button v-if="!rpiConnected" class="rpi-btn-mini" @click="connectRpi">
+                        재연결
+                    </button>
                 </div>
 
                 <!-- AI 퀴즈 제안 스마트 팝업 -->
@@ -2587,6 +2790,12 @@ tr:hover td { background: #fafbfc; }
     border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
 }
 .btn-stt-start:hover { background: #4f46e5; }
+.btn-kws-only {
+    padding: 14px; background: #059669; color: white; border: none;
+    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.btn-kws-only:hover { background: #047857; }
+.kws-only-mode { background: #ecfdf5 !important; border: 1px solid #6ee7b7; }
 .btn-stt-stop {
     padding: 14px; background: #dc2626; color: white; border: none;
     border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
@@ -2599,6 +2808,59 @@ tr:hover td { background: #fafbfc; }
 }
 .stt-label { font-weight: 600; margin-right: 6px; }
 .stt-text { color: #333; }
+
+/* KWS 감지 바 */
+.kws-detection-bar {
+    padding: 10px 14px; background: linear-gradient(135deg, #fef3c7, #fde68a);
+    border-radius: 8px; margin-bottom: 12px;
+    font-size: 13px; font-weight: 600; color: #92400e;
+    animation: pulse-warn 2s infinite;
+}
+
+/* 라즈베리파이 패널 */
+.rpi-panel {
+    padding: 12px 16px; background: #f8fafc; border: 1px solid #e2e8f0;
+    border-radius: 10px; margin-bottom: 16px;
+}
+.rpi-header {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;
+}
+.rpi-dot.connected { color: #16a34a; font-size: 12px; }
+.rpi-dot.disconnected { color: #dc2626; font-size: 12px; }
+.rpi-controls { display: flex; gap: 8px; align-items: center; }
+.rpi-input {
+    flex: 1; padding: 8px 10px; border: 1px solid #cbd5e1;
+    border-radius: 6px; font-size: 13px; outline: none;
+}
+.rpi-input:focus { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,.15); }
+.rpi-input.rpi-port { max-width: 70px; }
+.rpi-btn {
+    padding: 8px 16px; background: #6366f1; color: white; border: none;
+    border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+    white-space: nowrap;
+}
+.rpi-btn:hover { background: #4f46e5; }
+.rpi-btn:disabled { background: #94a3b8; cursor: wait; }
+
+/* 수업 전 RPI 설정 */
+.rpi-setup { background: #f0fdf4; border-color: #bbf7d0; }
+.rpi-desc { font-size: 12px; color: #6b7280; margin: 0 0 10px 0; line-height: 1.5; }
+.rpi-btn-test { background: #059669; }
+.rpi-btn-test:hover { background: #047857; }
+
+/* 수업 중 미니 상태 */
+.rpi-status-mini {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; background: #f8fafc; border-radius: 8px;
+    margin-bottom: 12px; font-size: 12px; color: #64748b;
+}
+.rpi-on { color: #16a34a; font-weight: 600; }
+.rpi-off { color: #94a3b8; }
+.rpi-btn-mini {
+    padding: 4px 10px; background: #6366f1; color: white; border: none;
+    border-radius: 4px; font-size: 11px; cursor: pointer;
+}
 
 /* 퀴즈 제안 스마트 팝업 */
 .quiz-suggestion-popup {
