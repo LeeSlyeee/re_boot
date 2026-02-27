@@ -815,7 +815,7 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                 from .rag import RAGService
                 rag = RAGService()
                 # STT 텍스트에서 핵심 키워드 추출 (앞 500자 사용)
-                search_query = text[:500]
+                search_query = text[:300]
                 related_docs = rag.search(query=search_query, top_k=3, lecture_id=lecture_id)
                 if related_docs:
                     rag_context = "\n".join([f"- {doc.content[:300]}" for doc in related_docs])
@@ -859,7 +859,7 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_content}
                 ],
-                max_tokens=1500
+                max_tokens=2500
             )
             return response.choices[0].message.content
         except Exception as e:

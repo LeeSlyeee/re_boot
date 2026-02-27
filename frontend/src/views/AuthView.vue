@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import api from '../api/axios';
 import { useToast } from '../composables/useToast';
 const { showToast } = useToast();
@@ -8,6 +8,7 @@ const { showToast } = useToast();
 import { useAuthStore } from '../stores/auth';
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 const isLoginMode = ref(true);
 
@@ -29,7 +30,10 @@ const handleLogin = async () => {
         authStore.login(data.access, { username: form.value.username });
         
         showToast(`환영합니다, ${form.value.username}님!`, 'success');
-        router.push('/learning');
+        
+        // redirect 쿼리 파라미터가 있으면 해당 경로로, 없으면 /learning
+        const redirectTo = route.query.redirect || '/learning';
+        router.push(redirectTo);
         
     } catch (e) {
         console.error(e);

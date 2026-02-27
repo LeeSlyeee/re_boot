@@ -6,7 +6,7 @@ import { MessageSquare, Send, Trash2, Plus, BookOpen, ArrowLeft, Sparkles, Link2
 import api from '../api/axios';
 import { useToast } from '../composables/useToast';
 const { showToast } = useToast();
-import { getChatSessions, createChatSession, getChatSession, deleteChatSession, askAITutor } from '../api/learning';
+import { getChatSessions, createChatSession, getChatSession, deleteChatSession, askAITutor, askAITutorStream } from '../api/learning';
 
 const router = useRouter();
 const route = useRoute();
@@ -18,6 +18,8 @@ const messages = ref([]);
 const newMessage = ref('');
 const isLoading = ref(false);
 const isSending = ref(false);
+const isStreaming = ref(false);
+const streamingContent = ref('');
 const chatContainer = ref(null);
 const myLectures = ref([]);
 const selectedLectureId = ref(null);
@@ -152,14 +154,40 @@ const sendMessage = async () => {
     scrollToBottom();
 
     try {
-        const data = await askAITutor(activeSession.value.id, text);
-        // Add AI response
-        messages.value.push({
-            id: data.id || Date.now() + 1,
+        // 스트리밍 AI 답변 메시지 초기화 (빈 메시지로 추가하고 토큰이 올 때마다 업데이트)
+        const aiMsgIndex = messages.value.length;
+        const aiMsg = {
+            id: Date.now() + 1,
             sender: 'AI',
-            message: data.answer || data.message,
-            sources: data.sources || [],
+            message: '',
+            sources: [],
             created_at: new Date().toISOString(),
+            isStreaming: true,
+        };
+        messages.value.push(aiMsg);
+        isStreaming.value = true;
+
+        askAITutorStream(activeSession.value.id, text, {
+            onToken: (token) => {
+                messages.value[aiMsgIndex].message += token;
+                nextTick(() => scrollToBottom());
+            },
+            onSources: (sources) => {
+                messages.value[aiMsgIndex].sources = sources || [];
+            },
+            onDone: (messageId) => {
+                messages.value[aiMsgIndex].id = messageId;
+                messages.value[aiMsgIndex].isStreaming = false;
+                isStreaming.value = false;
+                isSending.value = false;
+                nextTick(() => scrollToBottom());
+            },
+            onError: (errMsg) => {
+                messages.value[aiMsgIndex].message = errMsg || '⚠️ 응답 생성에 실패했습니다.';
+                messages.value[aiMsgIndex].isStreaming = false;
+                isStreaming.value = false;
+                isSending.value = false;
+            },
         });
     } catch (e) {
         messages.value.push({
@@ -169,8 +197,8 @@ const sendMessage = async () => {
             sources: [],
             created_at: new Date().toISOString(),
         });
+        isSending.value = false;
     }
-    isSending.value = false;
     await nextTick();
     scrollToBottom();
 };
@@ -329,8 +357,8 @@ onMounted(async () => {
                         </div>
                     </div>
 
-                    <!-- Typing indicator -->
-                    <div v-if="isSending" class="message ai-msg">
+                    <!-- Typing indicator (스트리밍 전 대기 상태에서만 표시) -->
+                    <div v-if="isSending && !isStreaming" class="message ai-msg">
                         <div class="msg-avatar">🤖</div>
                         <div class="msg-content">
                             <div class="msg-bubble ai typing">

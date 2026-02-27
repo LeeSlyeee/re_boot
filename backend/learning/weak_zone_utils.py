@@ -147,7 +147,7 @@ def _generate_ai_supplement(alert):
                 {'role': 'user', 'content': user_content},
             ],
             max_tokens=300,
-            temperature=0.7,
+            temperature=0.5,
         )
 
         alert.ai_suggested_content = response.choices[0].message.content.strip()

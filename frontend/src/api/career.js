@@ -1,7 +1,9 @@
 import api from './axios';
 
-export const generatePortfolio = async (type) => {
-    const response = await api.post('/career/portfolios/generate/', { type });
+export const generatePortfolio = async (type, category = null) => {
+    const payload = { type };
+    if (category) payload.category = category;
+    const response = await api.post('/career/portfolios/generate/', payload);
     return response.data;
 };
 

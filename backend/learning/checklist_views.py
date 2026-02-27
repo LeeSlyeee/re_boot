@@ -152,7 +152,7 @@ class ChecklistViewSet(viewsets.ViewSet):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"다음은 학생이 아직 학습하지 못한 목표들입니다. 이를 위한 복구 플랜을 짜주세요:\n\n{objective_texts}"}
                 ],
-                max_tokens=1000
+                max_tokens=1500
             )
             recovery_content = response.choices[0].message.content
 

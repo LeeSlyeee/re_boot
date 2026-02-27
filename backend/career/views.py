@@ -28,9 +28,11 @@ class PortfolioViewSet(viewsets.ModelViewSet):
     def generate(self, request):
         """
         AI를 이용해 포트폴리오/MVP기획을 자동 생성
+        category 파라미터로 분야 필터링 가능 (예: 'PYTHON', 'JAVASCRIPT' 등)
         """
         user = request.user
         p_type = request.data.get('type', 'JOB') # JOB or STARTUP
+        category = request.data.get('category')  # None이면 전체, 있으면 해당 분야만
         
         # 1. 학습 데이터 수집
         summaries = SessionSummary.objects.filter(session__student=user)
@@ -45,21 +47,36 @@ class PortfolioViewSet(viewsets.ModelViewSet):
         if quizzes.exists():
             avg_score = sum([q.total_score for q in quizzes]) / quizzes.count()
             
-        # 2.5 획득한 스킬 (Checklist)
-        from learning.models import StudentChecklist
-        skills_qs = StudentChecklist.objects.filter(
-            student=user, is_checked=True
-        ).select_related('objective', 'objective__syllabus__lecture')
+        # 2.5 획득한 스킬 (SkillBlock 기반)
+        from learning.models.placement import SkillBlock
+        skill_blocks_qs = SkillBlock.objects.filter(
+            student=user, is_earned=True
+        ).select_related('skill', 'lecture')
         
-        skill_texts = [f"- {s.objective.content} ({s.objective.syllabus.lecture.title})" for s in skills_qs]
+        # 분야 필터 적용
+        if category:
+            skill_blocks_qs = skill_blocks_qs.filter(skill__category=category)
+        
+        skill_texts = [
+            f"- {sb.skill.name} (Lv{sb.level}, {sb.total_score:.0f}점) — {sb.lecture.title}"
+            for sb in skill_blocks_qs
+        ]
         skills_block = "\n".join(skill_texts) if skill_texts else "아직 획득한 스킬 블록이 없습니다."
+        
+        # 분야명 결정
+        category_display = ""
+        if category:
+            from learning.models.placement import Skill
+            category_display = dict(Skill.CATEGORY_CHOICES).get(category, category)
             
         # 3. 프롬프트 구성
+        field_context = f"\n[전문 분야: {category_display}]\n" if category_display else ""
+        
         if p_type == 'JOB':
             system_prompt = "당신은 IT 전문 커리어 컨설턴트입니다. 학생의 학습 기록과 획득한 스킬을 바탕으로 구직용 포트폴리오를 작성해주세요."
             user_prompt = f"""
             학생의 다음 학습 요약, 획득한 기술 스택(Skills), 성취도를 바탕으로 Markdown 형식의 포트폴리오를 작성해주세요.
-            
+            {field_context}
             [획득한 기술 스택 (Verified Skills)]
             {skills_block}
 
@@ -73,13 +90,15 @@ class PortfolioViewSet(viewsets.ModelViewSet):
             - 전문적인 어조 사용
             - '핵심 역량(Key Skills)' 섹션에 위 기술 스택을 잘 녹여낼 것
             - '학습 프로젝트 경험' 및 '자기소개서' 포함
+            {f"- {category_display} 전문가로서의 포트폴리오로 작성할 것" if category_display else ""}
             """
-            default_title = f"IT 개발자 취업 포트폴리오 ({timezone.now().strftime('%Y-%m-%d')})"
+            title_prefix = f"{category_display} " if category_display else "IT 개발자 "
+            default_title = f"{title_prefix}취업 포트폴리오 ({timezone.now().strftime('%Y-%m-%d')})"
         else:
             system_prompt = "당신은 스타트업 액셀러레이터의 멘토입니다. 학생이 배운 기술을 활용하여 구현 가능한 MVP 기술 명세서를 작성해주세요."
             user_prompt = f"""
             학생이 보유한 다음 기술 스택과 학습 기록을 바탕으로, 실제 창업 시 구현 가능한 MVP(Minimum Viable Product) 기술 기획서를 작성해주세요.
-            
+            {field_context}
             [보유 기술 스택]
             {skills_block}
             
@@ -92,7 +111,8 @@ class PortfolioViewSet(viewsets.ModelViewSet):
             - 핵심 기능 명세
             - 4주 개발 로드맵
             """
-            default_title = f"스타트업 MVP 기술 기획서 ({timezone.now().strftime('%Y-%m-%d')})"
+            title_prefix = f"{category_display} " if category_display else "스타트업 "
+            default_title = f"{title_prefix}MVP 기술 기획서 ({timezone.now().strftime('%Y-%m-%d')})"
 
         # 4. AI 호출
         try:
@@ -127,72 +147,76 @@ class PortfolioViewSet(viewsets.ModelViewSet):
     def skills(self, request):
         """
         [Skill Block Gamification]
-        획득한 스킬 + 추가 획득 가능한 스킬 + 전체 진행률을 반환.
-        학생이 "다음에 뭘 해야 하는지" 동기부여를 제공.
+        SkillBlock 기반 — 획득/미획득 스킬 + 카테고리별 진행률
         """
-        from learning.models import StudentChecklist, LearningObjective, Syllabus, Lecture
+        from learning.models.placement import SkillBlock, StudentSkill, Skill
 
         user = request.user
 
-        # 수강 중인 강의 조회
-        enrolled_lectures = Lecture.objects.filter(students=user)
-        if not enrolled_lectures.exists():
+        # 사용자의 모든 StudentSkill (갭 맵 기반)
+        student_skills = StudentSkill.objects.filter(
+            student=user
+        ).select_related('skill').order_by('skill__category', 'skill__order')
+
+        if not student_skills.exists():
             return Response({"stats": {"total": 0, "earned": 0, "rate": 0}, "categories": []})
 
-        # 전체 학습 목표 (수강 중인 강의의 모든 목표)
-        all_objectives = LearningObjective.objects.filter(
-            syllabus__lecture__in=enrolled_lectures
-        ).select_related('syllabus', 'syllabus__lecture').order_by(
-            'syllabus__lecture__title', 'syllabus__week_number', 'id'
+        # 스킬블록 획득 여부 확인을 위한 매핑
+        earned_block_ids = set(
+            SkillBlock.objects.filter(
+                student=user, is_earned=True
+            ).values_list('skill_id', flat=True)
         )
-
-        # 획득한 목표 ID Set
-        earned_ids = set(
-            StudentChecklist.objects.filter(
-                student=user, is_checked=True
-            ).values_list('objective_id', flat=True)
+        
+        # StudentSkill OWNED도 획득으로 인정 (SkillBlock이 없는 기존 스킬 대응)
+        owned_skill_ids = set(
+            student_skills.filter(status='OWNED').values_list('skill_id', flat=True)
         )
+        # 둘 중 하나라도 해당하면 획득
+        all_earned_ids = earned_block_ids | owned_skill_ids
 
-        # 강의별 그룹핑
-        categories_map = {}  # {lecture_title: {"earned": [...], "available": [...]}}
+        # 카테고리별 그룹핑
+        categories_map = {}  # {category_display: {"earned": [...], "available": [...]}}
 
-        for obj in all_objectives:
-            lecture_title = obj.syllabus.lecture.title
-            week_num = obj.syllabus.week_number
-            is_earned = obj.id in earned_ids
+        for ss in student_skills:
+            cat_display = ss.skill.get_category_display()
+            is_earned = ss.skill.id in all_earned_ids
 
-            if lecture_title not in categories_map:
-                categories_map[lecture_title] = {"earned": [], "available": []}
+            if cat_display not in categories_map:
+                categories_map[cat_display] = {"earned": [], "available": []}
 
+            # SkillBlock에서 점수 조회 (있으면)
+            block = SkillBlock.objects.filter(
+                student=user, skill=ss.skill
+            ).first()
+            
             item = {
-                "id": obj.id,
-                "name": obj.content,
-                "week": f"{week_num}주차",
-                "source": f"{week_num}주차 수업",
+                "id": ss.skill.id,
+                "name": ss.skill.name,
+                "week": f"Lv{ss.skill.difficulty_level}",
+                "source": cat_display,
             }
 
             if is_earned:
-                # 획득한 날짜 조회
-                check = StudentChecklist.objects.filter(
-                    student=user, objective=obj, is_checked=True
-                ).first()
-                item["date"] = check.updated_at.strftime('%Y-%m-%d') if check else ""
-                categories_map[lecture_title]["earned"].append(item)
+                item["date"] = block.earned_at.strftime('%Y-%m-%d') if block and block.earned_at else ""
+                item["score"] = round(block.total_score) if block else 0
+                categories_map[cat_display]["earned"].append(item)
             else:
-                item["hint"] = f"{week_num}주차 학습 목표를 완료하면 획득!"
-                categories_map[lecture_title]["available"].append(item)
+                item["hint"] = f"Lv{ss.skill.difficulty_level} — 체크포인트와 형성평가를 통과하면 획득!"
+                item["progress"] = ss.progress
+                categories_map[cat_display]["available"].append(item)
 
-        # 결과 조립
-        total_count = all_objectives.count()
-        earned_count = len(earned_ids & set(all_objectives.values_list('id', flat=True)))
+        # 통계
+        total_count = student_skills.count()
+        earned_count = len(all_earned_ids & set(student_skills.values_list('skill_id', flat=True)))
         rate = round((earned_count / total_count) * 100) if total_count > 0 else 0
 
         categories = []
-        for lecture_title, groups in categories_map.items():
+        for cat_name, groups in categories_map.items():
             cat_total = len(groups["earned"]) + len(groups["available"])
             cat_earned = len(groups["earned"])
             categories.append({
-                "category": lecture_title,
+                "category": cat_name,
                 "earned": groups["earned"],
                 "available": groups["available"],
                 "total": cat_total,

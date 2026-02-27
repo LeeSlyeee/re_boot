@@ -101,41 +101,35 @@ class GenerateFormativeView(APIView):
             response = client.chat.completions.create(
                 model='gpt-4o-mini',
                 messages=[
-                    {'role': 'system', 'content': """당신은 교육 평가 전문가입니다.
-주어진 수업 노트를 기반으로 형성평가 문항을 5개 생성하세요.
-[공식 문서 참조]가 있으면, 전문 용어의 정확한 정의에 기반한 문항을 포함하세요.
-
-반드시 아래 JSON 형식으로만 응답하세요 (마크다운 코드블럭 없이 순수 JSON):
-[
-  {
-    "id": 1,
-    "question": "질문 내용",
-    "options": ["A) 보기1", "B) 보기2", "C) 보기3", "D) 보기4"],
-    "correct_answer": "A) 보기1",
-    "explanation": "정답 해설",
-    "related_note_section": "관련 노트 섹션 제목",
-    "concept_tag": "핵심 개념명"
-  }
-]
-
-규칙:
-1. 4지선다 객관식만
-2. correct_answer는 options 중 하나와 정확히 일치
-3. concept_tag는 2-4자 핵심 개념명 (예: 클로저, DOM, 비동기)
-4. 난이도: 이해력 확인 수준 (암기 X)"""},
+                    {'role': 'system', 'content': (
+                        '당신은 교육 평가 전문가입니다.\n'
+                        '주어진 수업 노트를 기반으로 형성평가 문항을 5개 생성하세요.\n'
+                        '[공식 문서 참조]가 있으면, 전문 용어의 정확한 정의에 기반한 문항을 포함하세요.\n\n'
+                        '반드시 아래 JSON 형식으로 응답하세요:\n'
+                        '{"questions": [{"id": 1, "question": "질문", "options": ["A) 보기1", "B) 보기2", "C) 보기3", "D) 보기4"], '
+                        '"correct_answer": "A) 보기1", "explanation": "해설", '
+                        '"related_note_section": "관련 섹션", "concept_tag": "개념명"}]}\n\n'
+                        '규칙:\n'
+                        '1. 4지선다 객관식만\n'
+                        '2. correct_answer는 options 중 하나와 정확히 일치\n'
+                        '3. concept_tag는 2-4자 핵심 개념명 (예: 클로저, DOM, 비동기)\n'
+                        '4. 난이도: 이해력 확인 수준 (암기 X)'
+                    )},
                     {'role': 'user', 'content': user_content}
                 ],
                 temperature=0.3,
                 max_tokens=2000,
+                response_format={'type': 'json_object'},
             )
 
             raw = response.choices[0].message.content.strip()
-            # JSON 파싱 (마크다운 코드블럭 제거)
-            if raw.startswith('```'):
-                raw = raw.split('```')[1]
-                if raw.startswith('json'):
-                    raw = raw[4:]
-            questions = json.loads(raw)
+            parsed = json.loads(raw)
+            questions = parsed.get('questions', parsed) if isinstance(parsed, dict) else parsed
+            if isinstance(questions, dict):
+                for v in parsed.values():
+                    if isinstance(v, list):
+                        questions = v
+                        break
 
             fa.questions = questions
             fa.total_questions = len(questions)

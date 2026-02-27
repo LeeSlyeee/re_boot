@@ -29,6 +29,64 @@ export const askAITutor = async (sessionId, message) => {
     return res.data;
 };
 
+/**
+ * SSE 스트리밍 AI 튜터 질문 — 실시간 토큰 전송
+ * @param {number} sessionId
+ * @param {string} message
+ * @param {Object} callbacks - { onToken, onSources, onDone, onError }
+ * @returns {AbortController} 스트리밍 취소용
+ */
+export const askAITutorStream = (sessionId, message, callbacks) => {
+    const controller = new AbortController();
+    const token = localStorage.getItem('token');
+    const baseURL = api.defaults.baseURL || '';
+
+    fetch(`${baseURL}/learning/chat/sessions/${sessionId}/ask-stream/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ message }),
+        signal: controller.signal,
+    }).then(async (response) => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const data = JSON.parse(line.slice(6));
+                    if (data.type === 'token' && callbacks.onToken) {
+                        callbacks.onToken(data.content);
+                    } else if (data.type === 'sources' && callbacks.onSources) {
+                        callbacks.onSources(data.sources);
+                    } else if (data.type === 'done' && callbacks.onDone) {
+                        callbacks.onDone(data.message_id);
+                    } else if (data.type === 'error' && callbacks.onError) {
+                        callbacks.onError(data.content);
+                    }
+                } catch (e) { /* 파싱 에러 무시 */ }
+            }
+        }
+    }).catch((err) => {
+        if (err.name !== 'AbortError' && callbacks.onError) {
+            callbacks.onError(err.message);
+        }
+    });
+
+    return controller;
+};
+
 // ═══ 커리큘럼 리라우팅 ═══
 export const getCurriculums = async () => {
     const res = await api.get('/learning/curriculum/');

@@ -59,31 +59,26 @@ class ContextManager:
         
         current_summary = session.context_summary or "없음"
         
-        prompt = f"""
-        너는 대화 기록 관리자야. 
-        아래 제공된 '이전 요약'과 '새로운 대화 내용'을 합쳐서, 
-        **최신 상태의 단일 압축 요약본(Context Summary)**을 갱신해줘.
-        
-        [규칙]
-        1. 핵심 주제, 결정된 사항, 사용자의 주요 질문을 위주로 요약할 것.
-        2. 불필요한 인사말이나 반복은 제거할 것.
-        3. 3~5문장 내외로 간결하게 작성할 것.
-        4. (필수) 화자가 여러 명일 경우, 식별 가능한 정보(학생 A, 강사 등)가 있다면 명시할 것.
-        
-        [이전 요약]:
-        {current_summary}
-        
-        [새로운 대화 내용]:
-        {full_text}
-        
-        [갱신된 요약]:
-        """
+        prompt = (
+            "아래 제공된 '[이전 요약]'과 '[새로운 대화 내용]'을 합쳐서, "
+            "**최신 상태의 단일 압축 요약본**을 갱신해줘.\n\n"
+            "[규칙]\n"
+            "1. 핵심 주제, 결정된 사항, 주요 질문 위주로 요약\n"
+            "2. 불필요한 인사말이나 반복 제거\n"
+            "3. 3~5문장 내외로 간결하게 작성\n"
+            "4. 화자 식별 가능 시 명시 (학생 A, 강사 등)\n\n"
+            f"[이전 요약]:\n{current_summary}\n\n"
+            f"[새로운 대화 내용]:\n{full_text}\n\n"
+            "[갱신된 요약]:"
+        )
         
         try:
             response = self.client.chat.completions.create(
                 model="gpt-4o",
-                messages=[{"role": "system", "content": "You are a helpful assistant for summarizing conversation context."},
-                          {"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": "당신은 대화 기록 관리 전문가입니다. 핵심 내용만 간결하게 압축하세요."},
+                    {"role": "user", "content": prompt}
+                ],
                 max_tokens=500
             )
             

@@ -206,7 +206,8 @@ class AssessmentViewSet(viewsets.ViewSet):
                         messages=[
                             {"role": "system", "content": "당신은 IT 교육 전문가입니다. 공식 문서 참조가 있으면 이를 근거로 친절하고 명확하게 오답을 풀이해주세요."},
                             {"role": "user", "content": review_prompt}
-                        ]
+                        ],
+                        max_tokens=2000,
                     )
                     attempt.review_note = response.choices[0].message.content
                     
@@ -252,48 +253,25 @@ class AssessmentViewSet(viewsets.ViewSet):
         except Exception as rag_err:
             print(f"⚠️ [RAG] 검색 실패 (퀴즈는 학습 텍스트만으로 진행): {rag_err}")
 
-        system_prompt = """
-        너는 '학습 내용 기반 퀴즈 생성 전문가'야.
-        제공된 [학습 텍스트]와 [공식 문서 참조]를 바탕으로 학습자가 내용을 잘 이해했는지 확인하는 퀴즈를 출제해.
-        
-        [원칙]
-        1. 텍스트에 명시된 내용(팩트)에 기반하여 문제를 낼 것.
-        2. '없는 내용'을 창조하지 말 것.
-        3. [공식 문서 참조]가 제공되면, 전문 용어의 정확한 정의에 기반한 문제를 포함할 것.
-        4. 만약 내용이 조금 부족하더라도, 텍스트에 등장하는 핵심 단어나 개념을 활용하여 어떻게든 5문제를 만들어.
-        5. 문제를 만들기 정 어렵다면, 같은 내용을 다르게 물어보는 방식으로라도 5문제를 채울 것.
-        6. [중요] 모든 질문, 보기, 정답, 해설은 반드시 '한국어(Korean)'로 작성해야 해. (영어 금지)
-        """
+        system_prompt = (
+            "너는 '학습 내용 기반 퀴즈 생성 전문가'야.\n"
+            "제공된 [학습 텍스트]와 [공식 문서 참조]를 바탕으로 학습자가 내용을 잘 이해했는지 확인하는 퀴즈를 출제해.\n\n"
+            "[원칙]\n"
+            "1. 텍스트에 명시된 내용(팩트)에 기반하여 문제를 낼 것.\n"
+            "2. '없는 내용'을 창조하지 말 것.\n"
+            "3. [공식 문서 참조]가 제공되면, 전문 용어의 정확한 정의에 기반한 문제를 포함할 것.\n"
+            "4. 내용이 부족하더라도 핵심 단어나 개념을 활용하여 5문제를 만들어.\n"
+            "5. [중요] 모든 질문, 보기, 정답, 해설은 반드시 '한국어(Korean)'로 작성해야 해. (영어 금지)\n\n"
+            "[출력 형식] 반드시 아래 JSON 구조로 응답하세요:\n"
+            '{"questions": [{"question": "...", "options": ["A","B","C","D"], "answer": "정답 보기 문자열", "explanation": "해설"}]}\n'
+            "- questions 배열에 정확히 5개의 문항을 포함할 것\n"
+            "- answer는 반드시 options 중 하나와 정확히 일치할 것"
+        )
 
-        user_prompt = f"""
-        다음 [학습 텍스트]를 읽고 객관식 퀴즈 5문제를 만들어줘.
-        
-        [제약 사항]
-        1. 문항 수: 5개 (필수)
-        2. 포맷: JSON 배열 (마크다운 없이)
-        3. 구조: question, options(4개), answer, explanation
-        4. 정답(answer)은 options 중 하나와 정확히 일치해야 함.
-        5. 언어: 무조건 한국어 (영어 질문/보기 금지)
-
-        [학습 텍스트]
-        {text}
-        """
+        user_prompt = f"[학습 텍스트]\n{text}"
         if rag_context:
-            user_prompt += f"""
-        [공식 문서 참조 (정확한 정의 및 예시 — 문제의 정확성 보장용)]
-        {rag_context}
-        """
-        user_prompt += """
-        [JSON 출력 예시]
-        [
-            {{
-                "question": "Vue.js의 핵심 기능은?",
-                "options": ["양방향 바인딩", "서버 렌더링", "데이터베이스", "운영체제"],
-                "answer": "양방향 바인딩",
-                "explanation": "본문에 따르면..."
-            }}
-        ]
-        """
+            user_prompt += f"\n\n[공식 문서 참조 (정확한 정의 및 예시)]\n{rag_context}"
+        user_prompt += "\n\n위 텍스트를 기반으로 객관식 퀴즈 5문제를 JSON으로 생성하세요."
         
         from django.conf import settings
         from openai import OpenAI
@@ -306,21 +284,23 @@ class AssessmentViewSet(viewsets.ViewSet):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            temperature=0.3, # 약간 창의성 허용 (0.2 -> 0.3)
+            temperature=0.3,
+            response_format={"type": "json_object"},
         )
         
         content = response.choices[0].message.content.strip()
         
-        # JSON 파싱 (마크다운 코드블럭 제거 처리)
-        if content.startswith("```json"):
-            content = content.replace("```json", "").split("```")[0]
-        elif content.startswith("```"):
-            content = content.replace("```", "").split("```")[0]
-            
         try:
-            quiz_list = json.loads(content)
+            parsed = json.loads(content)
+            # response_format 사용 시 {"questions": [...]} 구조
+            quiz_list = parsed.get('questions', parsed) if isinstance(parsed, dict) else parsed
+            if isinstance(quiz_list, dict):
+                # 첫 번째 list 값을 찾음
+                for v in parsed.values():
+                    if isinstance(v, list):
+                        quiz_list = v
+                        break
             if not quiz_list:
-                # 그래도 비어있다면
                 raise ValueError("AI가 퀴즈를 생성하지 못했습니다. (내용 부족 또는 포맷 오류)")
             return quiz_list
         except json.JSONDecodeError:

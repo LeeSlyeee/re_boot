@@ -254,20 +254,23 @@ class AbsentSelfTestView(APIView):
                         '아래 강의 노트를 읽은 결석생이 핵심 내용을 이해했는지 확인하는 '
                         '미니 퀴즈 3문항(4지선다)을 생성하세요.\n'
                         '[공식 문서 참조]가 있으면 정확한 정의에 기반한 문제를 출제하세요.\n'
-                        '반드시 아래 JSON 배열 형식으로만 응답하세요:\n'
-                        '[{"question":"문제","options":["A","B","C","D"],"correct_answer":"정답","explanation":"해설"}, ...]'
+                        '반드시 아래 JSON 형식으로 응답하세요:\n'
+                        '{"questions": [{"question":"문제","options":["A","B","C","D"],"correct_answer":"정답","explanation":"해설"}]}'
                     )},
                     {'role': 'user', 'content': user_content}
                 ],
                 temperature=0.5,
                 max_tokens=1500,
+                response_format={'type': 'json_object'},
             )
             raw = response.choices[0].message.content.strip()
-            if '```' in raw:
-                raw = raw.split('```')[1]
-                if raw.startswith('json'):
-                    raw = raw[4:]
-            questions = json.loads(raw)
+            parsed = json.loads(raw)
+            questions = parsed.get('questions', parsed) if isinstance(parsed, dict) else parsed
+            if isinstance(questions, dict):
+                for v in parsed.values():
+                    if isinstance(v, list):
+                        questions = v
+                        break
             return Response({'questions': questions, 'note_id': note_id})
 
         except Exception as e:

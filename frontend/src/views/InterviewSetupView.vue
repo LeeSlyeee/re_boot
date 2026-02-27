@@ -18,6 +18,8 @@ import {
   History,
   ChevronRight,
   Trophy,
+  GraduationCap,
+  Users,
 } from "lucide-vue-next";
 
 const router = useRouter();
@@ -83,6 +85,20 @@ const personas = [
     desc: "논리적 허점을 파고들며 위기 대처 능력을 테스트합니다.",
     icon: AlertTriangle,
     color: "#ff0844",
+  },
+  {
+    id: "GROWTH",
+    name: "성장 잠재력 평가",
+    desc: "기술 습득 속도, 자기주도 학습력, 신기술 적응력을 평가합니다.",
+    icon: GraduationCap,
+    color: "#f7971e",
+  },
+  {
+    id: "PEER",
+    name: "동료 개발자",
+    desc: "함께 일할 동료로서 코드 리뷰, 협업, 실무 방식을 편하게 대화합니다.",
+    icon: Users,
+    color: "#36d1dc",
   },
 ];
 

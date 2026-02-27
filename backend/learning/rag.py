@@ -53,23 +53,34 @@ class RAGService:
         print(f"Index complete for Session {session_id}: {indexed_count} vectors created.")
         return indexed_count
 
-    def search(self, query, top_k=3, lecture_id=None):
+    def search(self, query, top_k=3, lecture_id=None, max_distance=0.85):
         """
         질문(Query)과 가장 유사한 학습 내용을 검색합니다.
+        max_distance: Cosine Distance 임계값 (0~2, 낮을수록 유사. 0.85 = 약 cos_sim 0.15 이상)
         """
         query_embedding = self.get_embedding(query)
         
         # Cosine Distance (1 - Cosine Similarity)가 작을수록 유사함
-        # pgvector에서는 CosineDistance 사용 시 오름차순 정렬하면 됨
-        
         qs = VectorStore.objects.annotate(
             distance=CosineDistance('embedding', query_embedding)
+        ).filter(
+            distance__lt=max_distance  # 유사도 임계값 필터링
         ).order_by('distance')
 
         if lecture_id:
             qs = qs.filter(lecture_id=lecture_id)
+        
+        # Fallback: 임계값 내 결과가 없으면 임계값 없이 top_k 반환
+        results = qs[:top_k]
+        if not results.exists():
+            qs_fallback = VectorStore.objects.annotate(
+                distance=CosineDistance('embedding', query_embedding)
+            ).order_by('distance')
+            if lecture_id:
+                qs_fallback = qs_fallback.filter(lecture_id=lecture_id)
+            results = qs_fallback[:top_k]
             
-        return qs[:top_k]
+        return results
 
     def generate_answer(self, query, session_id=None, lecture_id=None):
         """
@@ -90,29 +101,23 @@ class RAGService:
             conversation_context = cm.get_full_context(session_id)
             
         # 3. 프롬프트 구성 (Augmented Generation)
-        system_prompt = """
-        너는 IT 부트캠프의 친절한 'AI 튜터'야.
-        학생의 질문에 대해 [관련 학습 내용]과 [대화 문맥]을 바탕으로 명확하게 답변해줘.
+        system_prompt = (
+            "너는 IT 부트캠프의 친절한 'AI 튜터'야.\n"
+            "학생의 질문에 대해 [관련 학습 내용]과 [대화 문맥]을 바탕으로 명확하게 답변해줘.\n\n"
+            "[답변 규칙]\n"
+            "1. [관련 학습 내용]에 근거가 있는 내용만 답변할 것. 근거 없이 추측하지 말 것.\n"
+            "2. 이전 대화 맥락을 고려하여 자연스럽게 이어갈 것.\n"
+            "3. 초보자도 이해할 수 있도록 비유와 예시를 활용할 것.\n"
+            "4. **중요 키워드**는 볼드로 강조할 것.\n"
+            "5. 정보가 부족하면 '해당 내용은 학습 자료에 없습니다'라고 솔직히 밝힐 것.\n"
+            "6. 한국어로 답변하되, 기술 용어는 영어 병기 (예: 반응성(Reactivity))"
+        )
         
-        [답변 규칙]
-        1. 질문과 가장 관련 있는 학습 내용을 우선적으로 설명할 것.
-        2. 이전에 나눈 대화 맥락(Context)을 고려하여 답변할 것. (예: "아까 말씀하신대로...")
-        3. 내용은 초보자도 이해하기 쉽게 설명할 것.
-        4. 정보가 부족하면 솔직하게 모른다고 할 것.
-        """
-        
-        user_prompt = f"""
-        [관련 학습 내용 (Knowledge)]:
-        {knowledge_context}
-        
-        [대화 문맥 (Current Context)]:
-        {conversation_context}
-        
-        [학생의 질문]:
-        {query}
-        
-        [답변]:
-        """
+        user_prompt = (
+            f"[관련 학습 내용 (Knowledge)]:\n{knowledge_context}\n\n"
+            f"[대화 문맥 (Current Context)]:\n{conversation_context}\n\n"
+            f"[학생의 질문]:\n{query}"
+        )
         
         try:
             response = self.client.chat.completions.create(
@@ -121,7 +126,7 @@ class RAGService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=1000
+                max_tokens=1500
             )
             return response.choices[0].message.content
         except Exception as e:

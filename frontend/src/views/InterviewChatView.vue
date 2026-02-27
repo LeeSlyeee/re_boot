@@ -68,8 +68,8 @@ const fetchInterview = async () => {
       }
     }
     
-    // Start timer if time-limited and still in progress
-    if (maxMinutes.value && !isCompleted.value) {
+    // Start timer (모든 모드에서 경과 시간 추적)
+    if (!isCompleted.value) {
       startTime.value = new Date(res.data.created_at);
       startTimer();
     }
@@ -240,6 +240,8 @@ const progressPercent = computed(() => {
   return 0;
 });
 
+const isUnlimited = computed(() => !maxQuestions.value && !maxMinutes.value);
+
 const remainingLabel = computed(() => {
   if (maxQuestions.value) {
     const remaining = maxQuestions.value - answeredCount.value;
@@ -249,7 +251,7 @@ const remainingLabel = computed(() => {
     const remaining = Math.max(0, maxMinutes.value - elapsedMinutes.value);
     return remaining > 0 ? `${remaining.toFixed(1)}분 남음` : "시간 종료!";
   }
-  return "";
+  return `${elapsedMinutes.value.toFixed(1)}분 경과 · ${answeredCount.value}문항 완료`;
 });
 
 onMounted(fetchInterview);
@@ -270,19 +272,30 @@ const isRecording = ref(false);
       </div>
       
       <!-- Progress Bar -->
-      <div class="progress-section" v-if="maxQuestions || maxMinutes">
-        <div class="progress-info">
-          <span class="progress-icon" v-if="maxQuestions"><Hash :size="14" /></span>
-          <span class="progress-icon" v-else-if="maxMinutes"><Clock :size="14" /></span>
-          <span class="progress-label">
-            <template v-if="maxQuestions">{{ answeredCount }} / {{ maxQuestions }}</template>
-            <template v-else-if="maxMinutes">{{ elapsedMinutes.toFixed(1) }} / {{ maxMinutes }}분</template>
-          </span>
-        </div>
-        <div class="progress-bar">
-          <div class="progress-fill" :style="{ width: progressPercent + '%' }" :class="{ warning: progressPercent >= 80 }"></div>
-        </div>
-        <span class="remaining-label" :class="{ urgent: progressPercent >= 80 }">{{ remainingLabel }}</span>
+      <div class="progress-section">
+        <!-- 제한 모드: 프로그레스 바 -->
+        <template v-if="maxQuestions || maxMinutes">
+          <div class="progress-info">
+            <span class="progress-icon" v-if="maxQuestions"><Hash :size="14" /></span>
+            <span class="progress-icon" v-else-if="maxMinutes"><Clock :size="14" /></span>
+            <span class="progress-label">
+              <template v-if="maxQuestions">{{ answeredCount }} / {{ maxQuestions }}</template>
+              <template v-else-if="maxMinutes">{{ elapsedMinutes.toFixed(1) }} / {{ maxMinutes }}분</template>
+            </span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: progressPercent + '%' }" :class="{ warning: progressPercent >= 80 }"></div>
+          </div>
+          <span class="remaining-label" :class="{ urgent: progressPercent >= 80 }">{{ remainingLabel }}</span>
+        </template>
+        <!-- 무제한 모드: 경과 정보 -->
+        <template v-else>
+          <div class="progress-info unlimited">
+            <span class="progress-icon"><Clock :size="14" /></span>
+            <span class="progress-label">{{ remainingLabel }}</span>
+          </div>
+          <div class="unlimited-badge">∞ 무제한</div>
+        </template>
       </div>
       
       <div class="status">
@@ -290,12 +303,13 @@ const isRecording = ref(false);
         <span class="topic">{{ interviewInfo.portfolio_title }}</span>
         <button
           class="finish-btn"
+          :class="{ 'finish-btn-pulse': isUnlimited && answeredCount >= 3 }"
           @click="finishInterview"
           :disabled="isFinishing || answeredCount === 0"
           v-if="!isCompleted"
         >
           <Flag :size="16" />
-          {{ isFinishing ? "처리 중..." : "면접 종료" }}
+          {{ isFinishing ? "분석 중..." : "🏁 면접 종료" }}
         </button>
         <button class="exit-btn" @click="router.push('/interview/setup')">
           {{ isCompleted ? '↩ 면접 목록' : '나가기' }}
@@ -700,6 +714,7 @@ const isRecording = ref(false);
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow: hidden;
   background: #1a1a2e;
   color: white;
 }
@@ -715,6 +730,7 @@ const isRecording = ref(false);
   font-size: 12px;
   color: #9ab3d0;
   line-height: 1.5;
+  flex-shrink: 0;
 }
 .ai-disclosure-icon {
   font-size: 16px;
@@ -758,6 +774,7 @@ const isRecording = ref(false);
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+  flex-shrink: 0;
 }
 .persona-badge {
   display: flex;
@@ -802,22 +819,47 @@ const isRecording = ref(false);
   background: linear-gradient(135deg, #ff6b6b, #ee5a24);
   border: none;
   color: white;
-  padding: 6px 14px;
-  border-radius: 6px;
+  padding: 8px 18px;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   display: flex;
   align-items: center;
-  gap: 5px;
-  transition: opacity 0.2s;
+  gap: 6px;
+  transition: all 0.25s ease;
+  box-shadow: 0 2px 12px rgba(238, 90, 36, 0.3);
 }
 .finish-btn:hover {
-  opacity: 0.85;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(238, 90, 36, 0.45);
 }
 .finish-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+.finish-btn-pulse {
+  animation: finish-pulse 2s ease-in-out infinite;
+}
+@keyframes finish-pulse {
+  0%, 100% { box-shadow: 0 2px 12px rgba(238, 90, 36, 0.3); }
+  50% { box-shadow: 0 4px 24px rgba(238, 90, 36, 0.6); }
+}
+
+/* 무제한 모드 */
+.progress-info.unlimited {
+  color: #ccc;
+}
+.unlimited-badge {
+  font-size: 11px;
+  color: #a78bfa;
+  font-weight: 600;
+  background: rgba(167, 139, 250, 0.1);
+  padding: 2px 8px;
+  border-radius: 6px;
+  text-align: center;
 }
 
 /* ── Progress Bar ── */
@@ -922,6 +964,7 @@ const isRecording = ref(false);
 /* ── Chat ── */
 .chat-container {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 20px;
   scroll-behavior: smooth;
@@ -1418,6 +1461,7 @@ const isRecording = ref(false);
   padding: 20px;
   background: rgba(0, 0, 0, 0.2);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 .input-wrapper {
   background: #2d2d44;
@@ -1496,6 +1540,7 @@ textarea {
   padding: 14px 20px;
   background: rgba(79, 172, 254, 0.06);
   border-top: 1px solid rgba(79, 172, 254, 0.15);
+  flex-shrink: 0;
 }
 .review-banner-content {
   display: flex;

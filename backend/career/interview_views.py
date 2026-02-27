@@ -41,12 +41,27 @@ class InterviewViewSet(viewsets.ModelViewSet):
             max_minutes=max_minutes
         )
         
-        # 2. Get Skill Blocks for context
-        from learning.models import StudentChecklist
-        skills_qs = StudentChecklist.objects.filter(
-            student=user, is_checked=True
-        ).select_related('objective')
-        skill_texts = [s.objective.content for s in skills_qs]
+        # 2. Get Skill Blocks for context (SkillBlock 기반)
+        from learning.models.placement import SkillBlock, Skill
+        skill_blocks_qs = SkillBlock.objects.filter(
+            student=user, is_earned=True
+        ).select_related('skill')
+        
+        # 포트폴리오 title에서 분야 키워드 감지하여 필터링
+        category_map = dict(Skill.CATEGORY_CHOICES)
+        matched_category = None
+        for cat_key, cat_name in category_map.items():
+            if cat_name in portfolio.title or cat_key.lower() in portfolio.title.lower():
+                matched_category = cat_key
+                break
+        
+        if matched_category:
+            # 분야별 포트폴리오: 해당 분야 스킬만
+            filtered_blocks = skill_blocks_qs.filter(skill__category=matched_category)
+            if filtered_blocks.exists():
+                skill_blocks_qs = filtered_blocks
+        
+        skill_texts = [f"{sb.skill.name} (Lv{sb.level})" for sb in skill_blocks_qs]
         skills_context = ", ".join(skill_texts) if skill_texts else "없음"
 
         # 3. Build limit context for AI
@@ -438,45 +453,41 @@ class InterviewViewSet(viewsets.ModelViewSet):
             }
         
         # ── 스킬 데이터는 매번 실시간 계산 (DB 쿼리만, API 비용 없음) ──
-        from learning.models import StudentChecklist, LearningObjective, Lecture
+        from learning.models.placement import SkillBlock, Skill
+        from learning.models.base import Lecture
 
-        enrolled_lectures = Lecture.objects.filter(students=interview.student)
-        all_objectives = LearningObjective.objects.filter(
-            syllabus__lecture__in=enrolled_lectures
-        ).select_related('syllabus', 'syllabus__lecture')
+        # 전체 스킬블록 (earned + 미획득)
+        all_blocks = SkillBlock.objects.filter(
+            student=interview.student
+        ).select_related('skill')
 
-        total_count = all_objectives.count()
-        earned_ids = set(
-            StudentChecklist.objects.filter(
-                student=interview.student, is_checked=True
-            ).values_list('objective_id', flat=True)
-        )
-        earned_count = len(earned_ids & set(all_objectives.values_list('id', flat=True)))
+        earned_blocks = all_blocks.filter(is_earned=True)
+        total_count = all_blocks.count()
+        earned_count = earned_blocks.count()
 
+        # 카테고리별 통계
         category_stats = {}
-        for obj in all_objectives:
-            lec_title = obj.syllabus.lecture.title
-            if lec_title not in category_stats:
-                category_stats[lec_title] = {'name': lec_title, 'earned': 0, 'total': 0, 'percent': 0}
-            category_stats[lec_title]['total'] += 1
-            if obj.id in earned_ids:
-                category_stats[lec_title]['earned'] += 1
+        for block in all_blocks:
+            cat_name = block.skill.get_category_display()
+            if cat_name not in category_stats:
+                category_stats[cat_name] = {'name': cat_name, 'earned': 0, 'total': 0, 'percent': 0}
+            category_stats[cat_name]['total'] += 1
+            if block.is_earned:
+                category_stats[cat_name]['earned'] += 1
 
         for cat in category_stats.values():
             cat['percent'] = round(cat['earned'] / cat['total'] * 100) if cat['total'] > 0 else 0
         
-        # 미획득 학습 목표를 낮은 주차 순으로 추천 (선행 학습 우선)
-        not_earned_objectives = all_objectives.exclude(
-            id__in=earned_ids
-        ).order_by('syllabus__week_number', 'id')[:5]
+        # 미획득 스킬 추천 (낮은 레벨 우선)
+        not_earned_blocks = all_blocks.filter(is_earned=False).order_by('skill__difficulty_level', 'skill__order')[:5]
         recommended_skills = [
             {
-                'name': obj.content,
-                'category': obj.syllabus.lecture.title,
-                'level': 1,
-                'hint': f"{obj.syllabus.week_number}주차 학습 목표를 완료하면 획득!"
+                'name': block.skill.name,
+                'category': block.skill.get_category_display(),
+                'level': block.skill.difficulty_level,
+                'hint': f"Lv{block.skill.difficulty_level} - 체크포인트와 형성평가를 통과하면 획득!"
             }
-            for obj in not_earned_objectives
+            for block in not_earned_blocks
         ]
 
         skill_progress = round(earned_count / total_count * 100) if total_count > 0 else 0
@@ -520,6 +531,8 @@ class InterviewViewSet(viewsets.ModelViewSet):
             'HR_MANAGER': "당신은 채용 담당자입니다. 기술보다는 지원자의 성격, 가치관, 갈등 해결 경험 등 소프트 스킬에 집중하세요.",
             'STARTUP_CEO': "당신은 초기 스타트업 창업자입니다. 기술적 완성도보다 '속도', '비즈니스 가치', '주도적인 문제 해결' 경험을 물어보세요.",
             'BIG_TECH': "당신은 구글/메타 스타일의 면접관입니다. CS 기초(자료구조/알고리즘) 원리와 대규모 트래픽 처리에 대한 이해도를 검증하세요.",
-            'PRESSURE': "당신은 지원자의 멘탈을 테스트하는 면접관입니다. 답변의 허점을 날카롭게 지적하고, 곤란한 상황을 가정하여 어떻게 대처하는지 확인하세요."
+            'PRESSURE': "당신은 지원자의 멘탈을 테스트하는 면접관입니다. 답변의 허점을 날카롭게 지적하고, 곤란한 상황을 가정하여 어떻게 대처하는지 확인하세요.",
+            'GROWTH': "당신은 신입/주니어 개발자의 성장 잠재력을 평가하는 면접관입니다. 다음을 중점적으로 평가하세요:\n1. 새로운 기술을 배울 때 어떤 방법으로 학습하는지 (자기주도 학습 능력)\n2. 처음 접하는 기술 또는 문제를 만났을 때 어떻게 접근하는지 (문제 해결 전략)\n3. 최근 새로 배운 기술과 그 학습 과정 (기술 습득 속도와 깊이)\n4. 학습한 내용을 실제 프로젝트에 어떻게 적용했는지 (이론→실무 전환 능력)\n5. 기술 트렌드를 어떻게 파악하는지 (지속적 성장 의지)\n지원자의 포트폴리오에 있는 기술 스택을 어떤 과정으로 배웠는지, 앞으로 어떤 기술을 더 배우고 싶은지도 물어보세요.",
+            'PEER': "당신은 같은 팀에서 함께 일할 동료 개발자입니다. 격식 없이 편하게 대화하되, 다음을 자연스럽게 확인하세요:\n1. 코드 리뷰 스타일: 코드 품질, 네이밍 컨벤션, 리팩토링에 대한 생각\n2. 협업 경험: Git 브랜치 전략, PR 리뷰 경험, 의견 충돌 시 해결 방법\n3. 디버깅 과정: 버그를 발견했을 때 어떤 순서로 원인을 추적하는지\n4. 개발 도구와 환경: 선호하는 IDE, 터미널 도구, 생산성 팁\n5. 실무 판단력: 기술 부채 vs 빠른 배포 사이의 트레이드오프\n반말도 괜찮고, '우리 팀에선 이렇게 하는데 너는 어때?' 같은 자연스러운 톤을 사용하세요.",
         }
         return prompts.get(persona, prompts['TECH_LEAD'])

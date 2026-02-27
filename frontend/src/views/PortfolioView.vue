@@ -37,6 +37,20 @@ const newProject = ref({ name: '', description: '', tech_stack: '', github_url: 
 const showModal = ref(false);
 const errorMessage = ref("");
 
+// Category Selection Modal
+const showCategoryModal = ref(false);
+const pendingPortfolioType = ref('');
+const categories = [
+  { key: null, label: '전체 스킬', icon: '🌐', desc: '모든 획득 스킬로 생성' },
+  { key: 'PYTHON', label: 'Python', icon: '🐍', desc: 'Python 관련 스킬만' },
+  { key: 'JAVASCRIPT', label: 'JavaScript', icon: '⚡', desc: 'JavaScript 관련 스킬만' },
+  { key: 'FRAMEWORK', label: 'Framework', icon: '🧩', desc: '프레임워크 관련 스킬만' },
+  { key: 'DATABASE', label: 'Database', icon: '🗄️', desc: '데이터베이스 관련 스킬만' },
+  { key: 'DEVOPS', label: 'DevOps', icon: '☁️', desc: 'DevOps 관련 스킬만' },
+  { key: 'HTML_CSS', label: 'HTML/CSS', icon: '🎨', desc: 'HTML/CSS 관련 스킬만' },
+  { key: 'CS_BASIC', label: 'CS 기초', icon: '📐', desc: 'CS 기초 관련 스킬만' },
+];
+
 onMounted(async () => {
   loading.value = true;
   skillsLoading.value = true;
@@ -66,15 +80,19 @@ onMounted(async () => {
   }
 });
 
-const handleGenerate = async (type) => {
+const openCategoryModal = (type) => {
+  pendingPortfolioType.value = type;
+  showCategoryModal.value = true;
+};
+
+const handleGenerate = async (category = null) => {
+  showCategoryModal.value = false;
   generating.value = true;
   try {
-    const newPortfolio = await generatePortfolio(type);
+    const newPortfolio = await generatePortfolio(pendingPortfolioType.value, category);
     portfolios.value.unshift(newPortfolio);
     selectedPortfolio.value = newPortfolio;
   } catch (e) {
-    // 기존 alert 대신 모달 표시
-    // e.response.data.error가 있으면 그것을 사용, 없으면 기본 메시지
     const serverMsg =
       e.response?.data?.error ||
       "학습 데이터가 부족하거나 AI 응답이 지연되고 있습니다.";
@@ -136,14 +154,14 @@ const closeModal = () => {
         </div>
         <div class="header-actions">
           <button
-            @click="handleGenerate('JOB')"
+            @click="openCategoryModal('JOB')"
             :disabled="generating"
             class="gen-btn job"
           >
             <Briefcase size="16" /> 취업 포트폴리오 생성
           </button>
           <button
-            @click="handleGenerate('STARTUP')"
+            @click="openCategoryModal('STARTUP')"
             :disabled="generating"
             class="gen-btn startup"
           >
@@ -388,6 +406,35 @@ const closeModal = () => {
           <div class="modal-footer" style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end">
             <button class="btn-secondary" @click="showProjectModal = false">취소</button>
             <button class="btn btn-primary" @click="addProject" :disabled="!newProject.name">추가</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Category Selection Modal -->
+      <div v-if="showCategoryModal" class="modal-overlay" @click.self="showCategoryModal = false">
+        <div class="modal-content glass-panel category-modal">
+          <button class="close-btn" @click="showCategoryModal = false"><X size="20" /></button>
+          <div class="modal-header">
+            <div class="icon-box" style="background:rgba(79,172,254,0.1);color:#4facfe;">
+              <Briefcase v-if="pendingPortfolioType === 'JOB'" size="24" />
+              <Rocket v-else size="24" />
+            </div>
+            <h2>{{ pendingPortfolioType === 'JOB' ? '포트폴리오 분야 선택' : 'MVP 기획서 분야 선택' }}</h2>
+          </div>
+          <p class="category-desc">어떤 분야의 스킬을 기반으로 생성할까요?</p>
+          <div class="category-grid">
+            <div 
+              v-for="cat in categories" 
+              :key="cat.key || 'all'" 
+              class="category-card"
+              @click="handleGenerate(cat.key)"
+            >
+              <span class="cat-icon">{{ cat.icon }}</span>
+              <div class="cat-info">
+                <h4>{{ cat.label }}</h4>
+                <p>{{ cat.desc }}</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -990,4 +1037,61 @@ const closeModal = () => {
   textarea { resize: vertical; }
 }
 .btn-primary { background: #4facfe; color: white; border: none; padding: 8px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; &:disabled { opacity: 0.5; } }
+/* Category Selection Modal */
+.category-modal {
+  width: 560px;
+  max-width: 95vw;
+}
+.category-desc {
+  color: #888;
+  font-size: 14px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+.category-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.category-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:first-child {
+    grid-column: 1 / -1;
+    background: rgba(79, 172, 254, 0.06);
+    border-color: rgba(79, 172, 254, 0.15);
+  }
+
+  &:hover {
+    background: rgba(79, 172, 254, 0.1);
+    border-color: rgba(79, 172, 254, 0.3);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+}
+.cat-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+.cat-info {
+  h4 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #eee;
+    margin: 0 0 2px 0;
+  }
+  p {
+    font-size: 12px;
+    color: #777;
+    margin: 0;
+  }
+}
 </style>

@@ -538,14 +538,10 @@ class LiveSessionViewSet(viewsets.ViewSet):
                 ],
                 temperature=0.7,
                 max_tokens=500,
+                response_format={'type': 'json_object'},
             )
 
             content = response.choices[0].message.content.strip()
-            # JSON 파싱 (코드 블록 제거)
-            if '```' in content:
-                content = content.split('```')[1]
-                if content.startswith('json'):
-                    content = content[4:]
             quiz_data = json.loads(content)
 
         except Exception as e:
@@ -1137,7 +1133,7 @@ def _generate_quiz_suggestion(session_id):
                     '당신은 부트캠프 강의에서 교수자가 방금 설명한 내용을 바탕으로 '
                     '체크포인트 퀴즈를 생성하는 AI입니다.\n'
                     '[공식 문서 참조]가 있으면 정확한 정의에 기반한 문제를 출제하세요.\n'
-                    '반드시 아래 JSON 형식으로만 응답하세요:\n'
+                    '반드시 아래 JSON 형식으로 응답하세요:\n'
                     '{"question": "문제", "options": ["A", "B", "C", "D"], '
                     '"correct_answer": "정답", "explanation": "해설"}'
                 )},
@@ -1145,15 +1141,11 @@ def _generate_quiz_suggestion(session_id):
             ],
             temperature=0.7,
             max_tokens=500,
+            response_format={'type': 'json_object'},
         )
 
         import json as json_module
         raw = response.choices[0].message.content.strip()
-        # JSON 블록 추출
-        if '```' in raw:
-            raw = raw.split('```')[1]
-            if raw.startswith('json'):
-                raw = raw[4:]
         quiz_data = json_module.loads(raw)
 
         LiveQuiz.objects.create(

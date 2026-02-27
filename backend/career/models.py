@@ -24,6 +24,8 @@ class MockInterview(models.Model):
         ('STARTUP_CEO', '스타트업 대표'),
         ('BIG_TECH', '글로벌 빅테크 면접관'),
         ('PRESSURE', '압박 면접관'),
+        ('GROWTH', '성장 잠재력 평가관'),
+        ('PEER', '동료 개발자'),
     )
     
     STATUS_CHOICES = (

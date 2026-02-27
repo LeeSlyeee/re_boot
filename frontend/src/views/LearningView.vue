@@ -6,7 +6,7 @@ import { useRouter, useRoute } from 'vue-router'; // useRoute added
 const debugLastChunkSize = ref(0);
 const debugLastStatus = ref('Init');
 const debugLastResponse = ref('-');
-import { Mic, Square, Pause, FileText, MonitorPlay, Users, Youtube, RefreshCw, Bot, Play, List, Plus, Lock, Download, PenLine } from 'lucide-vue-next';
+import { Mic, Square, Pause, FileText, MonitorPlay, Users, Youtube, ArrowLeft, Bot, Play, List, Lock, Download, PenLine } from 'lucide-vue-next';
 import { AudioRecorder } from '../api/audioRecorder';
 import api from '../api/axios';
 import ChecklistPanel from '../components/ChecklistPanel.vue';
@@ -1649,7 +1649,7 @@ const openSessionReview = (id) => {
                              ✍️ 퀴즈 풀기
                          </button>
                          <button class="btn btn-control secondary" style="height:36px; font-size:13px;" @click="startNewSession">
-                             <Plus size="14" style="margin-right:4px;" /> 새 학습
+                             <ArrowLeft size="14" style="margin-right:4px;" /> 새 학습
                          </button>
                      </template>
                      
@@ -1688,7 +1688,7 @@ const openSessionReview = (id) => {
                             </button>
                             <button class="btn btn-control secondary" @click="endSession">완료</button>
                             <button class="btn btn-control secondary" @click="startNewSession" title="새로운 학습 시작">
-                                <Plus size="18" />
+                                <ArrowLeft size="18" />
                             </button>
                         </template>
                         <template v-else>
@@ -1696,7 +1696,7 @@ const openSessionReview = (id) => {
                                 ✍️ 퀴즈 풀기
                             </button>
                             <button class="btn btn-control secondary" @click="startNewSession" style="margin-right: 8px;">
-                                <Plus size="18" style="margin-right:4px;"/> 새 학습
+                                <ArrowLeft size="18" style="margin-right:4px;"/> 새 학습
                             </button>
                             <button class="btn btn-control secondary" @click="router.push('/dashboard')">나가기</button>
                         </template>
