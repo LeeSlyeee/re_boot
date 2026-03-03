@@ -25,6 +25,12 @@ class LearningSession(models.Model):
     context_summary = models.TextField(blank=True, null=True, help_text="현재까지의 대화/자막 압축 요약본")
     last_compressed_at = models.DateTimeField(default=timezone.now, help_text="마지막 압축 시점")
 
+    # [Recovery] DB 스키마와 일치시키기 위해 필요한 필드들
+    ai_status = models.CharField(max_length=20, default='PENDING', help_text="AI 처리 상태")
+    processing_error = models.TextField(blank=True, null=True, help_text="에러 로그")
+    script_segments = models.JSONField(default=list, help_text="분할된 스크립트 데이터")
+    is_analyzing = models.BooleanField(default=False, help_text="분석 진행 중 여부")
+
     class Meta:
         app_label = 'learning'
 

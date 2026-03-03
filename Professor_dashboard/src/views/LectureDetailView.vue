@@ -696,97 +696,7 @@ const stopLivePolling = () => {
     if (livePollingTimer.value) { clearInterval(livePollingTimer.value); livePollingTimer.value = null; }
 };
 
-// ── DS-CNN 오디오 키워드 스포팅 (듀얼 파이프라인 — 경비원 2호) ──
-let kwsAudioContext = null;
-let kwsMediaStream = null;
-let kwsProcessor = null;
-let kwsAudioBuffer = new Float32Array(16000);  // 1초 분량 (16kHz)
-let kwsBufferOffset = 0;
-const kwsDetectionLog = ref('');  // UI 표시용
 
-const startKWSCapture = async () => {
-    try {
-        // 마이크 스트림 획득 (16kHz 모노)
-        kwsMediaStream = await navigator.mediaDevices.getUserMedia({
-            audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true }
-        });
-        kwsAudioContext = new AudioContext({ sampleRate: 16000 });
-        const source = kwsAudioContext.createMediaStreamSource(kwsMediaStream);
-
-        // ScriptProcessorNode: 4096 samples 단위로 수집
-        kwsProcessor = kwsAudioContext.createScriptProcessor(4096, 1, 1);
-        kwsBufferOffset = 0;
-        kwsAudioBuffer = new Float32Array(16000);
-
-        kwsProcessor.onaudioprocess = (e) => {
-            const inputData = e.inputBuffer.getChannelData(0);
-            const remaining = 16000 - kwsBufferOffset;
-
-            if (inputData.length <= remaining) {
-                kwsAudioBuffer.set(inputData, kwsBufferOffset);
-                kwsBufferOffset += inputData.length;
-            } else {
-                // 버퍼 채우고 나머지는 다음 버퍼로
-                kwsAudioBuffer.set(inputData.subarray(0, remaining), kwsBufferOffset);
-                kwsBufferOffset = 16000;
-            }
-
-            // 1초 분량이 모이면 서버로 전송
-            if (kwsBufferOffset >= 16000) {
-                sendAudioKWS(kwsAudioBuffer);
-                kwsAudioBuffer = new Float32Array(16000);
-                kwsBufferOffset = 0;
-            }
-        };
-
-        source.connect(kwsProcessor);
-        kwsProcessor.connect(kwsAudioContext.destination);
-        console.log('🎤 DS-CNN KWS 오디오 캡처 시작');
-    } catch (e) {
-        console.error('KWS 오디오 캡처 실패:', e);
-    }
-};
-
-const sendAudioKWS = async (audioFloat32) => {
-    if (!liveSession.value) return;
-    try {
-        // Float32 → Base64
-        const bytes = new Uint8Array(audioFloat32.buffer);
-        let binary = '';
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-        const base64 = btoa(binary);
-
-        const { data } = await api.post(
-            `/learning/live/${liveSession.value.id}/audio-kws/`,
-            { audio: base64 }
-        );
-
-        if (data.detected) {
-            const label = data.label === 'quiz' ? '퀴즈' : '이해도 확인';
-            const src = data.source === 'rpi' ? '🟢RPI' : '💻LOCAL';
-            kwsDetectionLog.value = `🎙️ ${label} 감지! (${(data.confidence * 100).toFixed(0)}%) [${src}]`;
-            console.log(`🔥 DS-CNN 감지: ${data.label} (${(data.confidence * 100).toFixed(1)}%) [소스: ${data.source}]`);
-            // 5초 후 자동 제거
-            setTimeout(() => { kwsDetectionLog.value = ''; }, 5000);
-        } else {
-            console.debug(`📡 KWS: ${data.label} ${(data.confidence*100).toFixed(0)}% [${data.source||'?'}]`);
-        }
-    } catch (e) {
-        // 네트워크 오류 등은 무시 (STT가 메인이므로)
-        console.debug('KWS 전송 실패:', e.message);
-    }
-};
-
-const stopKWSCapture = () => {
-    if (kwsProcessor) { kwsProcessor.disconnect(); kwsProcessor = null; }
-    if (kwsAudioContext) { kwsAudioContext.close(); kwsAudioContext = null; }
-    if (kwsMediaStream) { kwsMediaStream.getTracks().forEach(t => t.stop()); kwsMediaStream = null; }
-    kwsDetectionLog.value = '';
-    console.log('🛑 DS-CNN KWS 오디오 캡처 종료');
-};
-
-// ── 모드 전환: STT+DS-CNN vs DS-CNN만 ──
-const kwsOnly = ref(false);  // true = DS-CNN만(라즈베리파이), false = STT+DS-CNN 듀얼
 
 // ── 🔌 라즈베리파이 연결 관리 ──
 const rpiHost = ref('172.16.206.43');
@@ -810,6 +720,7 @@ const connectRpi = async () => {
         const { data } = await api.post('/learning/live/rpi-status/', {
             host: rpiHost.value.trim(),
             port: parseInt(rpiPort.value) || 9999,
+            manual_launch: true,
         });
         rpiConnected.value = data.rpi_connected;
         showToast(
@@ -922,17 +833,6 @@ const startSTT = () => {
     recognition.start();
     sttRecognition.value = recognition;
     sttActive.value = true;
-
-    // DS-CNN 듀얼 파이프라인: STT와 동시에 오디오 캡처 시작
-    startKWSCapture();
-};
-
-// DS-CNN만 시작 (STT 없이 오디오 캡처만)
-const startKWSOnly = () => {
-    kwsOnly.value = true;
-    sttActive.value = true;  // UI 상태 활성화
-    sttLastText.value = '🤖 DS-CNN 전용 모드 (라즈베리파이)';
-    startKWSCapture();
 };
 
 const stopSTT = () => {
@@ -942,9 +842,6 @@ const stopSTT = () => {
         sttRecognition.value = null;
     }
     sttActive.value = false;
-    kwsOnly.value = false;
-    // DS-CNN 듀얼 파이프라인: 오디오 캡처도 함께 종료
-    stopKWSCapture();
 };
 
 // ── 퀴즈 제안 (AI 자동 생성 → 교수자 승인) ──
@@ -1858,25 +1755,17 @@ onMounted(fetchDashboard);
                         ⏹️ 세션 종료
                     </button>
                     <button v-if="liveSession.status === 'LIVE' && !sttActive" class="btn-stt-start" @click="startSTT">
-                        🎙️ STT + DS-CNN 시작
-                    </button>
-                    <button v-if="liveSession.status === 'LIVE' && !sttActive" class="btn-kws-only" @click="startKWSOnly">
-                        🤖 DS-CNN만 시작
+                        🎙️ STT 시작
                     </button>
                     <button v-if="liveSession.status === 'LIVE' && sttActive" class="btn-stt-stop" @click="stopSTT">
-                        🔴 {{ kwsOnly ? 'DS-CNN 중...' : '음성 인식 중...' }}
+                        🔴 음성 인식 중...
                     </button>
                 </div>
 
                 <!-- 현재 모드 표시 -->
-                <div v-if="sttActive" class="stt-preview" :class="{ 'kws-only-mode': kwsOnly }">
-                    <span class="stt-label">{{ kwsOnly ? '🤖 DS-CNN 전용:' : '🎙️ 마지막 인식:' }}</span>
+                <div v-if="sttActive" class="stt-preview">
+                    <span class="stt-label">🎙️ 마지막 인식:</span>
                     <span class="stt-text">{{ sttLastText }}</span>
-                </div>
-
-                <!-- DS-CNN 키워드 감지 상태 -->
-                <div v-if="sttActive && kwsDetectionLog" class="kws-detection-bar">
-                    {{ kwsDetectionLog }}
                 </div>
 
                 <!-- 🔌 수업 중 라즈베리파이 상태 (연결됨일 때 간략 표시) -->

@@ -1,40 +1,40 @@
 export class AudioRecorder {
     constructor(onDataAvailable, onError = null) {
-      this.onDataAvailable = onDataAvailable; 
-      this.onError = onError;  // 외부 에러 핸들러 (alert 대체)
-      this.stream = null;
-      this.audioStream = null;
-      this.isRecording = false;
-      this.interval = 3000;
-      this.currentRecorder = null;
-      this._consecutiveErrors = 0;   // 연속 에러 카운터
-      this._maxRetries = 5;          // 최대 5회 연속 실패 시 포기
-      this._mode = null;             // 'mic' | 'system'
-      this._chunkCount = 0;          // 성공한 청크 수 (디버깅용)
+        this.onDataAvailable = onDataAvailable;
+        this.onError = onError;  // 외부 에러 핸들러 (alert 대체)
+        this.stream = null;
+        this.audioStream = null;
+        this.isRecording = false;
+        this.interval = 3000;
+        this.currentRecorder = null;
+        this._consecutiveErrors = 0;   // 연속 에러 카운터
+        this._maxRetries = 5;          // 최대 5회 연속 실패 시 포기
+        this._mode = null;             // 'mic' | 'system'
+        this._chunkCount = 0;          // 성공한 청크 수 (디버깅용)
     }
-  
+
     // 1. Mic Recording
     async startMic(interval = 3000) {
-      try {
-        this.interval = interval;
-        this._mode = 'mic';
-        this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        
-        // 마이크 트랙 종료 감지 → 자동 재연결
-        const track = this.stream.getAudioTracks()[0];
-        if (track) {
-            track.onended = () => {
-                console.warn('🎤 마이크 트랙 종료 감지 → 자동 재연결 시도');
-                this._tryReconnect();
-            };
+        try {
+            this.interval = interval;
+            this._mode = 'mic';
+            this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+            // 마이크 트랙 종료 감지 → 자동 재연결
+            const track = this.stream.getAudioTracks()[0];
+            if (track) {
+                track.onended = () => {
+                    console.warn('🎤 마이크 트랙 종료 감지 → 자동 재연결 시도');
+                    this._tryReconnect();
+                };
+            }
+
+            this.startLoop();
+            console.log('🎤 Microphone recording started (Auto-Recovery Mode)');
+        } catch (err) {
+            console.error('Error accessing microphone:', err);
+            throw err;
         }
-        
-        this.startLoop();
-        console.log('🎤 Microphone recording started (Auto-Recovery Mode)');
-      } catch (err) {
-        console.error('Error accessing microphone:', err);
-        throw err;
-      }
     }
 
     // 2. System Audio Recording (Tab Audio)
@@ -55,18 +55,18 @@ export class AudioRecorder {
                 },
                 preferCurrentTab: true,
                 selfBrowserSurface: "include",
-                systemAudio: "include" 
+                systemAudio: "include"
             });
 
             const audioTrack = this.stream.getAudioTracks()[0];
-            
+
             if (!audioTrack) {
                 this.stream.getTracks().forEach(t => t.stop());
                 const msg = "오디오가 감지되지 않았습니다. '현재 탭'을 선택하고 '오디오 공유'를 켜주세요.";
                 if (this.onError) this.onError(msg);
                 throw new Error("No audio track detected");
             }
-            
+
             // 사용자가 브라우저 UI에서 공유 중단 시
             audioTrack.onended = () => {
                 console.warn("🔇 System audio track ended by user.");
@@ -74,7 +74,7 @@ export class AudioRecorder {
             };
 
             this.audioStream = new MediaStream([audioTrack]);
-            
+
             this.startLoop();
             console.log('🔊 System audio recording started (Auto-Recovery Mode)');
 
@@ -102,7 +102,7 @@ export class AudioRecorder {
             this.analyser = this.audioContext.createAnalyser();
             this.analyser.fftSize = 256;
             source.connect(this.analyser);
-            
+
             this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
             console.log("🔊 Audio Analysis Setup Complete");
         } catch (e) {
@@ -112,9 +112,9 @@ export class AudioRecorder {
 
     startSmartChunk() {
         if (!this.isRecording) return;
-        
+
         const streamToRecord = this.audioStream || this.stream;
-        
+
         // 스트림 상태 검사 — 곧바로 stop하지 않고 재연결 시도
         if (!streamToRecord || streamToRecord.getAudioTracks().length === 0 || streamToRecord.getAudioTracks()[0].readyState === 'ended') {
             console.warn('⚠️ 오디오 트랙 종료 감지. 재연결 시도...');
@@ -127,9 +127,9 @@ export class AudioRecorder {
 
         let mimeType = this.getSupportedMimeType();
         let recorder;
-        
+
         try {
-           recorder = new MediaRecorder(streamToRecord, mimeType ? { mimeType } : undefined);
+            recorder = new MediaRecorder(streamToRecord, mimeType ? { mimeType } : undefined);
         } catch (e) {
             try { recorder = new MediaRecorder(streamToRecord); } catch (e2) {
                 console.error('MediaRecorder 생성 실패:', e2);
@@ -146,15 +146,15 @@ export class AudioRecorder {
         };
 
         recorder.onstop = () => {
-             const blob = new Blob(localChunks, { type: mimeType || 'audio/webm' });
-             if (blob.size > 0 && this.onDataAvailable) {
-                 this._chunkCount++;
-                 this.onDataAvailable(blob);
-             }
-             // 다음 청크 즉시 시작 (Gapless Sequential)
-             if (this.isRecording) {
-                 this.startSmartChunk();
-             }
+            const blob = new Blob(localChunks, { type: mimeType || 'audio/webm' });
+            if (blob.size > 0 && this.onDataAvailable) {
+                this._chunkCount++;
+                this.onDataAvailable(blob);
+            }
+            // 다음 청크 즉시 시작 (Gapless Sequential)
+            if (this.isRecording) {
+                this.startSmartChunk();
+            }
         };
 
         // 에러 복구: MediaRecorder가 예기치 않게 중단될 때
@@ -162,7 +162,7 @@ export class AudioRecorder {
             console.error('🚨 MediaRecorder 에러:', e.error?.message || e);
             this._scheduleRetry();
         };
-        
+
         try {
             recorder.start();
             this.monitorVolumeAndCut(recorder, Date.now());
@@ -174,7 +174,7 @@ export class AudioRecorder {
 
     monitorVolumeAndCut(recorder, startTime) {
         if (!this.isRecording) return;
-        
+
         // recorder가 이미 종료된 상태면 새 청크를 시작
         if (recorder.state !== 'recording') {
             console.warn('⚠️ recorder.state =', recorder.state, '→ 새 청크 시작');
@@ -194,7 +194,7 @@ export class AudioRecorder {
                 sum += this.dataArray[i];
             }
             const average = sum / this.dataArray.length;
-            
+
             if (average < 10) isSilence = true;
         }
 
@@ -215,7 +215,7 @@ export class AudioRecorder {
     // 자동 재연결: 마이크 트랙이 끊겼을 때 다시 연결
     async _tryReconnect() {
         if (!this.isRecording) return;
-        
+
         this._consecutiveErrors++;
         if (this._consecutiveErrors > this._maxRetries) {
             console.error(`❌ 연속 ${this._maxRetries}회 재연결 실패. 녹음 중단.`);
@@ -238,7 +238,7 @@ export class AudioRecorder {
         try {
             if (this._mode === 'mic') {
                 this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
+
                 const track = this.stream.getAudioTracks()[0];
                 if (track) {
                     track.onended = () => {
@@ -246,7 +246,7 @@ export class AudioRecorder {
                         this._tryReconnect();
                     };
                 }
-                
+
                 this.setupAudioAnalysis();
                 console.log('✅ 마이크 재연결 성공. 녹음 재개.');
                 this.startSmartChunk();
@@ -276,12 +276,12 @@ export class AudioRecorder {
             if (this.isRecording) this.startSmartChunk();
         }, delay);
     }
-    
+
     getSupportedMimeType() {
         const types = [
-            'audio/webm;codecs=opus', 
-            'audio/webm', 
-            'audio/mp4', 
+            'audio/webm;codecs=opus',
+            'audio/webm',
+            'audio/mp4',
             'audio/ogg'
         ];
         for (const type of types) {
@@ -289,30 +289,30 @@ export class AudioRecorder {
         }
         return '';
     }
-  
-    stop() {
-      console.log(`⏹️ Stopping recorder (총 ${this._chunkCount}개 청크 전송됨)`);
-      this.isRecording = false; 
-      
-      if (this.currentRecorder && this.currentRecorder.state !== 'inactive') {
-        try { this.currentRecorder.stop(); } catch(e) {}
-      }
-      
-      if (this.stream) {
-          this.stream.getTracks().forEach(track => track.stop());
-      }
-      if (this.audioStream) {
-          this.audioStream.getTracks().forEach(track => track.stop());
-      }
-      
-      if (this.audioContext && this.audioContext.state !== 'closed') {
-          try { this.audioContext.close(); } catch(e) {}
-      }
 
-      this.stream = null;
-      this.audioStream = null;
-      this.currentRecorder = null;
-      this.analyser = null;
-      this.audioContext = null;
+    stop() {
+        console.log(`⏹️ Stopping recorder (총 ${this._chunkCount}개 청크 전송됨)`);
+        this.isRecording = false;
+
+        if (this.currentRecorder && this.currentRecorder.state !== 'inactive') {
+            try { this.currentRecorder.stop(); } catch (e) { }
+        }
+
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => track.stop());
+        }
+        if (this.audioStream) {
+            this.audioStream.getTracks().forEach(track => track.stop());
+        }
+
+        if (this.audioContext && this.audioContext.state !== 'closed') {
+            try { this.audioContext.close(); } catch (e) { }
+        }
+
+        this.stream = null;
+        this.audioStream = null;
+        this.currentRecorder = null;
+        this.analyser = null;
+        this.audioContext = null;
     }
 }

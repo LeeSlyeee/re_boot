@@ -388,47 +388,39 @@ class LiveSessionViewSet(viewsets.ViewSet):
             'quiz_suggestion_triggered': quiz_suggestion_triggered,
         })
 
-    # ── Step B-2: DS-CNN 오디오 키워드 스포팅 ──
+    # ── Step B-2: 라즈베리 파이 KWS 웹훅 (Edge-Computing) ──
 
-    @action(detail=True, methods=['post'], url_path='audio-kws')
-    def audio_keyword_spotting(self, request, pk=None):
+    @action(detail=False, methods=['post'], url_path='kws-webhook', permission_classes=[permissions.AllowAny])
+    def kws_webhook(self, request):
         """
-        POST /api/learning/live/{id}/audio-kws/
-        교수자 브라우저 Web Audio API → 오디오 청크 수신 → DS-CNN 추론
-        기존 STT 텍스트 매칭과 병렬로 동작하는 듀얼 파이프라인
+        POST /api/learning/live/kws-webhook/
+        라즈베리 파이(Edge)에서 KWS 트리거 시 호출되는 웹훅 API.
+        오디오 없이 텍스트 신호만 즉각 전달됨 (Zero Latency).
+        
+        페이로드 예시: {"keyword": "QUIZ", "confidence": 0.99}
         """
-        session = get_object_or_404(LiveSession, id=pk, instructor=request.user, status='LIVE')
+        keyword = request.data.get('keyword', '').upper()
+        confidence = request.data.get('confidence', 1.0)
+        
+        # 1안 전략 (데모/단일 교수 환경): 현재 활성화(LIVE)된 가장 최근의 세션을 자동 타겟팅
+        session = LiveSession.objects.filter(status='LIVE').order_by('-started_at').first()
 
-        audio_b64 = request.data.get('audio')
-        if not audio_b64:
-            return Response({'error': 'audio(base64)는 필수입니다.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not session:
+            logger.warning(f"⚠️ [Edge KWS] 웹훅 수신됨 (키워드: {keyword}), 하지만 진행 중인 LIVE 세션이 없습니다.")
+            return Response({'error': '현재 진행 중인 LIVE 세션이 없습니다.'}, status=status.HTTP_404_NOT_FOUND)
 
-        try:
-            # Base64 → float32 배열 (16kHz, 1초)
-            audio_bytes = base64.b64decode(audio_b64)
-            audio_float32 = np.frombuffer(audio_bytes, dtype=np.float32)
+        logger.info(f"🎙️ [Edge KWS Webhook] 키워드 감지: session={session.id}, keyword={keyword}, confidence={confidence}")
 
-            # DS-CNN 추론
-            from .kws_engine import KWSEngine
-            engine = KWSEngine.get_instance()
-            result = engine.predict(audio_float32, session_id=session.id)
-
-        except Exception as e:
-            logger.error(f"KWS 추론 오류: {e}")
-            return Response({
-                'label': '_error_',
-                'confidence': 0.0,
-                'detected': False,
-                'error': str(e),
-            })
-
-        # 키워드 감지 시 퀴즈 제안 트리거 (기존 STT와 동일한 스팸 방지 로직 공유)
         quiz_suggestion_triggered = False
-        if result['detected']:
+        
+        # 'QUIZ' 키워드로 퀴즈 제안 생성
+        if keyword in ['QUIZ', 'UNDERSTAND']:
+            # 최근 5분 내 제안이 없을 때만 (스팸 방지)
             recent_suggestion = session.quizzes.filter(
                 is_suggestion=True,
                 triggered_at__gte=timezone.now() - timedelta(minutes=5)
             ).exists()
+            
             if not recent_suggestion:
                 thread = threading.Thread(
                     target=_generate_quiz_suggestion, args=(session.id,)
@@ -436,43 +428,91 @@ class LiveSessionViewSet(viewsets.ViewSet):
                 thread.daemon = True
                 thread.start()
                 quiz_suggestion_triggered = True
-                logger.info(
-                    f"🎙️ DS-CNN 키워드 감지: session={session.id}, "
-                    f"label={result['label']}, confidence={result['confidence']:.2f}"
-                )
+                logger.info(f"✅ [Edge KWS] 세션 {session.id}에 AI 퀴즈 제안이 성공적으로 트리거되었습니다.")
 
-        return Response({
-            'label': result['label'],
-            'confidence': result['confidence'],
-            'detected': result['detected'],
-            'quiz_suggestion_triggered': quiz_suggestion_triggered,
-        })
-
-    # ── Step B-3: 라즈베리파이 연결 관리 ──
+            return Response({
+                'status': 'success',
+                'keyword': keyword,
+                'session_id': session.id,
+                'quiz_suggestion_triggered': quiz_suggestion_triggered,
+                'message': 'Quiz suggestion triggered.' if quiz_suggestion_triggered else 'Ignored (spam protection).'
+            })
+            
+        return Response({'status': 'ignored', 'message': f'Unknown keyword: {keyword}'}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=['get', 'post'], url_path='rpi-status')
     def rpi_status(self, request):
         """
-        GET  /api/learning/live/rpi-status/  → 연결 상태 조회
-        POST /api/learning/live/rpi-status/  → IP 변경 + 재연결
-             body: { "host": "172.16.206.43", "port": 9999 }
+        [Phase 3] GET / POST /api/learning/live/rpi-status/
+        프론트엔드(교수자 대시보드)에서 라즈베리 파이 IP 통신 상태를 체크하기 위한 API
+        Django는 KWS 연산을 하지 않지만, 단순히 "그 IP와 포트가 열려있는지" 핑(Ping) 테스트만 대행합니다.
         """
-        from .kws_engine import KWSEngine
-        engine = KWSEngine.get_instance()
-
+        import socket
+        
+        # 세션 연동 없이 단순히 전역 상태처럼 관리 (프론트 UI용)
+        # 실제 KWS는 Raspberry Pi -> Django 로의 단방향 웹훅이므로, 여기서 맺은 소켓 연결을 유지하지 않습니다.
+        
         if request.method == 'POST':
-            host = request.data.get('host')
-            port = request.data.get('port')
+            host = request.data.get('host', '').strip()
+            port = request.data.get('port', 9999)
+            manual_launch = request.data.get('manual_launch', False)
+            
             if not host:
-                return Response({'error': 'host는 필수입니다.'}, status=status.HTTP_400_BAD_REQUEST)
-            result = engine.reconnect_rpi(
-                host=host,
-                port=int(port) if port else None
-            )
-            logger.info(f"🔄 라즈베리파이 재연결: {host}:{port} → {'성공' if result['rpi_connected'] else '실패'}")
-            return Response(result)
+                return Response({'error': 'IP 주소가 필요합니다.'}, status=400)
+                
+            # TCP 소켓 연결 테스트 (Ping 기능)
+            is_connected = False
+            try:
+                test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                test_socket.settimeout(2.0) # 2초 컷
+                test_socket.connect((host, int(port)))
+                is_connected = True
+                test_socket.close() # 핑만 쳐보고 바로 닫음
+            except Exception as e:
+                is_connected = False
+                
+            # [편의성 매크로] 로컬 환경(현재 개발/테스트 PC)에서 교수 대시보드의 '연결' 버튼을 누를 때만
+            # 자동으로 PC 마이크 클라이언트 스크립트를 새 터미널 창(CMD)으로 띄워줍니다.
+            if is_connected and manual_launch:
+                import os
+                # 실행 중인 동일 창이 있는지 확인 후 띄우기 위해 (단순 구현으로 title 활용 가능하나 여기선 패스)
+                # conda 실행 경로를 절대경로로 지정
+                run_cmd = f'start "KWS_Mic_Client" cmd /k "echo =================================== && echo [Auto-Started by Professor Dashboard] && echo =================================== && C:\\ProgramData\\anaconda3\\condabin\\conda.bat activate kws && cd c:\\Users\\User\\re_boot\\temp_kws && python client_pc_mic_VAD.py --ip {host}"'
+                os.system(run_cmd)
 
-        return Response(engine.get_status())
+            # 결과를 임시 메모리 장부에 기록 (단일 서버 가정)
+            # (보다 완벽하게 하려면 Redis나 DB 등 활용 권장)
+            request.session['rpi_host'] = host
+            request.session['rpi_port'] = int(port)
+            request.session['rpi_connected'] = is_connected
+            
+            return Response({
+                'rpi_connected': is_connected,
+                'rpi_host': host,
+                'rpi_port': port
+            })
+            
+        else: # GET
+            host = request.session.get('rpi_host', '')
+            port = request.session.get('rpi_port', 9999)
+            is_connected = request.session.get('rpi_connected', False)
+            
+            # GET 요청 시마다 다시 한번 핑을 쳐서 살아있는지 확인 최신화
+            if host:
+                try:
+                    test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    test_socket.settimeout(1.0)
+                    test_socket.connect((host, int(port)))
+                    is_connected = True
+                    test_socket.close()
+                except:
+                    is_connected = False
+            
+            return Response({
+                'rpi_connected': is_connected,
+                'rpi_host': host,
+                'rpi_port': port
+            })
 
     @action(detail=True, methods=['get'], url_path='stt-feed')
     def stt_feed(self, request, pk=None):
@@ -1051,53 +1091,65 @@ class JoinLiveSessionView(APIView):
         ).first()
 
         if not session:
+            logger.warning(f"⚠️ [JoinSession] 유효하지 않은 코드 시도: {session_code} (User: {request.user.username})")
             return Response({'error': '유효하지 않거나 종료된 세션 코드입니다.'},
                             status=status.HTTP_404_NOT_FOUND)
 
-        # 이미 참가한 경우 → 재입장 처리
-        existing = LiveParticipant.objects.filter(
-            live_session=session,
-            student=request.user
-        ).first()
+        try:
+            # 이미 참가한 경우 → 재입장 처리
+            existing = LiveParticipant.objects.filter(
+                live_session=session,
+                student=request.user
+            ).first()
 
-        if existing:
-            existing.is_active = True
-            existing.save()
+            if existing:
+                existing.is_active = True
+                existing.save() # save() 호출 시 auto_now인 last_heartbeat가 자동 갱신됨
+                return Response({
+                    'message': '세션에 재입장했습니다.',
+                    'session_id': session.id,
+                    'session_code': session.session_code,
+                    'status': session.status,
+                    'title': session.title or session.lecture.title,
+                    'learning_session_id': existing.learning_session_id if existing.learning_session_id else None,
+                })
+
+            # 개인 LearningSession 자동 생성 (중복 순번 방지)
+            last_order = LearningSession.objects.filter(
+                student=request.user,
+                lecture=session.lecture
+            ).order_by('-session_order').values_list('session_order', flat=True).first() or 0
+
+            learning_session = LearningSession.objects.create(
+                student=request.user,
+                lecture=session.lecture,
+                session_order=last_order + 1,
+            )
+
+            # 참가자 등록
+            participant = LiveParticipant.objects.create(
+                live_session=session,
+                student=request.user,
+                learning_session=learning_session,
+            )
+
+            # 해당 강의에 수강 등록되어 있지 않으면 자동 등록
+            if not session.lecture.students.filter(id=request.user.id).exists():
+                session.lecture.students.add(request.user)
+
             return Response({
-                'message': '세션에 재입장했습니다.',
+                'message': '세션에 입장했습니다.',
                 'session_id': session.id,
                 'session_code': session.session_code,
                 'status': session.status,
                 'title': session.title or session.lecture.title,
-                'learning_session_id': existing.learning_session_id,
-            })
+                'learning_session_id': learning_session.id,
+            }, status=status.HTTP_201_CREATED)
 
-        # 개인 LearningSession 자동 생성
-        learning_session = LearningSession.objects.create(
-            student=request.user,
-            lecture=session.lecture,
-            session_order=1,
-        )
-
-        # 참가자 등록
-        participant = LiveParticipant.objects.create(
-            live_session=session,
-            student=request.user,
-            learning_session=learning_session,
-        )
-
-        # 해당 강의에 수강 등록되어 있지 않으면 자동 등록
-        if not session.lecture.students.filter(id=request.user.id).exists():
-            session.lecture.students.add(request.user)
-
-        return Response({
-            'message': '세션에 입장했습니다.',
-            'session_id': session.id,
-            'session_code': session.session_code,
-            'status': session.status,
-            'title': session.title or session.lecture.title,
-            'learning_session_id': learning_session.id,
-        }, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            logger.error(f"❌ [JoinSession] 입장 처리 중 에러: {str(e)}")
+            return Response({'error': f'입장 처리 중 서버 오류가 발생했습니다: {str(e)}'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 # ══════════════════════════════════════════════════════════

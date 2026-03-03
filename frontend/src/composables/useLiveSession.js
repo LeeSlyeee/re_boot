@@ -133,7 +133,7 @@ export function useLiveSession(sttLogs) {
         try {
             const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/questions/feed/`);
             liveQuestions.value = data;
-        } catch {}
+        } catch { }
     };
 
     const askQuestion = async () => {
@@ -155,7 +155,7 @@ export function useLiveSession(sttLogs) {
         try {
             await api.post(`/learning/live/${liveSessionData.value.session_id}/questions/${questionId}/upvote/`);
             await fetchLiveQuestions();
-        } catch {}
+        } catch { }
     };
 
     // --- Review & Assessment (loaded after live session ends) ---
@@ -257,7 +257,7 @@ export function useLiveSession(sttLogs) {
                     fetchFormative();
                 }
             }
-        } catch {}
+        } catch { }
     };
 
     const startNotePolling = () => {
@@ -280,7 +280,7 @@ export function useLiveSession(sttLogs) {
                 try {
                     const pulse = await api.get(`/learning/live/${liveSessionData.value.session_id}/pulse-stats/`);
                     livePulseStats.value = pulse.data;
-                } catch {}
+                } catch { }
                 // 미응답 퀴즈 체크
                 if (!pendingQuiz.value && !quizResult.value) {
                     try {
@@ -288,7 +288,7 @@ export function useLiveSession(sttLogs) {
                         if (qr.data.length > 0) {
                             pendingQuiz.value = qr.data[0];
                         }
-                    } catch {}
+                    } catch { }
                 }
                 // Q&A
                 if (qaOpen.value) await fetchLiveQuestions();
@@ -315,8 +315,8 @@ export function useLiveSession(sttLogs) {
                             if (el) el.scrollTop = el.scrollHeight;
                         });
                     }
-                } catch {}
-            } catch {}
+                } catch { }
+            } catch { }
         }, 2000);
     };
 
