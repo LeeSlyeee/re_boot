@@ -134,6 +134,11 @@ class LiveSessionViewSet(viewsets.ViewSet):
             # 활성 퀴즈 비활성화
             session.quizzes.filter(is_active=True).update(is_active=False)
 
+            # [편의성 개선] 수업 종료 시 교수 PC에 띄워둔 KWS 마이크 CMD 창 자동 강제 종료
+            import os
+            # KWS_Mic_Client라는 창 타이틀을 가진 cmd.exe 프로세스를 찾아 종료
+            os.system('taskkill /FI "WINDOWTITLE eq KWS_Mic_Client*" /T /F >nul 2>&1')
+
             # 통합 노트 생성 시작 (비동기) — 중복 방지
             existing_note = LiveSessionNote.objects.filter(live_session=session).first()
             if not existing_note:

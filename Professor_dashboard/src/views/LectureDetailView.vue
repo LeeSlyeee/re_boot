@@ -1741,7 +1741,7 @@ onMounted(fetchDashboard);
                         <input v-model="rpiHost" placeholder="IP (예: 172.16.206.43)" class="rpi-input" />
                         <input v-model="rpiPort" placeholder="포트" class="rpi-input rpi-port" />
                         <button class="rpi-btn rpi-btn-test" @click="connectRpi" :disabled="rpiConnecting">
-                            {{ rpiConnecting ? '테스트 중...' : '연결 테스트' }}
+                            {{ rpiConnecting ? '테스트 중...' : '연결' }}
                         </button>
                     </div>
                 </div>
