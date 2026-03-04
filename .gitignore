@@ -24,3 +24,6 @@ screencapture-*.png
 # Node
 node_modules/
 dist/
+
+# SSH
+sshKey/
