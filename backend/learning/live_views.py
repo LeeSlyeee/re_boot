@@ -441,8 +441,13 @@ class LiveSessionViewSet(viewsets.ViewSet):
                     f"label={result['label']}, confidence={result['confidence']:.2f}"
                 )
 
+        # 한글 표시명 매핑
+        from .kws_engine import LABEL_DISPLAY
+        label_display = LABEL_DISPLAY.get(result['label'], result['label'])
+
         return Response({
             'label': result['label'],
+            'label_display': label_display,
             'confidence': result['confidence'],
             'detected': result['detected'],
             'quiz_suggestion_triggered': quiz_suggestion_triggered,

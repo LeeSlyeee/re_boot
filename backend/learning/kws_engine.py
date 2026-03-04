@@ -1,6 +1,12 @@
 """
 DS-CNN 기반 키워드 스포팅 엔진 (Keyword Spotting Engine)
-강사 음성에서 '퀴즈', '이해하셨나요' 등 교육 키워드를 실시간으로 감지
+강사 음성에서 교육 키워드를 실시간으로 감지
+
+키워드 (6 클래스, TTS 모델):
+  - quiz_start:  "퀴즈 시작"
+  - quiz_solve:  "퀴즈 풀자"
+  - problem:     "문제야"
+  - understand:  "이해하셨나요"
 
 듀얼 모드 지원:
   1) REMOTE: 라즈베리파이 소켓 서버로 오디오 전송 → 결과 수신
@@ -30,25 +36,46 @@ DCT_COEFFICIENT_COUNT = 10
 FINGERPRINT_SIZE = 490  # 49 frames × 10 coefficients
 CHUNK_SIZE = int(SAMPLE_RATE * 250 / 1000)  # 0.25초 = 4000 samples
 
-# ── 라벨 ──
-LABELS = ['_silence_', '_unknown_', 'quiz', 'understand']
+# ── 라벨 (TTS 모델 6클래스) ──
+LABELS = ['_silence_', '_unknown_', 'quiz_start', 'quiz_solve', 'problem', 'understand']
 
-# ── 감지 임계값 (과적합 대응: 높은 임계값) ──
+# ── 키워드 인덱스 (silence/unknown 제외) ──
+KEYWORD_INDICES = [2, 3, 4, 5]
+
+# ── 감지 임계값 ──
 THRESHOLDS = {
-    'quiz': 0.85,
-    'understand': 0.85,
+    'quiz_start': 0.60,
+    'quiz_solve': 0.60,
+    'problem': 0.60,
+    'understand': 0.60,
 }
-CONFIDENCE_GAP = 0.3  # 1위와 2위 클래스 간 최소 격차 (차등 점수)
+CONFIDENCE_GAP = 0.2  # 1위와 2위 클래스 간 최소 격차
 
-# ── 안정성 파라미터 (과적합 대응: 강화) ──
+# ── 안정성 파라미터 ──
 SMOOTHING_WINDOW = 3        # 3연속 감지 필요
 SUPPRESSION_TICKS = 10      # 감지 후 2.5초 중복 무시
-MIN_VOLUME = 0.05           # 소음 기각 강화
+MIN_VOLUME = 0.03           # 소음 기각
 
 # ── 라즈베리파이 설정 (환경변수로 동적 관리) ──
 RPI_HOST = os.environ.get('KWS_RPI_HOST', '172.16.206.43')
 RPI_PORT = int(os.environ.get('KWS_RPI_PORT', '9999'))
 KWS_MODE = os.environ.get('KWS_MODE', 'auto')  # remote | local | auto
+
+# ── 라즈베리파이 트리거 → 내부 라벨 매핑 ──
+TRIGGER_LABEL_MAP = {
+    'TRIGGER_QUIZ_START': 'quiz_start',
+    'TRIGGER_QUIZ_SOLVE': 'quiz_solve',
+    'TRIGGER_PROBLEM': 'problem',
+    'TRIGGER_UNDERSTAND': 'understand',
+}
+
+# ── 키워드 한글 표시명 ──
+LABEL_DISPLAY = {
+    'quiz_start': '🎯 퀴즈시작',
+    'quiz_solve': '🧩 퀴즈풀자',
+    'problem': '📝 문제야',
+    'understand': '✅ 이해하셨나요',
+}
 
 
 class KWSEngine:
@@ -107,12 +134,12 @@ class KWSEngine:
     def _init_local_engine(self):
         """
         로컬 TFLite 추론 — 현재 비활성화
-        
+
         사유: DS-CNN 모델은 TF 1.x의 contrib_audio.audio_spectrogram + mfcc로
         학습되었으나, 로컬에서는 librosa.feature.mfcc를 사용하여 MFCC 특성이 불일치.
         이로 인해 모든 오디오에 높은 신뢰도로 오감지 발생 (과적합처럼 보이는 현상).
-        
-        라즈베리파이에서는 동일한 TF contrib_audio를 사용하므로 정상 동작.
+
+        라즈베리파이에서는 python_speech_features.mfcc를 사용하여 정상 동작.
         → 라즈베리파이 전용 모드로 운영 권장.
         """
         logger.info("로컬 TFLite 추론 비활성화 (MFCC 불일치 문제). 라즈베리파이 전용 모드.")
@@ -137,7 +164,7 @@ class KWSEngine:
         return mfcc_t.flatten().reshape(1, -1).astype(np.float32)
 
     def _predict_local(self, audio_float32: np.ndarray) -> np.ndarray:
-        """로컬 TFLite 추론 → 확률 배열 [4]"""
+        """로컬 TFLite 추론 → 확률 배열 [6]"""
         fingerprint = self._extract_mfcc(audio_float32)
         self._interpreter.set_tensor(self._input_details[0]['index'], fingerprint)
         self._interpreter.invoke()
@@ -179,7 +206,9 @@ class KWSEngine:
     def _predict_rpi(self, audio_float32: np.ndarray) -> dict:
         """
         라즈베리파이로 오디오 전송 → 결과 수신
-        프로토콜: 0.25초 단위 Int16 청크 전송, 감지 시 "TRIGGER_QUIZ\n" 수신
+        프로토콜: 0.25초 단위 Int16 청크 전송
+        감지 시 "TRIGGER_QUIZ_START\n" / "TRIGGER_QUIZ_SOLVE\n" /
+              "TRIGGER_PROBLEM\n" / "TRIGGER_UNDERSTAND\n" 수신
         """
         with self._rpi_lock:
             try:
@@ -206,10 +235,11 @@ class KWSEngine:
                 while b'\n' in self._rpi_recv_buffer:
                     line, self._rpi_recv_buffer = self._rpi_recv_buffer.split(b'\n', 1)
                     msg = line.decode('utf-8').strip()
-                    if msg == 'TRIGGER_QUIZ':
-                        result = {'label': 'quiz', 'confidence': 1.0, 'detected': True}
-                    elif msg == 'TRIGGER_UNDERSTAND':
-                        result = {'label': 'understand', 'confidence': 1.0, 'detected': True}
+                    if msg in TRIGGER_LABEL_MAP:
+                        label = TRIGGER_LABEL_MAP[msg]
+                        display = LABEL_DISPLAY.get(label, label)
+                        result = {'label': label, 'confidence': 1.0, 'detected': True}
+                        logger.info(f"🔔 라즈베리파이 감지: {display}")
 
                 return result
 
@@ -221,7 +251,7 @@ class KWSEngine:
 
     def _post_filter_rpi(self, result: dict, session_id: int, volume: float) -> dict:
         """
-        라즈베리파이 트리거에 후처리 필터 적용 (과적합 대응)
+        라즈베리파이 트리거에 후처리 필터 적용
         - 볼륨 게이트: 너무 작은 소리는 무시
         - 연속 감지: 같은 키워드가 2회 연속 감지되어야 인정
         - 억제: 감지 후 쿨다운
@@ -293,7 +323,7 @@ class KWSEngine:
             if rpi_result is not None:
                 rpi_result['volume'] = round(volume, 4)
                 rpi_result['source'] = 'rpi'
-                # 과적합 대응: 후처리 필터
+                # 후처리 필터
                 rpi_result = self._post_filter_rpi(rpi_result, session_id, volume)
                 return rpi_result
             # None이면 연결 끊김 → 로컬 폴백
@@ -359,6 +389,8 @@ class KWSEngine:
             'rpi_host': os.environ.get('KWS_RPI_HOST', RPI_HOST),
             'rpi_port': int(os.environ.get('KWS_RPI_PORT', str(RPI_PORT))),
             'local_available': self._interpreter is not None,
+            'labels': LABELS,
+            'keyword_labels': [LABELS[i] for i in KEYWORD_INDICES],
         }
 
     def reconnect_rpi(self, host: str = None, port: int = None):

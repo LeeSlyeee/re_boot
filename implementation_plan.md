@@ -7,7 +7,7 @@
 
 ### 1.1 기술 스택
 
-- **Database**: MariaDB (관계형 데이터 및 퀴즈/성취도 기록 관리)
+- **Database**: PostgreSQL (관계형 데이터 및 퀴즈/성취도 기록 관리)
 - **Backend**: Django REST Framework (DRF) (API 서버, 권한 관리, AI 파이프라인 연동)
 - **Frontend**: Vue.js 3 + Pinia + Vite (대시보드, 학습창, 리포트 UI)
 - **AI Engine**: STT(Whisper), LLM(GPT-4o/Claude 3.5 Sonnet) - 요약 및 퀴즈 생성용
@@ -36,7 +36,7 @@ graph LR
 
 ---
 
-## 3. 데이터베이스 설계 (MariaDB Schema)
+## 3. 데이터베이스 설계 (PostgreSQL Schema)
 
 ### 3.1 사용자 및 그룹 관리
 
@@ -101,7 +101,7 @@ graph LR
 
 ### 1주차: 프로젝트 세팅 및 사용자/클래스 구조
 
-- Django 프로젝트 및 MariaDB 연동.
+- Django 프로젝트 및 PostgreSQL 연동.
 - User Model 확장 (Role 구분) 및 ClassGroup 모델링.
 - Vue.js 레이아웃 (Student/Instructor/Manager 분기 처리).
 

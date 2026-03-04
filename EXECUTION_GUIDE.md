@@ -4,7 +4,7 @@
 
 - **Python** 3.10 이상
 - **Node.js** 18.0 이상
-- **MariaDB** (로컬 설치 및 실행 필요)
+- **PostgreSQL** (로컬 설치 및 실행 필요)
 
 ---
 
@@ -24,7 +24,7 @@ pip install django djangorestframework django-cors-headers mysqlclient python-do
 
 ### 2.2 데이터베이스 연결 설정
 
-- `backend/reboot_api/settings.py` 파일의 `DATABASES` 항목이 로컬 MariaDB 설정과 맞는지 확인합니다.
+- `backend/reboot_api/settings.py` 파일의 `DATABASES` 항목이 로컬 PostgreSQL 설정과 맞는지 확인합니다.
 - 기본 설정:
   - **User**: root
   - **Password**: 1q2w3e4r

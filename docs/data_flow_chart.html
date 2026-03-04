@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Re:Boot 데이터 플로우 차트</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg-primary: #0a0a0f;
+    --bg-card: #12121a;
+    --border-color: rgba(255,255,255,0.08);
+    --text-primary: #f0f0f5;
+    --text-secondary: #8b8b9e;
+    --accent-blue: #3b82f6;
+    --accent-purple: #8b5cf6;
+    --accent-green: #10b981;
+    --accent-orange: #f59e0b;
+    --accent-pink: #ec4899;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    min-height: 100vh;
+}
+body::before {
+    content: '';
+    position: fixed; top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background:
+        radial-gradient(ellipse at 20% 50%, rgba(59,130,246,0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 20%, rgba(139,92,246,0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 80%, rgba(16,185,129,0.04) 0%, transparent 50%);
+    z-index: 0; pointer-events: none;
+}
+.page-wrapper {
+    position: relative; z-index: 1;
+    max-width: 1600px; margin: 0 auto;
+    padding: 40px 32px 80px;
+}
+.page-header { text-align: center; margin-bottom: 48px; }
+.page-header .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(59,130,246,0.12);
+    border: 1px solid rgba(59,130,246,0.25);
+    color: var(--accent-blue);
+    font-size: 13px; font-weight: 600;
+    padding: 6px 16px; border-radius: 100px;
+    margin-bottom: 16px; letter-spacing: 0.5px;
+}
+.page-header h1 {
+    font-size: 36px; font-weight: 700;
+    background: linear-gradient(135deg, #f0f0f5 0%, #8b8b9e 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 12px;
+}
+.page-header p {
+    font-size: 16px; color: var(--text-secondary);
+    max-width: 700px; margin: 0 auto; line-height: 1.6;
+}
+.chart-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px; padding: 32px;
+    margin-bottom: 32px;
+    transition: border-color 0.3s ease;
+}
+.chart-section:hover { border-color: rgba(255,255,255,0.14); }
+.section-header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 24px; padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+.section-icon {
+    width: 40px; height: 40px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; flex-shrink: 0;
+}
+.section-icon.blue { background: rgba(59,130,246,0.15); }
+.section-icon.purple { background: rgba(139,92,246,0.15); }
+.section-icon.green { background: rgba(16,185,129,0.15); }
+.section-icon.orange { background: rgba(245,158,11,0.15); }
+.section-icon.pink { background: rgba(236,72,153,0.15); }
+.section-title { font-size: 20px; font-weight: 700; }
+.section-subtitle { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+.diagram-box {
+    display: flex; justify-content: flex-start;
+    overflow-x: auto; padding: 24px 0;
+}
+.diagram-box svg {
+    min-width: 1200px;
+    height: auto !important;
+}
+.legend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px; margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+.legend-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; background: rgba(255,255,255,0.03);
+    border-radius: 8px; font-size: 13px;
+}
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.legend-dot.blue { background: var(--accent-blue); }
+.legend-dot.purple { background: var(--accent-purple); }
+.legend-dot.green { background: var(--accent-green); }
+.legend-dot.orange { background: var(--accent-orange); }
+.legend-dot.pink { background: var(--accent-pink); }
+.page-footer {
+    text-align: center; padding: 32px 0 0;
+    color: var(--text-secondary); font-size: 13px;
+}
+.detail-cards {
+    display: flex; flex-direction: column; gap: 16px;
+    margin-top: 24px; padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+.detail-card {
+    background: rgba(255,255,255,0.02);
+    border-radius: 10px; padding: 20px 24px;
+}
+.detail-card-title {
+    font-size: 15px; font-weight: 700; margin-bottom: 12px;
+    color: var(--text-primary);
+}
+.detail-card-body {
+    font-size: 14px; line-height: 1.8; color: var(--text-secondary);
+}
+.detail-card-body b { color: var(--text-primary); }
+.detail-card-body code {
+    background: rgba(59,130,246,0.12); color: var(--accent-blue);
+    padding: 2px 6px; border-radius: 4px; font-size: 12px;
+}
+.detail-card-body ul {
+    margin: 8px 0 8px 20px; padding: 0;
+}
+.detail-card-body li { margin-bottom: 4px; }
+.detail-card-body p { margin-bottom: 6px; }
+@media (max-width: 768px) {
+    .page-wrapper { padding: 24px 16px 60px; }
+    .page-header h1 { font-size: 26px; }
+    .chart-section { padding: 20px 16px; }
+    .legend-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="page-wrapper">
+
+<header class="page-header">
+    <div class="badge">ARCHITECTURE</div>
+    <h1>Re:Boot 데이터 플로우 차트</h1>
+    <p>AI 기반 커리어 빌드업 플랫폼의 전체 데이터 이동 흐름을 시각화합니다.</p>
+</header>
+
+<!-- 1 -->
+<section class="chart-section">
+<div class="section-header">
+    <div class="section-icon blue">🏗️</div>
+    <div><div class="section-title">1. 시스템 전체 아키텍처</div>
+    <div class="section-subtitle">Frontend - Backend - Database - External AI 데이터 흐름</div></div>
+</div>
+<div class="diagram-box"><div id="d1"></div></div>
+<div class="legend-grid">
+    <div class="legend-item"><span class="legend-dot blue"></span> Frontend → Backend: JWT Bearer Token 인증</div>
+    <div class="legend-item"><span class="legend-dot green"></span> Backend → DB: Django ORM CRUD</div>
+    <div class="legend-item"><span class="legend-dot purple"></span> Backend ↔ AI: OpenAI API 양방향</div>
+    <div class="legend-item"><span class="legend-dot orange"></span> 강사 앱: 별도 포트 5174</div>
+</div>
+</section>
+
+<!-- 2 -->
+<section class="chart-section">
+<div class="section-header">
+    <div class="section-icon green">🔐</div>
+    <div><div class="section-title">2. 인증 및 사용자 데이터 플로우</div>
+    <div class="section-subtitle">회원가입 → 로그인 → JWT 토큰 → 인증 유지</div></div>
+</div>
+<div class="diagram-box"><div id="d2"></div></div>
+</section>
+
+<!-- 3 -->
+<section class="chart-section">
+<div class="section-header">
+    <div class="section-icon purple">🎙️</div>
+    <div><div class="section-title">3. 실시간 STT 학습 데이터 파이프라인</div>
+    <div class="section-subtitle">음성 캡처 → Whisper STT → 저장 → AI 요약 → 퀴즈</div></div>
+</div>
+<div class="diagram-box"><div id="d3"></div></div>
+</section>
+
+<!-- 4 -->
+<section class="chart-section">
+<div class="section-header">
+    <div class="section-icon orange">📝</div>
+    <div><div class="section-title">4. 퀴즈 채점 및 성취도 데이터 흐름</div>
+    <div class="section-subtitle">답안 제출 → 자동 채점 → 통계 → 대시보드</div></div>
+</div>
+<div class="diagram-box"><div id="d4"></div></div>
+</section>
+
+<!-- 5 -->
+<section class="chart-section">
+<div class="section-header">
+    <div class="section-icon pink">🏫</div>
+    <div><div class="section-title">5. 수강 등록 및 클래스 관리</div>
+    <div class="section-subtitle">강사: 클래스 생성 + 코드 발급 / 학생: 코드 입력 + 등록</div></div>
+</div>
+<div class="diagram-box"><div id="d5"></div></div>
+</section>
+
+<!-- 6 -->
+<section class="chart-section">
+<div class="section-header">
+    <div class="section-icon blue">📊</div>
+    <div><div class="section-title">6. 강사/매니저 대시보드 데이터 흐름</div>
+    <div class="section-subtitle">학생별 성취도 / 반 전체 성취율 관리</div></div>
+</div>
+<div class="diagram-box"><div id="d6"></div></div>
+</section>
+
+<!-- 7 -->
+<section class="chart-section">
+<div class="section-header">
+    <div class="section-icon green">💼</div>
+    <div><div class="section-title">7. 커리어 포트폴리오 및 AI 면접</div>
+    <div class="section-subtitle">학습 이력 → AI 포트폴리오 / 스킬블록 모의면접</div></div>
+</div>
+<div class="diagram-box"><div id="d7"></div></div>
+</section>
+
+<!-- 8 -->
+<section class="chart-section">
+<div class="section-header">
+    <div class="section-icon orange">🔄</div>
+    <div><div class="section-title">8. 세션 복구 및 상태 유지</div>
+    <div class="section-subtitle">브라우저 새로고침 시 localStorage → Backend 동기화</div></div>
+</div>
+<div class="diagram-box"><div id="d8"></div></div>
+</section>
+
+<!-- 9 -->
+<section class="chart-section">
+<div class="section-header">
+    <div class="section-icon purple">🗂️</div>
+    <div><div class="section-title">9. 데이터베이스 Entity 관계도</div>
+    <div class="section-subtitle">PostgreSQL: 사용자 → 세션 → STT → 요약 → 퀴즈 → 포트폴리오</div></div>
+</div>
+<div class="diagram-box"><div id="d9"></div></div>
+</section>
+
+<!-- 10 -->
+<section class="chart-section">
+<div class="section-header">
+    <div class="section-icon pink">⚡</div>
+    <div><div class="section-title">10. 고급 기능 데이터 흐름</div>
+    <div class="section-subtitle">라이브 세션 / 수준 진단 / AI 챗봇 / 복습 루트 / 적응형 콘텐츠</div></div>
+</div>
+<div class="diagram-box"><div id="d10"></div></div>
+<div class="legend-grid">
+    <div class="legend-item"><span class="legend-dot pink"></span> 라이브 세션: 실시간 강의 + 필기</div>
+    <div class="legend-item"><span class="legend-dot orange"></span> 수준 진단: 배치 테스트 → 갭 맵</div>
+    <div class="legend-item"><span class="legend-dot blue"></span> AI 챗봇: RAG + LLM 응답</div>
+    <div class="legend-item"><span class="legend-dot purple"></span> 복습: 형성평가 → 간격 반복</div>
+    <div class="legend-item"><span class="legend-dot green"></span> 적응형: AI 변형 → 교수자 승인</div>
+</div>
+
+<!-- 고급 기능 상세 설명 -->
+<div class="detail-cards">
+
+    <div class="detail-card" style="border-left: 3px solid #ec4899;">
+        <div class="detail-card-title">🔴 라이브 세션 — 실시간 수업 참여와 필기 공유</div>
+        <div class="detail-card-body">
+            <p><b>목적:</b> 강사가 실시간 수업을 열면, 학생들이 즉시 참여하여 함께 학습하는 기능입니다.</p>
+            <p><b>데이터 흐름:</b></p>
+            <ul>
+                <li>강사가 <code>POST /live/</code>로 라이브 세션을 개설합니다.</li>
+                <li>학생이 <code>POST /live/join/</code>으로 해당 세션에 입장합니다.</li>
+                <li>수업 중 학생은 실시간으로 필기를 작성하고, 강사가 우수 필기를 <b>승인(Approve)</b>합니다.</li>
+                <li>결석한 학생도 승인된 필기를 나중에 조회하여 수업 내용을 따라갈 수 있습니다.</li>
+            </ul>
+            <p><b>핵심:</b> 출석 학생의 필기 → 강사 검증 → 결석생 공유로, <b>모든 학생이 동일한 학습 기회</b>를 가집니다.</p>
+        </div>
+    </div>
+
+    <div class="detail-card" style="border-left: 3px solid #f59e0b;">
+        <div class="detail-card-title">🟠 수준 진단 — 배치 테스트와 갭 맵</div>
+        <div class="detail-card-body">
+            <p><b>목적:</b> 학생의 현재 실력을 정확히 파악하고, 목표까지의 격차를 시각화하는 기능입니다.</p>
+            <p><b>데이터 흐름:</b></p>
+            <ul>
+                <li>학생이 <b>배치 테스트</b>(진단평가)를 응시합니다. → AI가 결과를 분석하여 현재 수준을 판별합니다.</li>
+                <li>학생이 학습 목표(예: "React 중급")를 설정합니다.</li>
+                <li>시스템이 <b>갭 맵(Gap Map)</b>을 생성합니다: "현재 수준"과 "목표 수준" 사이의 부족한 역량을 시각적으로 보여줍니다.</li>
+            </ul>
+            <p><b>핵심:</b> "내가 뭘 모르는지 모르는" 상태를 해소하고, <b>어디를 집중 학습해야 하는지</b> 명확히 알려줍니다.</p>
+        </div>
+    </div>
+
+    <div class="detail-card" style="border-left: 3px solid #3b82f6;">
+        <div class="detail-card-title">🔵 AI 튜터 챗봇 — RAG 기반 맞춤 답변</div>
+        <div class="detail-card-body">
+            <p><b>목적:</b> 학생이 학습 중 궁금한 점을 AI에게 즉시 질문하고, <b>수업 내용에 기반한 정확한 답변</b>을 받는 기능입니다.</p>
+            <p><b>데이터 흐름:</b></p>
+            <ul>
+                <li>학생이 질문을 입력합니다. → 시스템이 <b>RAG(Retrieval-Augmented Generation)</b>로 관련 학습 자료를 검색합니다.</li>
+                <li>검색된 자료 + 질문을 LLM(GPT-4o)에 전달하여 <b>맥락에 맞는 답변</b>을 생성합니다.</li>
+                <li>대화 내용은 DB에 저장되어, 나중에 다시 확인하거나 학습 분석에 활용됩니다.</li>
+            </ul>
+            <p><b>핵심:</b> 일반 ChatGPT와 달리, <b>실제 수업 자료(STT 로그, 요약본)를 참조</b>하여 답변하므로 수업 맥락에 맞는 정확한 도움을 제공합니다.</p>
+        </div>
+    </div>
+
+    <div class="detail-card" style="border-left: 3px solid #8b5cf6;">
+        <div class="detail-card-title">🟣 복습 및 간격 반복 — 약점 기반 자동 복습</div>
+        <div class="detail-card-body">
+            <p><b>목적:</b> 퀴즈에서 틀린 문제를 분석하여 약점을 파악하고, 과학적 간격 반복 학습으로 장기 기억을 돕는 기능입니다.</p>
+            <p><b>데이터 흐름:</b></p>
+            <ul>
+                <li><b>형성평가</b>를 자동 생성하여 학생에게 제공합니다. → 학생이 제출하면 <b>약점 분석</b>(weak_zone_utils)이 실행됩니다.</li>
+                <li>약점이 발견된 영역에 대해 <b>복습 루트(Review Route)</b>를 자동 생성합니다.</li>
+                <li>에빙하우스 망각 곡선 기반의 <b>간격 반복 스케줄</b>에 따라 적절한 시점에 다시 문제를 출제합니다.</li>
+            </ul>
+            <p><b>핵심:</b> 학생이 직접 "뭘 복습할지" 고민할 필요 없이, <b>시스템이 자동으로 약한 부분을 반복 학습</b>시켜 줍니다.</p>
+        </div>
+    </div>
+
+    <div class="detail-card" style="border-left: 3px solid #10b981;">
+        <div class="detail-card-title">🟢 적응형 콘텐츠 — 수준별 맞춤 학습 자료</div>
+        <div class="detail-card-body">
+            <p><b>목적:</b> 같은 수업을 듣는 학생이라도, 각자의 수준에 맞게 <b>난이도가 다른 학습 자료</b>를 제공하는 기능입니다.</p>
+            <p><b>데이터 흐름:</b></p>
+            <ul>
+                <li>교수자가 "이 자료를 수준별로 변형해달라"고 요청합니다. → <b>GPT-4o가 초급/중급/고급 버전</b>을 각각 생성합니다.</li>
+                <li>교수자가 AI 생성 결과를 검토하고 <b>승인(Approve)</b>합니다. (AI 자동 배포가 아닌 교수자 검증 필수)</li>
+                <li>승인된 콘텐츠가 학생의 진단 결과에 따라 <b>해당 수준의 버전만</b> 개별 배포됩니다.</li>
+            </ul>
+            <p><b>핵심:</b> 초급자에겐 쉬운 설명, 고급자에겐 심화 내용을 제공하여 <b>"수업이 너무 어려워요/쉬워요" 문제를 해결</b>합니다.</p>
+        </div>
+    </div>
+
+</div>
+</section>
+
+<footer class="page-footer">
+    <p>Re:Boot Career Build-up Platform · Data Flow Architecture · 2026-03-03</p>
+</footer>
+
+</div>
+
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs';
+
+mermaid.initialize({
+    startOnLoad: false,
+    theme: 'dark',
+    themeVariables: {
+        fontSize: '12px',
+        fontFamily: 'Inter, sans-serif',
+        primaryColor: '#3b82f6',
+        primaryTextColor: '#f0f0f5',
+        primaryBorderColor: '#3b82f6',
+        lineColor: '#6b7280',
+        secondaryColor: '#8b5cf6',
+        tertiaryColor: '#1e293b',
+        noteBkgColor: '#1e293b',
+        noteTextColor: '#f0f0f5',
+        noteBorderColor: '#3b82f6',
+        actorBkg: '#1e293b',
+        actorBorder: '#3b82f6',
+        actorTextColor: '#f0f0f5',
+        signalColor: '#f0f0f5',
+        signalTextColor: '#f0f0f5',
+        labelBoxBkgColor: '#1e293b',
+        labelBoxBorderColor: '#3b82f6',
+        labelTextColor: '#f0f0f5',
+        loopTextColor: '#f0f0f5',
+        activationBkgColor: '#2d2d3f',
+        activationBorderColor: '#3b82f6',
+        sequenceNumberColor: '#f0f0f5',
+        edgeLabelBackground: '#1e293b',
+        nodeTextColor: '#f0f0f5'
+    },
+    flowchart: { htmlLabels: true, curve: 'basis', useMaxWidth: false, nodeSpacing: 80, rankSpacing: 80, padding: 20 },
+    sequence: { mirrorActors: false, useMaxWidth: false, actorMargin: 100, messageMargin: 55, width: 280, height: 65, boxMargin: 20, noteMargin: 20 },
+    er: { useMaxWidth: false, fontSize: 18, entityPadding: 20 }
+});
+
+const diagrams = {
+d1: `graph LR
+  subgraph C1["Frontend Vue.js 3"]
+    SPA["SPA App Port 5173"]
+    PIN["Pinia Store"]
+    LST["localStorage"]
+    SPA --- PIN
+    SPA --- LST
+  end
+  subgraph C2["Prof Dashboard"]
+    PRA["강사 앱 Port 5174"]
+  end
+  subgraph C3["Backend Django DRF"]
+    JW["JWT 인증"]
+    AP["Django Apps"]
+    JW --> AP
+  end
+  subgraph C4["Database"]
+    MA["PostgreSQL"]
+  end
+  subgraph C5["External AI"]
+    WH["Whisper STT"]
+    GP["GPT-4o"]
+  end
+  SPA -->|Axios + JWT| JW
+  PRA -->|Axios + JWT| JW
+  AP -->|ORM| MA
+  AP -->|Audio| WH
+  AP -->|Prompt| GP
+  WH -->|Text| AP
+  GP -->|Content| AP`,
+
+d2: `sequenceDiagram
+  participant U as User
+  participant V as AuthView
+  participant P as Pinia
+  participant L as localStorage
+  participant A as Django DRF
+  participant D as PostgreSQL
+  Note over U,D: 회원가입
+  U->>V: 정보 입력
+  V->>A: POST /api/auth/register/
+  A->>D: User INSERT
+  D-->>A: OK
+  A-->>V: 201 Created
+  Note over U,D: 로그인
+  U->>V: 로그인 제출
+  V->>A: POST /api/auth/login/
+  A->>D: User 조회
+  D-->>A: User 반환
+  A-->>V: access + refresh JWT
+  V->>P: login 호출
+  P->>L: token 저장
+  Note over U,D: 인증된 요청
+  U->>V: 기능 사용
+  V->>L: token 조회
+  L-->>V: Bearer Token
+  V->>A: Authorization Bearer
+  A->>A: JWT 검증
+  A-->>V: 200 OK`,
+
+d3: `sequenceDiagram
+  participant MIC as Microphone
+  participant REC as AudioRecorder
+  participant LV as LearningView
+  participant AX as Axios
+  participant BE as Backend
+  participant WH as Whisper
+  participant DB as PostgreSQL
+  participant GPT as GPT-4o
+  Note over MIC,GPT: Phase 1 세션 시작
+  LV->>AX: POST /sessions/
+  AX->>BE: 세션 생성
+  BE->>DB: LearningSession INSERT
+  DB-->>BE: session_id
+  BE-->>LV: id 반환
+  Note over MIC,GPT: Phase 2 실시간 Chunking
+  MIC->>REC: 오디오 캡처
+  REC->>LV: audioBlob 전달
+  LV->>AX: POST /sessions/id/audio/
+  AX->>BE: Audio Blob
+  BE->>WH: Whisper API 호출
+  WH-->>BE: 텍스트 반환
+  BE->>BE: Hallucination 필터
+  BE->>DB: STTLog INSERT
+  BE-->>LV: 변환된 텍스트
+  Note over MIC,GPT: Phase 3 AI 요약
+  LV->>AX: POST /sessions/id/summarize/
+  AX->>BE: 요약 요청
+  BE->>DB: STTLog 전체 조회
+  DB-->>BE: 텍스트 목록
+  BE->>GPT: 요약 프롬프트
+  GPT-->>BE: 마크다운 요약
+  BE->>DB: SessionSummary INSERT
+  BE-->>LV: 요약 텍스트
+  Note over MIC,GPT: Phase 4 일일 퀴즈
+  LV->>AX: POST /assessment/generate/
+  AX->>BE: 퀴즈 요청
+  BE->>DB: Summary 조회
+  BE->>GPT: 퀴즈 5문제 생성
+  GPT-->>BE: JSON 퀴즈
+  BE->>DB: DailyQuiz INSERT
+  BE-->>LV: 퀴즈 데이터`,
+
+d4: `sequenceDiagram
+  participant S as Student
+  participant LV as LearningView
+  participant DV as Dashboard
+  participant AX as Axios
+  participant BE as Backend
+  participant DB as PostgreSQL
+  Note over S,DB: 퀴즈 제출 및 채점
+  S->>LV: 5문제 답 선택
+  LV->>AX: POST /assessment/submit/
+  AX->>BE: 채점 요청
+  BE->>DB: 정답 조회
+  DB-->>BE: correct_answer
+  BE->>BE: 점수 계산
+  BE->>DB: QuizAttempt INSERT
+  BE->>DB: AttemptDetail INSERT
+  BE-->>LV: score + details
+  Note over S,DB: 대시보드 통계
+  S->>DV: 대시보드 진입
+  DV->>AX: GET /sessions/stats/
+  AX->>BE: 통계 요청
+  BE->>DB: Session + Quiz 집계
+  DB-->>BE: 집계 결과
+  BE-->>DV: totalHours + quizScore
+  Note over S,DB: 학습 히스토리
+  DV->>AX: GET /sessions/history/
+  AX->>BE: 최근 5건
+  BE->>DB: 완료 세션 5건
+  DB-->>BE: 세션 목록
+  BE-->>DV: 히스토리 데이터`,
+
+d5: `sequenceDiagram
+  participant I as Instructor
+  participant PD as ProfDashboard
+  participant AX as Axios
+  participant BE as Backend
+  participant DB as PostgreSQL
+  participant ST as Student
+  participant DV as Dashboard
+  Note over I,DV: 강사 클래스 생성
+  I->>PD: 클래스 생성 입력
+  PD->>AX: POST /lectures/
+  AX->>BE: Lecture 생성
+  BE->>BE: 6자리 코드 생성
+  BE->>DB: Lecture INSERT
+  DB-->>BE: lecture_id
+  BE-->>PD: id + access_code
+  Note over I,DV: 학생 수강 등록
+  ST->>DV: 클래스 참여 클릭
+  DV->>DV: 코드 입력 모달
+  ST->>DV: 입장 코드 입력
+  DV->>AX: POST /enroll/
+  AX->>BE: 등록 요청
+  BE->>DB: Lecture 조회
+  DB-->>BE: Lecture 객체
+  BE->>DB: M2M 관계 추가
+  BE-->>DV: lecture_id + title
+  Note over I,DV: 클래스 목록 조회
+  ST->>DV: 클래스 탭
+  DV->>AX: GET /lectures/public/
+  AX->>BE: 목록 조회
+  BE->>DB: Lecture 전체
+  DB-->>BE: 목록
+  BE-->>DV: 클래스 목록`,
+
+d6: `sequenceDiagram
+  participant I as Instructor
+  participant PD as ProfDashboard
+  participant AX as Axios
+  participant BE as Backend
+  participant MB as ManagerViews
+  participant DB as PostgreSQL
+  participant M as Manager
+  Note over I,M: 강사 성취도 대시보드
+  I->>PD: 클래스 선택
+  PD->>AX: GET /lectures/id/dashboard/
+  AX->>BE: 대시보드 요청
+  BE->>DB: students 조회
+  BE->>DB: QuizAttempt 집계
+  DB-->>BE: Avg + Count
+  BE-->>PD: 성취도 데이터
+  PD->>PD: Chart.js 렌더링
+  Note over I,M: 분석 인사이트
+  I->>PD: 분석 탭
+  PD->>AX: GET /professor/analytics/
+  AX->>BE: 분석 요청
+  BE->>DB: 종합 분석
+  DB-->>BE: 결과
+  BE-->>PD: 분석 데이터
+  Note over I,M: 매니저 모니터링
+  M->>PD: 매니저 대시보드
+  PD->>AX: GET /manager/dashboard/
+  AX->>MB: 전체 통계
+  MB->>DB: 전체 집계
+  DB-->>MB: 반별 성취율
+  MB-->>PD: 대시보드 데이터`,
+
+d7: `sequenceDiagram
+  participant S as Student
+  participant PV as PortfolioView
+  participant IV as InterviewView
+  participant AX as Axios
+  participant CV as CareerViews
+  participant IV2 as InterviewViews
+  participant GPT as GPT-4o
+  participant DB as PostgreSQL
+  Note over S,DB: AI 포트폴리오 생성
+  S->>PV: 생성 버튼 클릭
+  PV->>AX: POST /career/portfolios/generate/
+  AX->>CV: 생성 요청
+  CV->>DB: Summary 조회
+  CV->>DB: Quiz 성취 조회
+  DB-->>CV: 학습 데이터
+  CV->>GPT: 포트폴리오 프롬프트
+  GPT-->>CV: 마크다운 결과
+  CV->>DB: Portfolio INSERT
+  CV-->>PV: 포트폴리오 데이터
+  Note over S,DB: 스킬블록 분석
+  S->>PV: Skills 탭
+  PV->>AX: GET /career/portfolios/skills/
+  AX->>CV: 스킬 조회
+  CV->>DB: SkillBlock 조회
+  DB-->>CV: 진행률
+  CV-->>PV: 스킬 데이터
+  Note over S,DB: AI 모의면접
+  S->>IV: 면접 시작
+  IV->>AX: POST /career/interview/
+  AX->>IV2: 세션 생성
+  IV2->>DB: Session INSERT
+  IV2->>GPT: 면접관 프롬프트
+  GPT-->>IV2: 첫 질문
+  IV2-->>IV: 질문 데이터
+  loop 면접 라운드
+    S->>IV: 답변 입력
+    IV->>AX: POST /career/interview/id/
+    AX->>IV2: 답변 전송
+    IV2->>GPT: 맥락 분석
+    GPT-->>IV2: 후속 질문
+    IV2->>DB: Message INSERT
+    IV2-->>IV: 응답 데이터
+  end`,
+
+d8: `flowchart TD
+  START["브라우저 새로고침"] --> CHECK{"localStorage sessionId?"}
+  CHECK -->|Yes| FETCH["Backend 세션 조회"]
+  CHECK -->|No| CHECK2{"localStorage youtubeUrl?"}
+  FETCH --> COMP{"세션 완료?"}
+  COMP -->|완료| REVIEW["복습 모드 진입"]
+  COMP -->|진행중| RESTORE["이어하기 모드"]
+  REVIEW --> LSUM["요약본 + 로그 조회"]
+  LSUM --> REND["AI노트 탭 활성화"]
+  RESTORE --> LLOG["STT 로그 복원"]
+  LLOG --> RES["녹음 재개"]
+  CHECK2 -->|Yes| URL["YouTube 모드"]
+  CHECK2 -->|No| FRESH["새 세션 시작"]
+  style START fill:#1e293b,stroke:#3b82f6,color:#f0f0f5
+  style CHECK fill:#1e293b,stroke:#f59e0b,color:#f0f0f5
+  style CHECK2 fill:#1e293b,stroke:#f59e0b,color:#f0f0f5
+  style COMP fill:#1e293b,stroke:#8b5cf6,color:#f0f0f5
+  style FETCH fill:#1e293b,stroke:#3b82f6,color:#f0f0f5
+  style REVIEW fill:#1e293b,stroke:#10b981,color:#f0f0f5
+  style RESTORE fill:#1e293b,stroke:#10b981,color:#f0f0f5
+  style LSUM fill:#1e293b,stroke:#3b82f6,color:#f0f0f5
+  style REND fill:#1e293b,stroke:#10b981,color:#f0f0f5
+  style LLOG fill:#1e293b,stroke:#3b82f6,color:#f0f0f5
+  style RES fill:#1e293b,stroke:#10b981,color:#f0f0f5
+  style URL fill:#1e293b,stroke:#ec4899,color:#f0f0f5
+  style FRESH fill:#1e293b,stroke:#6b7280,color:#f0f0f5`,
+
+d9: `erDiagram
+  USER {
+    bigint id PK
+    string username
+    string email
+    string role
+  }
+  LECTURE {
+    bigint id PK
+    string title
+    string access_code
+    bigint instructor_id FK
+  }
+  LEARNING_SESSION {
+    bigint id PK
+    bigint student_id FK
+    bigint lecture_id FK
+    string youtube_url
+    boolean is_completed
+  }
+  STT_LOG {
+    bigint id PK
+    bigint session_id FK
+    int sequence_order
+    string text_chunk
+  }
+  SESSION_SUMMARY {
+    bigint id PK
+    bigint session_id FK
+    string content_summary
+  }
+  DAILY_QUIZ {
+    bigint id PK
+    bigint student_id FK
+    string quiz_date
+    int total_score
+  }
+  QUIZ_QUESTION {
+    bigint id PK
+    bigint quiz_id FK
+    string question_text
+    string correct_answer
+  }
+  QUIZ_ATTEMPT {
+    bigint id PK
+    bigint quiz_id FK
+    bigint student_id FK
+    int score
+  }
+  PORTFOLIO {
+    bigint id PK
+    bigint user_id FK
+    string goal_type
+    string content
+  }
+  USER ||--o{ LECTURE : teaches
+  USER ||--o{ LEARNING_SESSION : studies
+  LECTURE ||--o{ LEARNING_SESSION : contains
+  LEARNING_SESSION ||--o{ STT_LOG : generates
+  LEARNING_SESSION ||--o{ SESSION_SUMMARY : summarizes
+  USER ||--o{ DAILY_QUIZ : assigned
+  DAILY_QUIZ ||--o{ QUIZ_QUESTION : contains
+  USER ||--o{ QUIZ_ATTEMPT : submits
+  DAILY_QUIZ ||--o{ QUIZ_ATTEMPT : records
+  USER ||--o{ PORTFOLIO : owns`,
+
+d10: `flowchart TB
+  subgraph LIVE["라이브 세션"]
+    direction LR
+    L1["세션 시작"] --> L2["학생 입장"]
+    L2 --> L3["실시간 필기"]
+    L3 --> L4["노트 승인"]
+    L4 --> L5["결석생 공유"]
+  end
+  subgraph DIAG["수준 진단"]
+    direction LR
+    D1["배치 테스트"] --> D2["AI 분석"]
+    D2 --> D3["목표 설정"]
+    D3 --> D4["갭 맵 생성"]
+    D4 --> D5["격차 시각화"]
+  end
+  subgraph CHAT["AI 튜터 챗봇"]
+    direction LR
+    C1["질문 전송"] --> C2["RAG 검색"]
+    C2 --> C3["LLM 응답"]
+    C3 --> C4["히스토리 저장"]
+  end
+  subgraph REV["복습 및 간격반복"]
+    direction LR
+    R1["형성평가"] --> R2["학생 제출"]
+    R2 --> R3["약점 분석"]
+    R3 --> R4["복습 루트"]
+    R4 --> R5["간격 반복"]
+  end
+  subgraph ADP["적응형 콘텐츠"]
+    direction LR
+    A1["생성 요청"] --> A2["AI 변형"]
+    A2 --> A3["교수 승인"]
+    A3 --> A4["맞춤 배포"]
+  end
+  style LIVE fill:#1e1e2e,stroke:#ec4899,color:#f0f0f5
+  style DIAG fill:#1e1e2e,stroke:#f59e0b,color:#f0f0f5
+  style CHAT fill:#1e1e2e,stroke:#3b82f6,color:#f0f0f5
+  style REV fill:#1e1e2e,stroke:#8b5cf6,color:#f0f0f5
+  style ADP fill:#1e1e2e,stroke:#10b981,color:#f0f0f5`
+};
+
+async function renderAll() {
+    for (const [id, code] of Object.entries(diagrams)) {
+        try {
+            const { svg } = await mermaid.render('svg_' + id, code);
+            document.getElementById(id).innerHTML = svg;
+        } catch (e) {
+            console.error(id, e);
+            document.getElementById(id).innerHTML = '<p style="color:#ef4444">Render error: ' + e.message + '</p>';
+        }
+    }
+}
+
+renderAll();
+</script>
+</body>
+</html>
