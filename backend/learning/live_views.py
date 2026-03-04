@@ -1266,9 +1266,29 @@ def _generate_quiz_suggestion(session_id):
         session = LiveSession.objects.get(id=session_id)
         recent_chunks = session.stt_logs.order_by('-sequence_order')[:10]
         if not recent_chunks:
-            return
+            # DSCNN-only 모드: STT 없이 퀴즈 생성
+            # 1순위: 교안 텍스트 기반
+            materials = session.lecture.materials.all()[:2] if session.lecture else []
+            material_text = ''
+            for mat in materials:
+                if mat.file and hasattr(mat.file, 'path'):
+                    try:
+                        with open(mat.file.path, 'r', encoding='utf-8', errors='ignore') as f:
+                            material_text += f.read()[:2000]
+                    except:
+                        pass
+            if material_text:
+                context_text = material_text
+                logger.info(f"📝 [DSCNN-only] STT 없음 → 교안 기반 퀴즈 생성 (세션 #{session_id})")
+            else:
+                # 2순위: 교안도 없으면 강의 제목/주제 기반 기본 퀴즈 생성
+                lecture_title = session.lecture.title if session.lecture else '일반 수업'
+                context_text = f"현재 '{lecture_title}' 강의가 진행 중입니다. 이 강의의 핵심 개념에 대한 이해도 확인 퀴즈를 생성해주세요."
+                logger.info(f"📝 [DSCNN-only] STT·교안 모두 없음 → 강의 제목 기반 퀴즈 생성 (세션 #{session_id}, 강의: {lecture_title})")
+        else:
+            context_text = '\n'.join([c.text_chunk for c in reversed(recent_chunks)])
 
-        context_text = '\n'.join([c.text_chunk for c in reversed(recent_chunks)])
+
 
         # [RAG] 공식 문서에서 관련 컨텍스트 검색
         rag_context = ""

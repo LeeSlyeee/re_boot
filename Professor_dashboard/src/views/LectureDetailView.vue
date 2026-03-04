@@ -737,6 +737,7 @@ const connectRpi = async () => {
 
 // ── STT (Web Speech API) ──
 const sttActive = ref(false);
+const dscnnOnlyActive = ref(false);  // DSCNN Only 모드 활성화 여부
 const sttRecognition = ref(null);
 const sttLastText = ref('');
 let sttLastProcessedIndex = 0;  // 마지막으로 처리(전송)한 result 인덱스
@@ -842,6 +843,18 @@ const stopSTT = () => {
         sttRecognition.value = null;
     }
     sttActive.value = false;
+};
+
+// ── DSCNN Only 모드: STT 없이 KWS 웹훅만 대기 ──
+const startDSCNNOnly = () => {
+    dscnnOnlyActive.value = true;
+    sttLastText.value = '🧠 DSCNN 감지 대기 중... 키워드를 말씀해주세요';
+    showToast('🧠 DSCNN Only 모드 시작 — KWS 키워드 감지 대기 중', 'success');
+};
+const stopDSCNNOnly = () => {
+    dscnnOnlyActive.value = false;
+    sttLastText.value = '';
+    showToast('DSCNN Only 모드 종료', 'info');
 };
 
 // ── 퀴즈 제안 (AI 자동 생성 → 교수자 승인) ──
@@ -1754,17 +1767,30 @@ onMounted(fetchDashboard);
                     <button v-if="liveSession.status === 'LIVE'" class="btn-live-end" @click="endLiveSession">
                         ⏹️ 세션 종료
                     </button>
-                    <button v-if="liveSession.status === 'LIVE' && !sttActive" class="btn-stt-start" @click="startSTT">
-                        🎙️ STT 시작
+                    <!-- STT+DSCNN 복합 모드 -->
+                    <button v-if="liveSession.status === 'LIVE' && !sttActive && !dscnnOnlyActive"
+                            class="btn-stt-dscnn-start" @click="startSTT">
+                        🎙️ STT+DSCNN
                     </button>
-                    <button v-if="liveSession.status === 'LIVE' && sttActive" class="btn-stt-stop" @click="stopSTT">
-                        🔴 음성 인식 중...
+                    <button v-if="liveSession.status === 'LIVE' && sttActive"
+                            class="btn-stt-dscnn-stop" @click="stopSTT">
+                        🔴 STT+DSCNN 인식 중...
+                    </button>
+                    <!-- DSCNN Only 모드 -->
+                    <button v-if="liveSession.status === 'LIVE' && !dscnnOnlyActive && !sttActive"
+                            class="btn-dscnn-start" @click="startDSCNNOnly">
+                        🧠 DSCNN
+                    </button>
+                    <button v-if="liveSession.status === 'LIVE' && dscnnOnlyActive"
+                            class="btn-dscnn-stop" @click="stopDSCNNOnly">
+                        🟡 DSCNN 감지 중...
                     </button>
                 </div>
 
                 <!-- 현재 모드 표시 -->
-                <div v-if="sttActive" class="stt-preview">
-                    <span class="stt-label">🎙️ 마지막 인식:</span>
+                <div v-if="sttActive || dscnnOnlyActive" class="stt-preview">
+                    <span class="stt-label" v-if="sttActive">🎙️ STT+DSCNN:</span>
+                    <span class="stt-label" v-else>🧠 DSCNN Only:</span>
                     <span class="stt-text">{{ sttLastText }}</span>
                 </div>
 
@@ -2749,6 +2775,32 @@ tr:hover td { background: #fafbfc; }
 .rpi-btn-mini {
     padding: 4px 10px; background: #6366f1; color: white; border: none;
     border-radius: 4px; font-size: 11px; cursor: pointer;
+}
+
+/* STT+DSCNN 복합 모드 버튼 */
+.btn-stt-dscnn-start {
+    padding: 8px 14px; background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white; border: none; border-radius: 8px;
+    font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.btn-stt-dscnn-start:hover { filter: brightness(1.1); }
+.btn-stt-dscnn-stop {
+    padding: 8px 14px; background: #ef4444; color: white; border: none;
+    border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+    animation: pulse-warn 2s infinite; white-space: nowrap;
+}
+
+/* DSCNN Only 모드 버튼 */
+.btn-dscnn-start {
+    padding: 8px 14px; background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white; border: none; border-radius: 8px;
+    font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.btn-dscnn-start:hover { filter: brightness(1.1); }
+.btn-dscnn-stop {
+    padding: 8px 14px; background: #eab308; color: white; border: none;
+    border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+    animation: pulse-warn 2s infinite; white-space: nowrap;
 }
 
 /* 퀴즈 제안 스마트 팝업 */
