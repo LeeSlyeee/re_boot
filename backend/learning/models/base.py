@@ -72,6 +72,8 @@ class Syllabus(models.Model):
     week_number = models.IntegerField(help_text="주차 (1, 2, ...)")
     title = models.CharField(max_length=200, help_text="주차별 주제")
     description = models.TextField(blank=True, help_text="주차 설명")
+    # [3-2] 강의 자료 파일 첨부
+    file = models.FileField(upload_to='syllabus_files/', null=True, blank=True, help_text="강의 자료 첨부 파일")
 
     class Meta:
         app_label = 'learning'

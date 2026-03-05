@@ -17,6 +17,31 @@ const lectureId = route.params.id;
 const lectureTitle = ref('');
 const lectureCode = ref('');
 
+// [3-1] 강의명 인라인 수정
+const isEditingTitle = ref(false);
+const editTitleValue = ref('');
+
+const startEditTitle = () => {
+    editTitleValue.value = lectureTitle.value;
+    isEditingTitle.value = true;
+};
+
+const saveLectureTitle = async () => {
+    const newTitle = editTitleValue.value.trim();
+    if (!newTitle || newTitle === lectureTitle.value) {
+        isEditingTitle.value = false;
+        return;
+    }
+    try {
+        await api.patch(`/learning/lectures/${lectureId}/`, { title: newTitle });
+        lectureTitle.value = newTitle;
+        showToast('강의명이 수정되었습니다.', 'success');
+    } catch(e) {
+        showToast('강의명 수정 실패', 'error');
+    }
+    isEditingTitle.value = false;
+};
+
 // Tab Management
 const activeTab = ref('monitor'); // 'monitor' | 'attendance' | 'quiz' | 'recording' | 'live' | 'diagnostic' | 'review'
 
@@ -118,6 +143,47 @@ const deleteObjective = async (objId) => {
     } catch (e) {
         showToast("삭제 실패", 'error');
     }
+};
+
+// [3-3] 강의 계획서 인라인 수정
+const updateWeekTitle = async (week, newTitle) => {
+    if (!newTitle.trim() || newTitle === week.title) return;
+    try {
+        await api.patch(`/learning/syllabus/${week.id}/`, { title: newTitle });
+        week.title = newTitle;
+    } catch(e) {
+        showToast('주차 제목 수정 실패', 'error');
+    }
+};
+
+const updateObjective = async (obj, newContent) => {
+    if (!newContent.trim() || newContent === obj.content) return;
+    try {
+        await api.patch(`/learning/objectives/${obj.id}/`, { content: newContent });
+        obj.content = newContent;
+    } catch(e) {
+        showToast('목표 수정 실패', 'error');
+    }
+};
+
+// [3-2] 파일 업로드
+const uploadSyllabusFile = async (weekId, event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const res = await api.post(`/learning/syllabus/${weekId}/upload-file/`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        showToast('파일이 업로드되었습니다.', 'success');
+        // 강제 리로드
+        await fetchChecklist();
+    } catch(e) {
+        showToast('파일 업로드 실패', 'error');
+    }
+    // input 초기화
+    event.target.value = '';
 };
 
 // ── Attendance Data ──
@@ -1196,7 +1262,16 @@ onMounted(fetchDashboard);
     <div class="detail-view">
         <button class="back-btn" @click="router.push('/')">← 대시보드로 돌아가기</button>
         <div class="header-row">
-            <h1>{{ lectureTitle }}</h1>
+            <!-- [3-1] 강의명 인라인 수정 -->
+            <div v-if="isEditingTitle" style="display:flex; align-items:center; gap:8px;">
+                <input v-model="editTitleValue" @keyup.enter="saveLectureTitle" @blur="saveLectureTitle" 
+                    style="font-size:24px; font-weight:700; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.3); border-radius:8px; padding:6px 12px; color:white; outline:none; width:100%;" 
+                    autofocus />
+            </div>
+            <h1 v-else style="cursor:pointer;" @dblclick="startEditTitle">
+                {{ lectureTitle }}
+                <span @click="startEditTitle" style="font-size:16px; cursor:pointer; opacity:0.5; margin-left:8px;" title="강의명 수정">✏️</span>
+            </h1>
             <div class="code-badge" @click="copyCode" v-if="lectureCode">
                 <span class="label">ENTRY CODE</span>
                 <span class="value">{{ lectureCode }}</span>
@@ -1329,14 +1404,34 @@ onMounted(fetchDashboard);
                 <div class="syllabus-list">
                     <div v-for="week in syllabi" :key="week.id" class="week-card">
                         <div class="week-header">
-                            <h3>{{week.week_number}}주차: {{week.title}}</h3>
+                            <h3>
+                                {{week.week_number}}주차:
+                                <input :value="week.title" 
+                                    @blur="e => updateWeekTitle(week, e.target.value)" 
+                                    @keyup.enter="e => e.target.blur()"
+                                    style="background:transparent; border:none; border-bottom:1px dashed rgba(0,0,0,0.2); font-size:inherit; font-weight:inherit; color:inherit; padding:2px 4px; outline:none; width:60%;" />
+                            </h3>
                             <button class="btn-micro" @click="addObjective(week.id)">+ 목표 추가</button>
                         </div>
                         <div class="objective-list">
                             <div v-for="obj in week.objectives" :key="obj.id" class="obj-item">
-                                <span>- {{obj.content}}</span>
+                                <span>-</span>
+                                <input :value="obj.content" 
+                                    @blur="e => updateObjective(obj, e.target.value)" 
+                                    @keyup.enter="e => e.target.blur()"
+                                    style="background:transparent; border:none; border-bottom:1px dashed rgba(0,0,0,0.15); flex:1; font-size:14px; color:#333; padding:2px 4px; outline:none;" />
                                 <span class="delete-x" @click="deleteObjective(obj.id)">×</span>
                             </div>
+                        </div>
+                        <!-- [3-2] 파일 첨부 UI -->
+                        <div class="file-section" style="margin-top:8px; padding-top:8px; border-top:1px dashed rgba(0,0,0,0.1);">
+                            <div v-if="week.file_url" style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                                <a :href="week.file_url" target="_blank" style="color:#4facfe; font-size:13px; text-decoration:underline;">📎 {{ week.file_name || '첨부파일' }}</a>
+                            </div>
+                            <label :for="'file-upload-' + week.id" class="btn-micro" style="cursor:pointer; font-size:12px;">
+                                📤 {{ week.file_url ? '파일 교체' : '파일 첨부' }}
+                            </label>
+                            <input :id="'file-upload-' + week.id" type="file" style="display:none;" @change="uploadSyllabusFile(week.id, $event)" />
                         </div>
                     </div>
                 </div>

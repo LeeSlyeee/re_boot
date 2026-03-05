@@ -541,7 +541,21 @@ const sessionSummary = ref('');
 const activeTab = ref('stt');
 const isGeneratingSummary = ref(false);
 
-// ── Note Feature ──
+// [FIX] 학습노트에서 메모 섹션을 분리하여 표시 (DB에 합쳐진 경우 대응)
+const displaySummary = computed(() => {
+    const raw = sessionSummary.value || '';
+    // "## ✏️ 나의 메모" 또는 "## 나의 메모" 이하를 제거
+    const memoPatterns = ['## ✏️ 나의 메모', '## 나의 메모', '---\n## ✏️'];
+    for (const pattern of memoPatterns) {
+        const idx = raw.indexOf(pattern);
+        if (idx > 0) {
+            return raw.substring(0, idx).trimEnd();
+        }
+    }
+    return raw;
+});
+
+// ── Note Feature (메모는 학습노트와 별도 관리) ──
 const showNoteEditor = ref(false);
 const noteContent = ref('');
 const isSavingNote = ref(false);
@@ -563,13 +577,10 @@ const saveNote = async () => {
     if (!sessionId.value || !noteContent.value.trim()) return;
     isSavingNote.value = true;
     try {
-        const res = await api.post(`/learning/sessions/${sessionId.value}/note/`, {
+        await api.post(`/learning/sessions/${sessionId.value}/note/`, {
             note: noteContent.value
         });
-        // 요약본 갱신 (메모가 포함된 새 내용)
-        if (res.data.content) {
-            sessionSummary.value = res.data.content;
-        }
+        // [FIX] 메모를 학습노트(sessionSummary)에 합치지 않음 — 별도 저장만
         showToast('메모가 저장되었습니다.', 'success');
     } catch (e) {
         console.error('노트 저장 실패', e);
@@ -582,20 +593,25 @@ const saveNote = async () => {
 // ── PDF Export ──
 const exportPdf = () => {
     if (!sessionId.value) return;
-    // 직접 새 창에서 열어서 브라우저 인쇄→PDF 가능
-    const token = localStorage.getItem('token');
-    const url = `${api.defaults.baseURL}/learning/sessions/${sessionId.value}/export-pdf/`;
-    // API 호출 후 HTML 다운로드
+    // HTML을 가져온 후 새 창에서 브라우저 인쇄(PDF) 기능 활용
     api.get(`/learning/sessions/${sessionId.value}/export-pdf/`, {
         responseType: 'blob'
     }).then(res => {
         const blob = new Blob([res.data], { type: 'text/html' });
-        const downloadUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = `ReBootNote_${sessionId.value}.html`;
-        a.click();
-        window.URL.revokeObjectURL(downloadUrl);
+        const blobUrl = window.URL.createObjectURL(blob);
+        const printWindow = window.open(blobUrl, '_blank');
+        if (printWindow) {
+            printWindow.onload = () => {
+                printWindow.print();
+            };
+        } else {
+            // 팝업 차단 시 직접 다운로드
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = `ReBootNote_${sessionId.value}.pdf`;
+            a.click();
+            window.URL.revokeObjectURL(blobUrl);
+        }
     }).catch(e => {
         console.error('PDF 내보내기 실패', e);
         showToast('내보내기에 실패했습니다.', 'error');
@@ -603,7 +619,10 @@ const exportPdf = () => {
 };
 
 const generateSummary = async () => {
-    if (!sessionId.value) return;
+    if (!sessionId.value) {
+        showToast('세션이 없습니다. 먼저 녹음을 시작해주세요.', 'warning');
+        return;
+    }
     
     isGeneratingSummary.value = true;
     try {
@@ -713,6 +732,24 @@ const resumeSession = async (isAutoRestore = false) => {
         if (logRes.data && Array.isArray(logRes.data)) {
             sttLogs.value = logRes.data;
         }
+
+        // 2.5 [FIX] 메모 자동 로드
+        try {
+            const noteRes = await api.get(`/learning/sessions/${targetSessionId}/note/`);
+            noteContent.value = noteRes.data.note || '';
+        } catch(e) { /* silent */ }
+
+        // 3. [FIX] 유튜브 모드 복원 시 플레이어 초기화 (DOM 렌더링 후)
+        if (mode.value === 'youtube' && youtubeVideoId.value) {
+            await nextTick();
+            // DOM이 완전히 렌더링될 시간을 줌
+            setTimeout(() => {
+                if (youtubeVideoId.value) {
+                    console.log('🎬 세션 복원: 유튜브 플레이어 초기화', youtubeVideoId.value);
+                    initYouTubePlayer(youtubeVideoId.value);
+                }
+            }, 300);
+        }
         
     } catch(e) {
         console.error("Resume Failed", e);
@@ -816,6 +853,15 @@ const initYouTubePlayer = async (videoId) => {
         playerVars: { autoplay: 0, rel: 0, modestbranding: 1 },
         events: {
             onReady: () => { ytPlayerReady.value = true; },
+            onStateChange: (event) => {
+                // [AUTO] 유튜브 영상 종료 시 → 자동 학습 완료 처리
+                if (event.data === window.YT.PlayerState.ENDED && isRecording.value) {
+                    console.log('🎬 유튜브 영상 종료 감지 → 자동 학습 완료 처리');
+                    showToast('영상이 종료되었습니다. AI 학습노트를 생성합니다...', 'info', 3000);
+                    // 팝업 없이 자동으로 학습 완료 (퀴즈 없이)
+                    autoCompleteYoutubeSession();
+                }
+            },
         },
     });
 };
@@ -944,17 +990,47 @@ const startRecording = async () => {
              // 그 외 (유튜브 모드, 유니버설 모드, 오프라인+영상 모드) -> 시스템 오디오 사용
              await recorder.value.startSystemAudio(3000);
         }
+        // [AUTO] 유튜브 모드에서 학습 시작 시 영상 자동 재생
+        if (mode.value === 'youtube' && ytPlayer.value && ytPlayerReady.value) {
+            try { ytPlayer.value.playVideo(); } catch(e) {}
+        }
     } catch (err) {
         console.error("Rec Error:", err);
         isRecording.value = false;
+        // [1-7] 녹음 실패 시 구체적 에러 메시지 표시
+        if (err.name === 'NotAllowedError') {
+            showToast('마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크를 허용해주세요.', 'error', 5000);
+        } else if (err.name === 'NotFoundError') {
+            showToast('마이크 장치를 찾을 수 없습니다. 마이크가 연결되어 있는지 확인하세요.', 'error', 5000);
+        } else if (err.message?.includes('No audio track')) {
+            showToast('오디오 트랙이 감지되지 않았습니다. 화면 공유 시 "오디오 공유"를 켜주세요.', 'error', 5000);
+        } else {
+            showToast('녹음 시작에 실패했습니다: ' + (err.message || '알 수 없는 오류'), 'error', 5000);
+        }
     }
 };
 
-const stopRecording = () => {
+const stopRecording = async () => {
     isRecording.value = false;
     if (recorder.value) {
         recorder.value.stop();
         recorder.value = null;
+    }
+    // [NEW] 미완성 문장 버퍼 강제 저장
+    if (sessionId.value) {
+        try {
+            const { data } = await api.post(`/learning/sessions/${sessionId.value}/flush-buffer/`);
+            if (data.text) {
+                sttLogs.value.push({
+                    id: data.id || Date.now(),
+                    sequence_order: sttLogs.value.length + 1,
+                    text_chunk: data.text,
+                    speaker: 'UNKNOWN',
+                    timestamp: new Date().toLocaleTimeString()
+                });
+                scrollToBottom();
+            }
+        } catch(e) { /* silent */ }
     }
 };
 
@@ -1079,8 +1155,28 @@ const loadQuiz = async () => {
     }
 };
 
-const endSession = async () => {
-    if (!confirm('수업을 완료하시겠습니까? (AI 요약 및 퀴즈 생성)')) return;
+// [1-5/1-10] 학습 완료/중단 팝업 분기
+const showEndSessionModal = ref(false);
+const endSessionType = ref('complete'); // 'complete' or 'interrupt'
+
+const requestEndSession = () => {
+    // 유튜브 모드에서 영상 시청 진도를 판별
+    let watchProgress = 100;
+    if (ytPlayer.value && ytPlayerReady.value) {
+        try {
+            const current = ytPlayer.value.getCurrentTime();
+            const duration = ytPlayer.value.getDuration();
+            if (duration > 0) {
+                watchProgress = Math.round((current / duration) * 100);
+            }
+        } catch(e) {}
+    }
+    endSessionType.value = watchProgress >= 80 ? 'complete' : 'interrupt';
+    showEndSessionModal.value = true;
+};
+
+const confirmEndSession = async (withQuiz = true) => {
+    showEndSessionModal.value = false;
     stopRecording();
     isGeneratingQuiz.value = true;
 
@@ -1088,7 +1184,11 @@ const endSession = async () => {
         // 1. AI 요약 생성 요청
         try {
             console.log("📝 Generating Summary...");
-            await api.post(`/learning/sessions/${sessionId.value}/summarize/`);
+            const summaryRes = await api.post(`/learning/sessions/${sessionId.value}/summarize/`);
+            if (summaryRes.data?.content_text) {
+                sessionSummary.value = summaryRes.data.content_text;
+                activeTab.value = 'summary';
+            }
             console.log("✅ Summary Generated");
         } catch(e) {
             console.error("Summary Generation Failed:", e);
@@ -1113,15 +1213,57 @@ const endSession = async () => {
         localStorage.removeItem('currentSessionId');
         localStorage.removeItem('currentYoutubeUrl');
         localStorage.removeItem('restoredMode');
-        
-        // Vue 상태 초기화 (퀴즈 끝나고 재진입 시 모드 선택 화면 보장)
-        sessionId.value = null;
-        pendingSessionId.value = null;
     }
 
-    // 4. 퀴즈 생성 요청
-    await loadQuiz();
+    // 4. 퀴즈 생성 (사용자가 선택한 경우에만)
+    if (withQuiz) {
+        await loadQuiz();
+    } else {
+        isGeneratingQuiz.value = false;
+        // 퀴즈 없이 대시보드로 이동
+        sessionId.value = null;
+        pendingSessionId.value = null;
+        router.push('/dashboard');
+    }
 };
+
+// [AUTO] 유튜브 영상 종료 시 자동 학습 완료 (팝업 없이)
+const autoCompleteYoutubeSession = async () => {
+    stopRecording();
+    isCompletedSession.value = true;
+
+    if (sessionId.value) {
+        // 1. AI 요약 생성
+        try {
+            console.log("📝 [AUTO] AI 학습노트 자동 생성 중...");
+            const summaryRes = await api.post(`/learning/sessions/${sessionId.value}/summarize/`);
+            if (summaryRes.data?.content_text) {
+                sessionSummary.value = summaryRes.data.content_text;
+                activeTab.value = 'summary';
+            }
+            console.log("✅ [AUTO] AI 학습노트 생성 완료");
+            showToast('✅ AI 학습노트가 생성되었습니다! 퀴즈는 선택적으로 풀 수 있습니다.', 'success', 4000);
+        } catch(e) {
+            console.error("Summary Generation Failed:", e);
+            showToast('학습노트 생성에 실패했습니다. 수동으로 생성해주세요.', 'warning');
+        }
+
+        // 2. 화자 분류
+        try {
+            const classifyRes = await api.post(`/learning/sessions/${sessionId.value}/classify-speakers/`);
+            if (classifyRes.data?.logs) sttLogs.value = classifyRes.data.logs;
+        } catch(e) {}
+
+        // 3. 세션 종료
+        try { await api.post(`/learning/sessions/${sessionId.value}/end/`); } catch(e) {}
+        localStorage.removeItem('currentSessionId');
+        localStorage.removeItem('currentYoutubeUrl');
+        localStorage.removeItem('restoredMode');
+    }
+};
+
+// 기존 endSession은 requestEndSession으로 대체
+const endSession = () => requestEndSession();
 
 const startVideoLecture = async () => {
     const url = prompt("학습할 유튜브 영상 URL을 입력하세요:");
@@ -1203,7 +1345,6 @@ const openSessionReview = (id) => {
                     </div>
 
                     <div class="mode-grid">
-                        <!-- Row 1: Offline Options -->
                         <div class="mode-item special" @click="openJoinModal">
                             <Users size="36" class="icon" /> <h3>클래스 참여</h3>
                             <p class="desc">정규 수업 듣기</p>
@@ -1212,21 +1353,9 @@ const openSessionReview = (id) => {
                             <Mic size="36" class="icon" /> <h3>현장 강의(1회용)</h3>
                             <p class="desc">단발성 특강 녹음</p>
                         </div>
-
-                        <!-- Row 2: Online Options -->
                         <div class="mode-item" @click="selectMode('youtube')">
                             <Youtube size="36" class="icon" /> <h3>유튜브 학습</h3>
                             <p class="desc">영상 보며 학습</p>
-                        </div>
-                        <div class="mode-item" @click="selectMode('universal')">
-                            <MonitorPlay size="36" class="icon" /> <h3>모든 인강</h3>
-                            <p class="desc">PC 소리 캡처</p>
-                        </div>
-
-                        <!-- Row 3: 라이브 세션 -->
-                        <div class="mode-item live-mode" @click="selectMode('live')" style="grid-column: 1 / -1;">
-                            <span style="font-size:36px;">🟢</span> <h3>라이브 세션 참여</h3>
-                            <p class="desc">교수자가 발급한 6자리 코드로 실시간 수업 참여</p>
                         </div>
                     </div>
                 </div>
@@ -1543,6 +1672,10 @@ const openSessionReview = (id) => {
             <button v-if="liveSessionData.status !== 'ENDED'" class="btn btn-secondary" style="margin-top:20px;" @click="leaveLiveSession">
                 ← 나가기
             </button>
+            <!-- [1-9] 교수자 수업 종료 후 학습자 뒤로가기 -->
+            <button v-if="liveSessionData.status === 'ENDED'" class="btn btn-primary" style="margin-top:20px;" @click="leaveLiveSession">
+                ← 돌아가기 (수업 종료됨)
+            </button>
         </div>
 
         <!-- [NEW] Lecture List View -->
@@ -1551,8 +1684,8 @@ const openSessionReview = (id) => {
                 <div class="lecture-info-header">
                 <h2>🏫 {{ currentClassTitle || '수업 목록' }}</h2>
                 <div class="header-actions" style="display:flex; gap:10px;">
-                    <button class="btn btn-primary small" @click="startNewClassSession">
-                        <MonitorPlay size="14" style="margin-right:4px;"/> 새 수업 시작
+                    <button class="btn small" style="background:#22c55e; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:600;" @click="selectMode('live')">
+                        🟢 라이브 세션
                     </button>
                     <button class="btn btn-control secondary small" @click="router.push('/dashboard')">나가기</button>
                 </div>
@@ -1750,35 +1883,80 @@ const openSessionReview = (id) => {
                         </button>
                     </div>
                     <div v-else class="summary-content">
-                        <div class="summary-actions">
-                            <button class="btn-text small" @click="generateSummary" :disabled="isGeneratingSummary">
-                                <RefreshCw size="14" :class="{'spin-anim': isGeneratingSummary}" /> 요약 다시 생성
+                        <div class="summary-actions-bar">
+                            <button class="apple-pill-btn" @click="generateSummary" :disabled="isGeneratingSummary">
+                                <RefreshCw size="13" :class="{'spin-anim': isGeneratingSummary}" />
+                                <span>요약 다시 생성</span>
                             </button>
-                            <button class="btn-text small" @click="exportPdf" title="학습 노트 다운로드">
-                                <Download size="14" /> PDF 내보내기
-                            </button>
-                            <button class="btn-text small" @click="toggleNoteEditor" :class="{ active: showNoteEditor }">
-                                <PenLine size="14" /> 메모 {{ showNoteEditor ? '닫기' : '추가' }}
+                            <button class="apple-pill-btn" @click="exportPdf">
+                                <Download size="13" />
+                                <span>PDF 내보내기</span>
                             </button>
                         </div>
-                        <div class="markdown-text">{{ sessionSummary }}</div>
-                        
-                        <!-- Note Editor -->
-                        <div v-if="showNoteEditor" class="note-editor">
-                            <h4>📌 나의 메모</h4>
-                            <textarea 
-                                v-model="noteContent" 
-                                placeholder="이 수업에 대한 메모를 남겨보세요... (코드, 의문점, 추가 정리 등)"
-                                rows="5"
-                            ></textarea>
-                            <button class="btn btn-accent" @click="saveNote" :disabled="isSavingNote || !noteContent.trim()">
-                                {{ isSavingNote ? '저장 중...' : '💾 메모 저장' }}
-                            </button>
+
+                        <!-- AI 학습노트 (읽기 전용) -->
+                        <div class="markdown-text">{{ displaySummary }}</div>
+
+                        <!-- 나의 메모 (항상 표시) -->
+                        <div class="note-section" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                                <h4 style="color:#4facfe; margin:0; font-size:14px; font-weight:600;">📝 나의 메모</h4>
+                                <button class="apple-pill-btn" @click="toggleNoteEditor">
+                                    <PenLine size="13" />
+                                    <span>{{ showNoteEditor ? '닫기' : (noteContent ? '편집' : '작성') }}</span>
+                                </button>
+                            </div>
+
+                            <!-- 저장된 메모 읽기 전용 표시 -->
+                            <div v-if="noteContent && !showNoteEditor" class="saved-note" style="white-space:pre-wrap; font-size:13px; color:#cbd5e1; line-height:1.6; background:rgba(79,172,254,0.05); border:1px solid rgba(79,172,254,0.08); border-radius:12px; padding:14px;">{{ noteContent }}</div>
+                            <div v-if="!noteContent && !showNoteEditor" style="font-size:13px; color:#64748b;">메모가 없습니다.</div>
+
+                            <!-- 편집 모드 -->
+                            <div v-if="showNoteEditor">
+                                <textarea 
+                                    v-model="noteContent" 
+                                    placeholder="이 수업에 대한 메모를 남겨보세요..."
+                                    rows="5"
+                                    style="width:100%; font-family:inherit; font-size:13px; line-height:1.6; background:rgba(0,0,0,0.3); color:#e2e8f0; border:1px solid rgba(79,172,254,0.15); border-radius:12px; padding:14px; resize:vertical;"
+                                ></textarea>
+                                <div style="display:flex; gap:8px; margin-top:10px;">
+                                    <button class="apple-pill-btn accent" @click="saveNote" :disabled="isSavingNote || !noteContent.trim()">
+                                        <span>{{ isSavingNote ? '저장 중...' : '저장' }}</span>
+                                    </button>
+                                    <button class="apple-pill-btn" @click="toggleNoteEditor">
+                                        <span>취소</span>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
             </section>
 
+        </div>
+
+        <!-- [1-5/1-10] 학습 완료/중단 확인 모달 -->
+        <div v-if="showEndSessionModal" class="quiz-overlay">
+            <div class="glass-panel" style="padding: 40px; text-align: center; max-width: 420px;">
+                <template v-if="endSessionType === 'complete'">
+                    <h2 style="color: #e2e8f0; font-size: 20px; margin-bottom: 12px;">✅ 학습을 완료하시겠습니까?</h2>
+                    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 24px;">AI 요약이 자동 생성되고, 퀴즈를 풀어볼 수 있습니다.</p>
+                    <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                        <button class="btn btn-primary" @click="confirmEndSession(true)" style="padding: 12px 24px;">🧪 퀴즈 풀기</button>
+                        <button class="btn btn-accent" @click="confirmEndSession(false)" style="padding: 12px 24px;">📊 바로 종료</button>
+                        <button class="btn btn-muted" @click="showEndSessionModal = false" style="padding: 12px 24px;">❌ 취소</button>
+                    </div>
+                </template>
+                <template v-else>
+                    <h2 style="color: #fbbf24; font-size: 20px; margin-bottom: 12px;">⏸️ 학습을 중단하시겠습니까?</h2>
+                    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 24px;">본 데까지의 내용으로 퀴즈를 풀어보시겠습니까?</p>
+                    <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                        <button class="btn btn-primary" @click="confirmEndSession(true)" style="padding: 12px 24px;">🧪 퀴즈 풀기</button>
+                        <button class="btn btn-accent" @click="confirmEndSession(false)" style="padding: 12px 24px;">📊 바로 종료</button>
+                        <button class="btn btn-muted" @click="showEndSessionModal = false" style="padding: 12px 24px;">❌ 취소</button>
+                    </div>
+                </template>
+            </div>
         </div>
 
         <!-- 3. Quiz Overlays -->
@@ -1875,7 +2053,7 @@ const openSessionReview = (id) => {
                     <h3>내 수강 목록 (My Courses)</h3>
                     <div class="lecture-list">
                         <div v-for="lec in myLectures" :key="lec.id" class="lecture-item" :class="{'selected': selectedLectureId === lec.id}" @click="selectLecture(lec)">
-                            <div class="lec-info">
+                            <div class="lec-info" style="cursor:pointer; flex:1;">
                                 <span class="lec-title">{{ lec.title }}</span>
                                 <span class="lec-instructor">{{ lec.instructor_name }} 강사님</span>
                             </div>
@@ -2050,7 +2228,7 @@ const openSessionReview = (id) => {
 }
 .mode-card { width: 620px; padding: 40px; text-align: center; }
 .mode-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 32px;
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-top: 32px;
 }
 .mode-item {
     padding: 24px 16px; background: rgba(255,255,255,0.05);
@@ -2190,10 +2368,53 @@ const openSessionReview = (id) => {
 }
 .icon-bot { color: #444; width: 48px; height: 48px; }
 
-.summary-actions {
-    display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 16px; flex-wrap: wrap;
+.summary-actions-bar {
+    display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;
 }
-.btn-text.active { color: #4facfe; background: rgba(79,172,254,0.1); border-radius: 6px; }
+
+/* Apple SF-style Pill Buttons */
+.apple-pill-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #e2e8f0;
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+}
+.apple-pill-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.18);
+    transform: translateY(-0.5px);
+}
+.apple-pill-btn:active {
+    transform: scale(0.97);
+    background: rgba(255, 255, 255, 0.08);
+}
+.apple-pill-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+}
+.apple-pill-btn.accent {
+    background: linear-gradient(135deg, rgba(79, 172, 254, 0.25), rgba(0, 242, 254, 0.15));
+    border-color: rgba(79, 172, 254, 0.3);
+    color: #4facfe;
+}
+.apple-pill-btn.accent:hover {
+    background: linear-gradient(135deg, rgba(79, 172, 254, 0.35), rgba(0, 242, 254, 0.25));
+    border-color: rgba(79, 172, 254, 0.5);
+    box-shadow: 0 0 12px rgba(79, 172, 254, 0.15);
+}
 
 .note-editor {
     margin-top: 20px; padding: 16px; background: rgba(255,255,255,0.03);

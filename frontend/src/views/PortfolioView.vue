@@ -140,6 +140,20 @@ const deleteProject = async (projectId) => {
 const closeModal = () => {
   showModal.value = false;
 };
+
+// [NEW] 스킬블록 삭제
+const deleteSkillBlock = async (blockId) => {
+  if (!confirm('이 스킬블록을 삭제하시겠습니까?')) return;
+  try {
+    await api.delete(`/learning/skill-blocks/${blockId}/`);
+    showToast('스킬블록이 삭제되었습니다.', 'success');
+    // 리로드
+    const skillsRes = await api.get("/career/portfolios/skills/");
+    skillData.value = skillsRes.data;
+  } catch(e) {
+    showToast('삭제 실패', 'error');
+  }
+};
 </script>
 
 <template>
@@ -152,26 +166,26 @@ const closeModal = () => {
             AI가 학습 기록을 분석하여 포트폴리오와 기획서를 자동으로 생성합니다.
           </p>
         </div>
-        <div class="header-actions">
+        <div class="header-actions" style="display:flex; gap:10px; flex-wrap:wrap;">
           <button
             @click="openCategoryModal('JOB')"
             :disabled="generating"
-            class="gen-btn job"
+            class="apple-pill-btn accent"
           >
-            <Briefcase size="16" /> 취업 포트폴리오 생성
+            <Briefcase size="14" /> <span>취업 포트폴리오 생성</span>
           </button>
           <button
             @click="openCategoryModal('STARTUP')"
             :disabled="generating"
-            class="gen-btn startup"
+            class="apple-pill-btn accent"
           >
-            <Rocket size="16" /> 창업 MVP 기획서 생성
+            <Rocket size="14" /> <span>창업 MVP 기획서 생성</span>
           </button>
           <button
             @click="router.push('/interview/setup')"
-            class="gen-btn interview"
+            class="apple-pill-btn"
           >
-            <Mic size="16" /> AI 면접 연습
+            <Mic size="14" /> <span>AI 면접 연습</span>
           </button>
         </div>
       </header>
@@ -287,6 +301,7 @@ const closeModal = () => {
               >
                 <span class="block-check"><CheckCircle size="12" /></span>
                 <span class="block-name">{{ skill.name }}</span>
+                <span class="block-delete" @click.stop="deleteSkillBlock(skill.id)" title="삭제">✕</span>
               </div>
               <!-- 미획득 블록 (잠금) -->
               <div
@@ -297,6 +312,7 @@ const closeModal = () => {
               >
                 <span class="block-lock"><Lock size="12" /></span>
                 <span class="block-name">{{ skill.name }}</span>
+                <span class="block-delete" @click.stop="deleteSkillBlock(skill.id)" title="삭제">✕</span>
               </div>
             </div>
           </div>
@@ -823,6 +839,19 @@ const closeModal = () => {
   }
 }
 
+.block-delete {
+  display: none;
+  color: #ff5555;
+  font-size: 11px;
+  cursor: pointer;
+  margin-left: auto;
+  padding: 2px;
+  &:hover { color: #ff0000; }
+}
+.skill-block:hover .block-delete {
+  display: inline;
+}
+
 .skill-empty-section {
   margin-bottom: 24px;
   padding: 40px;
@@ -1092,6 +1121,51 @@ const closeModal = () => {
     font-size: 12px;
     color: #777;
     margin: 0;
+  }
+}
+
+/* Apple SF-style Pill Buttons */
+.apple-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 22px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.18);
+    transform: translateY(-0.5px);
+  }
+  &:active {
+    transform: scale(0.97);
+    background: rgba(255, 255, 255, 0.08);
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+  &.accent {
+    background: linear-gradient(135deg, rgba(79, 172, 254, 0.2), rgba(0, 242, 254, 0.1));
+    border-color: rgba(79, 172, 254, 0.25);
+    color: #4facfe;
+    &:hover {
+      background: linear-gradient(135deg, rgba(79, 172, 254, 0.3), rgba(0, 242, 254, 0.2));
+      border-color: rgba(79, 172, 254, 0.45);
+      box-shadow: 0 0 14px rgba(79, 172, 254, 0.12);
+    }
   }
 }
 </style>

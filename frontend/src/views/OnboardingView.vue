@@ -74,7 +74,19 @@ const fetchGoals = async () => {
       api.get('/learning/goals/my-goal/')
     ]);
     careers.value = careersRes.data.careers || careersRes.data || [];
-    myGoal.value = goalRes.data?.goal || goalRes.data || null;
+    // API가 { career_goal: {...}, custom_goal_text } 형태로 응답
+    const goalData = goalRes.data;
+    if (goalData?.has_goal && goalData.career_goal) {
+      myGoal.value = {
+        ...goalData.career_goal,
+        custom_goal_text: goalData.custom_goal_text,
+        required_skills: (goalData.career_goal.required_skills || []).map(s => typeof s === 'string' ? s : s.name),
+      };
+    } else if (goalData?.goal) {
+      myGoal.value = goalData.goal;
+    } else {
+      myGoal.value = null;
+    }
   } catch (e) { /* silent */ }
 };
 
@@ -106,7 +118,17 @@ const gapMap = ref(null);
 const fetchGapMap = async () => {
   try {
     const { data } = await api.get('/learning/gapmap/my-map/');
-    gapMap.value = data;
+    // API가 { categories: { "카테고리": [...] }, stats: {...} } 형태로 응답
+    // flat list로 변환
+    if (data?.categories) {
+      const flatSkills = [];
+      for (const [cat, skills] of Object.entries(data.categories)) {
+        skills.forEach(s => flatSkills.push({ ...s, category: cat }));
+      }
+      gapMap.value = { skills: flatSkills, stats: data.stats };
+    } else {
+      gapMap.value = data;
+    }
   } catch (e) { /* silent */ }
 };
 
@@ -265,7 +287,7 @@ onMounted(() => {
               <p>{{ myGoal.description }}</p>
               <div class="goal-meta">
                 <span>📅 예상 {{ myGoal.estimated_weeks }}주</span>
-                <span v-if="myGoal.required_skills?.length">🔧 {{ myGoal.required_skills.join(', ') }}</span>
+                <span v-if="myGoal.required_skills?.length">🔧 {{ myGoal.required_skills.map(s => typeof s === 'string' ? s : s.name).join(', ') }}</span>
               </div>
             </div>
           </div>
@@ -280,7 +302,7 @@ onMounted(() => {
             <h4>{{ career.title }}</h4>
             <p>{{ career.description }}</p>
             <div class="career-skills" v-if="career.required_skills">
-              <span v-for="s in career.required_skills.slice(0, 4)" :key="s" class="skill-chip">{{ s }}</span>
+              <span v-for="s in career.required_skills.slice(0, 4)" :key="s.id || s" class="skill-chip">{{ typeof s === 'string' ? s : s.name }}</span>
             </div>
             <button class="btn-sm select-btn" @click="setGoal(career.id)">선택</button>
           </div>

@@ -19,11 +19,11 @@ from .analytics_views import (
     AISuggestionsView, SuggestionActionView, SendGroupMessageView,
     QualityReportView, ApplyRedistributionView, MyMessagesView,
 )
-from .skillblock_views import SyncSkillBlocksView, MySkillBlocksView, MockInterviewDataView
+from .skillblock_views import SyncSkillBlocksView, MySkillBlocksView, MockInterviewDataView, SkillBlockDetailView
 from .certificate_views import CertificateDataView
 from .chat_views import AIChatViewSet
 from .curriculum_views import CurriculumViewSet
-from .syllabus_views import SyllabusListCreateView, ObjectiveCreateView, ObjectiveDeleteView
+from .syllabus_views import SyllabusListCreateView, ObjectiveCreateView, ObjectiveDeleteView, SyllabusUpdateView, SyllabusFileUploadView, SyllabusFileDownloadView
 from .manager_views import (
     ManagerDashboardView, ClassMonitorView, AtRiskStudentsView,
     StudentProgressVisualization, QuizAnalyticsVisualization,
@@ -82,7 +82,10 @@ urlpatterns = [
     # Syllabus + Objective CRUD
     path('lectures/<int:lecture_id>/syllabus/', SyllabusListCreateView.as_view(), name='syllabus-list-create'),
     path('syllabus/<int:week_id>/objective/', ObjectiveCreateView.as_view(), name='objective-create'),
-    path('objective/<int:obj_id>/', ObjectiveDeleteView.as_view(), name='objective-delete'),
+    path('syllabus/<int:week_id>/', SyllabusUpdateView.as_view(), name='syllabus-update'),
+    path('syllabus/<int:week_id>/upload-file/', SyllabusFileUploadView.as_view(), name='syllabus-upload-file'),
+    path('syllabus/<int:week_id>/download-file/', SyllabusFileDownloadView.as_view(), name='syllabus-download-file'),
+    path('objectives/<int:obj_id>/', ObjectiveDeleteView.as_view(), name='objective-delete'),
     # Phase 2-2: 적응형 콘텐츠
     path('materials/<int:pk>/generate-adaptive/', GenerateAdaptiveView.as_view(), name='generate-adaptive'),
     path('materials/<int:pk>/adaptive/', ListAdaptiveView.as_view(), name='list-adaptive'),
@@ -101,6 +104,7 @@ urlpatterns = [
     path('skill-blocks/sync/<int:lecture_id>/', SyncSkillBlocksView.as_view(), name='sync-skill-blocks'),
     path('skill-blocks/my/', MySkillBlocksView.as_view(), name='my-skill-blocks'),
     path('skill-blocks/interview-data/', MockInterviewDataView.as_view(), name='interview-data'),
+    path('skill-blocks/<int:block_id>/', SkillBlockDetailView.as_view(), name='skill-block-detail'),
     # 수료증
     path('certificate/<int:lecture_id>/', CertificateDataView.as_view(), name='certificate-data'),
     # 매니저 대시보드 및 클래스 모니터링

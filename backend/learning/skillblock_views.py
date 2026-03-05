@@ -244,3 +244,49 @@ class MockInterviewDataView(APIView):
                 for b in earned.select_related('skill')
             ],
         })
+
+
+class SkillBlockDetailView(APIView):
+    """
+    PATCH/DELETE /api/learning/skill-blocks/{block_id}/
+    스킬블록 수정 및 삭제
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, block_id):
+        try:
+            block = SkillBlock.objects.get(id=block_id, student=request.user)
+        except SkillBlock.DoesNotExist:
+            return Response({'error': '스킬블록을 찾을 수 없습니다.'}, status=404)
+
+        # 허용 필드만 수정 (Whitelist)
+        title = request.data.get('title')
+        level = request.data.get('level')
+        is_earned = request.data.get('is_earned')
+
+        if title is not None:
+            block.title = title
+        if level is not None and level in LEVEL_MAP.values():
+            block.level = level
+        if is_earned is not None:
+            block.is_earned = is_earned
+            if is_earned:
+                block.earned_at = timezone.now()
+
+        block.save()
+        return Response({
+            'id': block.id,
+            'skill_name': block.skill.name,
+            'level': block.level,
+            'is_earned': block.is_earned,
+            'message': '스킬블록이 수정되었습니다.',
+        })
+
+    def delete(self, request, block_id):
+        try:
+            block = SkillBlock.objects.get(id=block_id, student=request.user)
+        except SkillBlock.DoesNotExist:
+            return Response({'error': '스킬블록을 찾을 수 없습니다.'}, status=404)
+
+        block.delete()
+        return Response({'message': '스킬블록이 삭제되었습니다.'}, status=204)

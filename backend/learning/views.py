@@ -137,8 +137,8 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             transcript = client.audio.transcriptions.create(
                 model="gpt-4o-transcribe", 
                 file=audio_data, 
-                language="ko",
-                prompt=f"이것은 한국어 IT 부트캠프 강의 자막입니다. 이전 내용: {previous_context}" if previous_context else "이것은 한국어 IT 부트캠프 강의 자막입니다.",
+                # [FIX] 언어 자동 감지 (한국어/영어 모두 지원)
+                prompt=f"이것은 한국어/영어 IT 부트캠프 강의 자막입니다. 이전 내용: {previous_context}" if previous_context else "이것은 한국어/영어 IT 부트캠프 강의 자막입니다.",
             )
             
             stt_text = transcript.text
@@ -168,6 +168,10 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                 "BGM", "Outro", "소스 음악",
                 "www.", "http", ".com", ".kr",
                 "Amara.org", "자막 제공",
+                # [FIX] Whisper 프롬프트 에코 방지
+                "이것은 한국어", "이것은 한국어/영어",
+                "IT 부트캠프 강의 자막입니다",
+                "부트캠프 강의 자막", "이전 내용:",
             ]
             
             cleaned_text = stt_text.strip()
@@ -192,15 +196,17 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                 stt_logger.debug(f"⚠️ Repeated Syllable Filtered: '{cleaned_text}'")
                 return Response({'status': 'silence_skipped', 'text': '', 'reason': f'Repeated syllable: {cleaned_text}'}, status=status.HTTP_200_OK)
 
-            # [NEW] 2.7. 한글 비율 검사 (강의 자막인데 한글이 30% 미만이면 환각 의심)
+            # [FIX] 한글 비율 검사 — 영어 강의도 허용
+            # 한글도 영어도 아닌 무작위 문자만 있는 경우만 차단
             korean_chars = len(_re.findall(r'[가-힣]', cleaned_text))
-            total_alpha = len(_re.findall(r'[가-힣a-zA-Z]', cleaned_text))
-            if total_alpha > 10 and korean_chars / total_alpha < 0.3:
-                # 코드 블록이 아닌 경우에만 (코드는 영어 비율이 높으므로)
+            english_chars = len(_re.findall(r'[a-zA-Z]', cleaned_text))
+            total_alpha = korean_chars + english_chars
+            if total_alpha > 10 and (korean_chars + english_chars) / max(len(cleaned_text.replace(' ', '')), 1) < 0.2:
+                # 한글도 영어도 거의 없는 경우 (특수문자/기호만)
                 has_code_pattern = _re.search(r'[{}()\[\];=<>]', cleaned_text)
                 if not has_code_pattern:
                     is_hallucination = True
-                    skip_reason = f'Low Korean ratio ({korean_chars}/{total_alpha})'
+                    skip_reason = f'Low alpha ratio ({total_alpha}/{len(cleaned_text)})'
 
             # [NEW] Prompt Echo Check (Prevent looping previous context)
             # If current text is just a subset of previous context, it's a loop.
@@ -261,7 +267,50 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                 print(f"⚠️ Filtered: '{cleaned_text}' | Reason: {skip_reason}")
                 return Response({'status': 'silence_skipped', 'text': '', 'reason': skip_reason}, status=status.HTTP_200_OK)
 
-            # 5. video_offset 처리 (프론트엔드에서 전송)
+            # [NEW] 5. 한국어 미완성 문장 캐시 (Sentence Buffering)
+            from django.core.cache import cache
+            cache_key = f"stt_buffer_{session.id}"
+            buffered_text = cache.get(cache_key, "")
+
+            # 한국어 종결 판단 함수
+            def _is_sentence_complete(text):
+                text = text.strip()
+                if not text:
+                    return False
+                # 마침 부호
+                if text[-1] in '.!?。':
+                    return True
+                # 한국어 종결어미 패턴
+                endings = ['다', '요', '죠', '니다', '니까', '세요', '해요', '이요',
+                           '까요', '네요', '군요', '잖아요', '거든요', '립니다',
+                           '됩니다', '합니다', '입니다', '겠습니다', '습니다',
+                           '어요', '아요', '었어요', '었다', '했다', '했어요',
+                           '네', '지', '래', '야', '마', '거야', '거예요']
+                for end in endings:
+                    if text.endswith(end):
+                        return True
+                # 영어 문장은 항상 완성으로 간주 (영어 비율이 높을 때)
+                eng_ratio = len(_re.findall(r'[a-zA-Z]', text)) / max(len(text.replace(' ', '')), 1)
+                if eng_ratio > 0.5:
+                    return True
+                return False
+
+            # 이전 버퍼와 합치기
+            if buffered_text:
+                cleaned_text = buffered_text + " " + cleaned_text
+                stt_text = cleaned_text
+
+            # 문장 완성 여부 확인
+            if not _is_sentence_complete(cleaned_text):
+                # 미완성 → 캐시에 보관, 응답은 빈 텍스트
+                cache.set(cache_key, cleaned_text, timeout=120)  # 2분 TTL
+                stt_logger.debug(f"📦 Buffered (incomplete): '{cleaned_text}'")
+                return Response({'status': 'buffered', 'text': '', 'reason': 'Sentence incomplete, buffering'}, status=status.HTTP_200_OK)
+            else:
+                # 완성 → 캐시 클리어
+                cache.delete(cache_key)
+
+            # 6. video_offset 처리 (프론트엔드에서 전송)
             video_offset = request.data.get('video_offset')
             if video_offset:
                 try:
@@ -269,7 +318,7 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
                 except (ValueError, TypeError):
                     video_offset = None
 
-            # 6. Save STT Log
+            # 7. Save STT Log
             log = STTLog.objects.create(
                 session=session,
                 sequence_order=sequence_order,
@@ -291,6 +340,36 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             traceback.print_exc()
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @action(detail=True, methods=['post'], url_path='flush-buffer')
+    def flush_stt_buffer(self, request, pk=None):
+        """POST /api/learning/sessions/{id}/flush-buffer/
+        녹음 종료 시 캐시에 남은 미완성 문장을 강제 저장
+        """
+        session = self.get_object()
+        from django.core.cache import cache
+        cache_key = f"stt_buffer_{session.id}"
+        buffered_text = cache.get(cache_key, "")
+
+        if not buffered_text or not buffered_text.strip():
+            return Response({'status': 'empty', 'text': ''})
+
+        # 버퍼 내용을 DB에 저장
+        last_log = STTLog.objects.filter(session=session).order_by('-sequence_order').first()
+        next_seq = (last_log.sequence_order + 1) if last_log else 1
+
+        log = STTLog.objects.create(
+            session=session,
+            sequence_order=next_seq,
+            text_chunk=buffered_text.strip(),
+        )
+        cache.delete(cache_key)
+
+        return Response({
+            'status': 'flushed',
+            'text': buffered_text.strip(),
+            'id': log.id,
+        }, status=status.HTTP_201_CREATED)
+
     @action(detail=False, methods=['get'], url_path='debug-openai')
     def debug_openai(self, request):
         # [SECURITY] DEBUG=True에서만 동작
@@ -307,6 +386,26 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             return Response({"status": "ok", "reply": response.choices[0].message.content}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['patch'], url_path='summary')
+    def update_summary(self, request, pk=None):
+        """PATCH /api/learning/sessions/{id}/summary/ — 학습노트 수정"""
+        session = self.get_object()
+        content_text = request.data.get('content_text', '').strip()
+        if not content_text:
+            return Response({'error': 'content_text는 필수입니다.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        summary = SessionSummary.objects.filter(session=session).order_by('-created_at').first()
+        if summary:
+            summary.content_text = content_text
+            summary.save()
+        else:
+            summary = SessionSummary.objects.create(
+                session=session,
+                content_text=content_text,
+                raw_stt_link="User Edited"
+            )
+        return Response({'id': summary.id, 'content_text': summary.content_text, 'message': '학습노트가 수정되었습니다.'})
 
     @action(detail=True, methods=['post'], url_path='summarize')
     def generate_summary(self, request, pk=None):
@@ -1008,27 +1107,20 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
         return response
 
     # ──────────────────────────────────────────
-    # [NEW] 노트 기능 (사용자 메모 추가)
+    # [FIX] 노트 기능 (학습노트와 완전 분리, session.user_note 사용)
     # ──────────────────────────────────────────
     @action(detail=True, methods=['get', 'post'], url_path='note')
     def note(self, request, pk=None):
         """
         GET: 세션의 사용자 메모를 조회
-        POST: 세션에 사용자 메모를 저장
+        POST: 세션에 사용자 메모를 저장 (학습노트 건드리지 않음)
         """
         session = self.get_object()
 
         if request.method == 'GET':
-            latest_summary = session.summaries.last()
-            note_content = ''
-            if latest_summary:
-                note_marker = "\n\n---\n\n## 📌 나의 메모\n"
-                if note_marker in latest_summary.content_text:
-                    note_content = latest_summary.content_text.split(note_marker)[1]
             return Response({
-                'has_note': bool(note_content),
-                'note': note_content,
-                'summary_id': latest_summary.id if latest_summary else None
+                'has_note': bool(session.user_note),
+                'note': session.user_note or '',
             })
 
         # POST
@@ -1036,32 +1128,13 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
         if not note_text:
             return Response({'error': '메모 내용이 필요합니다.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        latest_summary = session.summaries.last()
+        session.user_note = note_text
+        session.save(update_fields=['user_note'])
 
-        if latest_summary:
-            note_marker = "\n\n---\n\n## 📌 나의 메모\n"
-            if note_marker in latest_summary.content_text:
-                base_content = latest_summary.content_text.split(note_marker)[0]
-                latest_summary.content_text = base_content + note_marker + note_text
-            else:
-                latest_summary.content_text += note_marker + note_text
-            latest_summary.save()
-            return Response({
-                'status': 'saved',
-                'summary_id': latest_summary.id,
-                'content': latest_summary.content_text
-            })
-        else:
-            summary = SessionSummary.objects.create(
-                session=session,
-                content_text=f"## 📌 나의 메모\n{note_text}",
-                raw_stt_link="User Note"
-            )
-            return Response({
-                'status': 'created',
-                'summary_id': summary.id,
-                'content': summary.content_text
-            }, status=status.HTTP_201_CREATED)
+        return Response({
+            'status': 'saved',
+            'note': session.user_note,
+        })
 
 
 # Note: ChecklistViewSet has been moved to checklist_views.py
