@@ -77,7 +77,7 @@ const submitQuiz = async () => {
         await loadCareers();
         step.value = 'result';
     } catch (e) {
-        showToast('제출 실패: ' + (e.response?.data?.error || '', 'error'));
+        showToast('제출 실패: ' + (e.response?.data?.error || '알 수 없는 오류'), 'error');
     }
     submitting.value = false;
 };
@@ -135,7 +135,7 @@ const submitCustomCareer = async () => {
         showToast(data.message, 'error');
         step.value = 'done';
     } catch (e) {
-        showToast('직무 생성 실패: ' + (e.response?.data?.error || e.message, 'error'));
+        showToast('직무 생성 실패: ' + (e.response?.data?.error || e.message), 'error');
     }
     submitting.value = false;
 };

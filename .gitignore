@@ -24,3 +24,17 @@ screencapture-*.png
 # Node
 node_modules/
 dist/
+# SSH 키
+sshKey/
+sshKey.zip
+
+# PID 파일
+*.pid
+
+# 바이너리 캐시
+*.pyc
+__pycache__/
+
+# 기타
+backend/nul
+android/

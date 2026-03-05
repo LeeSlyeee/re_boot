@@ -247,7 +247,7 @@ class CurriculumViewSet(viewsets.ModelViewSet):
             student=student
         ).order_by('-created_at')[:10]
         skill_summary = "\n".join([
-            f"- {s.title}: {'획득' if s.is_earned else '미획득'} ({s.level}레벨)"
+            f"- {s.skill.name}: {'획득' if s.is_earned else '미획득'} ({s.level}레벨)"
             for s in skill_blocks
         ]) or "스킬블록 없음"
 

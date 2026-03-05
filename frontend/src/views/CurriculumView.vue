@@ -76,7 +76,7 @@ const doReroute = async () => {
         await rerouteCurriculum(activeCurriculum.value.id);
         await selectCurriculum(activeCurriculum.value);
     } catch (e) {
-        showToast('리라우팅 실패: ' + (e.response?.data?.error || e.message, 'error'));
+        showToast('리라우팅 실패: ' + (e.response?.data?.error || e.message), 'error');
     }
     isRerouting.value = false;
 };
@@ -102,7 +102,16 @@ const doGenerate = async () => {
         showToast('🎉 AI 로드맵이 생성되었습니다!', 'success');
     } catch (e) {
         const errMsg = e.response?.data?.error || e.message;
-        showToast('로드맵 생성 실패: ' + errMsg, 'error');
+        if (errMsg.includes('활성 커리큘럼')) {
+            showToast('이미 진행 중인 로드맵이 있습니다. 새로고침 해주세요.', 'warning');
+            // 기존 커리큘럼 다시 불러오기
+            await fetchCurriculums();
+        } else if (e.response?.status === 401) {
+            showToast('로그인이 필요합니다. 다시 로그인해주세요.', 'error');
+            router.push('/login');
+        } else {
+            showToast('로드맵 생성 실패: ' + errMsg + '\n수강 강의가 있는지 확인해주세요.', 'error');
+        }
     }
     isGenerating.value = false;
 };

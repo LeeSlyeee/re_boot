@@ -31,6 +31,9 @@ class LearningSession(models.Model):
     script_segments = models.JSONField(default=list, help_text="분할된 스크립트 데이터")
     is_analyzing = models.BooleanField(default=False, help_text="분석 진행 중 여부")
 
+    # [NEW] 사용자 메모 (학습노트와 완전 분리)
+    user_note = models.TextField(blank=True, default='', help_text="사용자 개인 메모")
+
     class Meta:
         app_label = 'learning'
 
