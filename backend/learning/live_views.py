@@ -134,10 +134,8 @@ class LiveSessionViewSet(viewsets.ViewSet):
             # 활성 퀴즈 비활성화
             session.quizzes.filter(is_active=True).update(is_active=False)
 
-            # [편의성 개선] 수업 종료 시 교수 PC에 띄워둔 KWS 마이크 CMD 창 자동 강제 종료
-            import os
-            # KWS_Mic_Client라는 창 타이틀을 가진 cmd.exe 프로세스를 찾아 종료
-            os.system('taskkill /FI "WINDOWTITLE eq KWS_Mic_Client*" /T /F >nul 2>&1')
+            # OCI 환경: CMD 종료는 교수 PC의 WebSocket Agent가 담당
+            # (프론트엔드에서 ws://localhost:5555 STOP 명령으로 처리)
 
             # 통합 노트 생성 시작 (비동기) — 중복 방지
             existing_note = LiveSessionNote.objects.filter(live_session=session).first()
@@ -419,7 +417,7 @@ class LiveSessionViewSet(viewsets.ViewSet):
         quiz_suggestion_triggered = False
         
         # 'QUIZ' 키워드로 퀴즈 제안 생성
-        if keyword in ['QUIZ', 'UNDERSTAND']:
+        if keyword in ['QUIZ']:
             # 최근 5분 내 제안이 없을 때만 (스팸 방지)
             recent_suggestion = session.quizzes.filter(
                 is_suggestion=True,
@@ -476,14 +474,8 @@ class LiveSessionViewSet(viewsets.ViewSet):
             except Exception as e:
                 is_connected = False
                 
-            # [편의성 매크로] 로컬 환경(현재 개발/테스트 PC)에서 교수 대시보드의 '연결' 버튼을 누를 때만
-            # 자동으로 PC 마이크 클라이언트 스크립트를 새 터미널 창(CMD)으로 띄워줍니다.
-            if is_connected and manual_launch:
-                import os
-                # 실행 중인 동일 창이 있는지 확인 후 띄우기 위해 (단순 구현으로 title 활용 가능하나 여기선 패스)
-                # conda 실행 경로를 절대경로로 지정
-                run_cmd = f'start "KWS_Mic_Client" cmd /k "echo =================================== && echo [Auto-Started by Professor Dashboard] && echo =================================== && C:\\ProgramData\\anaconda3\\condabin\\conda.bat activate kws && cd c:\\Users\\User\\re_boot\\temp_kws && python client_pc_mic_VAD.py --ip {host}"'
-                os.system(run_cmd)
+            # OCI 환경: 마이크 클라이언트 실행은 교수 PC의 WebSocket Agent가 담당
+            # (프론트엔드에서 ws://localhost:5555 START 명령으로 처리)
 
             # 결과를 임시 메모리 장부에 기록 (단일 서버 가정)
             # (보다 완벽하게 하려면 Redis나 DB 등 활용 권장)

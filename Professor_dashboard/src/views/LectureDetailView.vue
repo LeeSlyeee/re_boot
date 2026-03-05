@@ -321,6 +321,18 @@ const endLiveSession = async () => {
         await api.post(`/learning/live/${liveSession.value.id}/end/`);
         stopLivePolling();
         stopSTT();
+
+        // 로컬 WebSocket Agent에 마이크 클라이언트 종료 요청
+        if (kwsAgentWs && kwsAgentWs.readyState === WebSocket.OPEN) {
+            kwsAgentWs.send(JSON.stringify({ action: 'shutdown' })); // stop 대신 shutdown으로 변경
+            // 프로세스가 완전히 종료될 시간을 약간 벌어준 뒤 소켓 닫음 (옵션)
+            setTimeout(() => {
+                if (kwsAgentWs) kwsAgentWs.close();
+            }, 100);
+        }
+        kwsAgentWs = null;
+        kwsAgentConnected.value = false;
+
         // 세션 종료 후 상태 유지 → 인사이트 폴링 시작
         liveSession.value = { ...liveSession.value, status: 'ENDED' };
         startInsightPolling();
@@ -704,6 +716,10 @@ const rpiPort = ref('9999');
 const rpiConnected = ref(false);
 const rpiConnecting = ref(false);
 
+// WebSocket Agent 연결 (교수 PC 로컬)
+let kwsAgentWs = null;
+const kwsAgentConnected = ref(false);
+
 const fetchRpiStatus = async () => {
     try {
         const { data } = await api.get('/learning/live/rpi-status/');
@@ -723,6 +739,29 @@ const connectRpi = async () => {
             manual_launch: true,
         });
         rpiConnected.value = data.rpi_connected;
+
+        // 라즈베리파이 연결 확인 후 KWS Agent에 WebSocket만 연결 (오디오는 DSCNN/STT 버튼 클릭 시 시작)
+        if (data.rpi_connected) {
+            try {
+                kwsAgentWs = new WebSocket('ws://localhost:5555');
+                kwsAgentWs.onopen = () => {
+                    kwsAgentConnected.value = true;
+                    console.log('[KWS Agent] WebSocket 연결 완료 (대기 중)');
+                };
+                kwsAgentWs.onmessage = (event) => {
+                    const resp = JSON.parse(event.data);
+                    console.log('[KWS Agent]', resp);
+                };
+                kwsAgentWs.onclose = () => { kwsAgentConnected.value = false; };
+                kwsAgentWs.onerror = () => {
+                    kwsAgentConnected.value = false;
+                    showToast('⚠️ KWS Agent 미실행 — PC에서 KWS Agent를 실행해주세요.', 'warning');
+                };
+            } catch (e) {
+                console.error('KWS Agent 연결 실패:', e);
+            }
+        }
+
         showToast(
             data.rpi_connected
                 ? `🟢 라즈베리파이 연결 성공 (${rpiHost.value})`
@@ -761,6 +800,15 @@ const startSTT = () => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
         showToast('이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.', 'warning');
         return;
+    }
+    // KWS Agent에 START 명령 전송 (카운터 부분에서만)
+    if (kwsAgentWs?.readyState === WebSocket.OPEN && !dscnnOnlyActive.value) {
+        kwsAgentWs.send(JSON.stringify({
+            action: 'start',
+            ip: rpiHost.value.trim(),
+            port: parseInt(rpiPort.value) || 9999
+        }));
+        console.log('[KWS Agent] START 명령 전송 (STT+DSCNN)');
     }
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
@@ -843,17 +891,36 @@ const stopSTT = () => {
         sttRecognition.value = null;
     }
     sttActive.value = false;
+    // DSCNN Only가 비활성화일 때만 STOP (DSCNN도 함께 트는 중이려면 안 끊음)
+    if (!dscnnOnlyActive.value && kwsAgentWs?.readyState === WebSocket.OPEN) {
+        kwsAgentWs.send(JSON.stringify({ action: 'stop' }));
+        console.log('[KWS Agent] STOP 명령 전송');
+    }
 };
 
 // ── DSCNN Only 모드: STT 없이 KWS 웹훅만 대기 ──
 const startDSCNNOnly = () => {
     dscnnOnlyActive.value = true;
     sttLastText.value = '🧠 DSCNN 감지 대기 중... 키워드를 말씀해주세요';
+    // KWS Agent에 START 명령 전송
+    if (kwsAgentWs?.readyState === WebSocket.OPEN && !sttActive.value) {
+        kwsAgentWs.send(JSON.stringify({
+            action: 'start',
+            ip: rpiHost.value.trim(),
+            port: parseInt(rpiPort.value) || 9999
+        }));
+        console.log('[KWS Agent] START 명령 전송 (DSCNN Only)');
+    }
     showToast('🧠 DSCNN Only 모드 시작 — KWS 키워드 감지 대기 중', 'success');
 };
 const stopDSCNNOnly = () => {
     dscnnOnlyActive.value = false;
     sttLastText.value = '';
+    // STT가 비활성화일 때만 STOP
+    if (!sttActive.value && kwsAgentWs?.readyState === WebSocket.OPEN) {
+        kwsAgentWs.send(JSON.stringify({ action: 'stop' }));
+        console.log('[KWS Agent] STOP 명령 전송');
+    }
     showToast('DSCNN Only 모드 종료', 'info');
 };
 
@@ -877,6 +944,10 @@ const approveQuizSuggestion = async () => {
             time_limit: 60
         });
         quizSuggestion.value = null;
+        
+        // 퀴즈 시작(승인) 시 마이크 및 STT/DSCNN 자동 중지
+        stopSTT();
+        stopDSCNNOnly();
     } catch (e) { showToast('퀴즈 발동 실패: ' + (e.response?.data?.error || '', 'error')); }
 };
 
@@ -887,6 +958,10 @@ const dismissQuizSuggestion = async () => {
         } catch {}
     }
     quizSuggestion.value = null;
+    
+    // 퀴즈 무시(닫기) 시 마이크 및 STT/DSCNN 자동 중지
+    stopSTT();
+    stopDSCNNOnly();
 };
 
 // ── Quiz Control State ──

@@ -1,0 +1,391 @@
+================================================================================
+  KWS 마이크 클라이언트 자동 실행 기능 — OCI 환경 대응 마이그레이션 가이드
+  작성일: 2026-03-04
+================================================================================
+
+[배경 및 문제]
+
+이 프로젝트(Re:Boot)는 원래 교수 PC 한 대에서 Django 백엔드, 프론트엔드, 교수 대시보드를 
+모두 실행하는 구조였다. 이 환경에서는 Django(live_views.py)가 os.system()을 이용해
+동일 PC에서 CMD 창을 열고 "client_pc_mic_VAD.py"를 자동 실행/종료할 수 있었다.
+
+현재 Django 백엔드와 프론트엔드/대시보드를 모두 Oracle Cloud(OCI, Ubuntu)로 이전했기 때문에,
+Django가 더 이상 교수 PC의 CMD를 실행할 수 없다.
+결과적으로 라이브 세션 시작 시 KWS 마이크 클라이언트가 실행되지 않아
+라즈베리파이로 오디오가 전송되지 않고, KWS 키워드 감지 기능이 완전히 중단된 상태이다.
+
+[해결 방안]
+
+교수 PC에 경량 WebSocket 서버(kws_agent.py)를 상시 실행하고,
+교수 대시보드(브라우저)에서 ws://localhost:5555로 START/STOP 명령을 보내
+client_pc_mic_VAD.py 프로세스를 자동으로 실행/종료하는 구조로 전환한다.
+
+================================================================================
+  변경 작업 목록 (총 4개 파일, 2개 수정 + 2개 신규)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+작업 1: [수정] backend/learning/live_views.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+이 파일은 Django 백엔드의 라이브 세션 API를 담당한다.
+OCI(Ubuntu)에서는 Windows 전용 명령(cmd.exe, taskkill)이 동작하지 않으므로 제거한다.
+
+■ 변경점 A: 137~140라인 (end_session 메서드 내부)
+
+[현재 코드]
+            # [편의성 개선] 수업 종료 시 교수 PC에 띄워둔 KWS 마이크 CMD 창 자동 강제 종료
+            import os
+            # KWS_Mic_Client라는 창 타이틀을 가진 cmd.exe 프로세스를 찾아 종료
+            os.system('taskkill /FI "WINDOWTITLE eq KWS_Mic_Client*" /T /F >nul 2>&1')
+
+[변경 후 코드]
+            # OCI 환경: CMD 종료는 교수 PC의 WebSocket Agent가 담당
+            # (프론트엔드에서 ws://localhost:5555 STOP 명령으로 처리)
+
+주의: 들여쓰기(공백 12칸)를 반드시 유지할 것. 이 코드는 try 블록 안의 if문 안에 있다.
+
+
+■ 변경점 B: 479~486라인 (rpi_status 메서드 내부, POST 분기)
+
+[현재 코드]
+            # [편의성 매크로] 로컬 환경(현재 개발/테스트 PC)에서 교수 대시보드의 '연결' 버튼을 누를 때만
+            # 자동으로 PC 마이크 클라이언트 스크립트를 새 터미널 창(CMD)으로 띄워줍니다.
+            if is_connected and manual_launch:
+                import os
+                # 실행 중인 동일 창이 있는지 확인 후 띄우기 위해 (단순 구현으로 title 활용 가능하나 여기선 패스)
+                # conda 실행 경로를 절대경로로 지정
+                run_cmd = f'start "KWS_Mic_Client" cmd /k "echo =================================== && echo [Auto-Started by Professor Dashboard] && echo =================================== && C:\\ProgramData\\anaconda3\\condabin\\conda.bat activate kws && cd c:\\Users\\User\\re_boot\\temp_kws && python client_pc_mic_VAD.py --ip {host}"'
+                os.system(run_cmd)
+
+[변경 후 코드]
+            # OCI 환경: 마이크 클라이언트 실행은 교수 PC의 WebSocket Agent가 담당
+            # (프론트엔드에서 ws://localhost:5555 START 명령으로 처리)
+
+주의: 들여쓰기(공백 12칸)를 반드시 유지할 것.
+주의: 이 변경점 뒤의 코드(488라인~, request.session 저장 부분)는 변경하지 않는다.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+작업 2: [수정] Professor_dashboard/src/views/LectureDetailView.vue
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+이 파일은 교수 대시보드의 메인 뷰 컴포넌트이다 (Vue 3, Composition API, <script setup>).
+교수가 라이브 세션을 시작/종료할 때 로컬 WebSocket Agent에 명령을 보내도록 수정한다.
+
+■ 변경점 C: 약 704~705라인 (rpiConnected, rpiConnecting 변수 선언 바로 아래에 추가)
+
+[현재 코드]
+const rpiConnected = ref(false);
+const rpiConnecting = ref(false);
+
+[변경 후 코드]
+const rpiConnected = ref(false);
+const rpiConnecting = ref(false);
+
+// WebSocket Agent 연결 (교수 PC 로컬)
+let kwsAgentWs = null;
+const kwsAgentConnected = ref(false);
+
+
+■ 변경점 D: 716~736라인 (connectRpi 함수)
+
+connectRpi() 함수에서 rpiConnected.value = data.rpi_connected; 라인 직후,
+showToast() 호출 직전에 아래 코드를 삽입한다.
+
+[삽입할 코드]
+         // OCI 환경: 로컬 WebSocket Agent에 마이크 클라이언트 실행 요청
+         if (data.rpi_connected) {
+             try {
+                 kwsAgentWs = new WebSocket('ws://localhost:5555');
+                 kwsAgentWs.onopen = () => {
+                     kwsAgentConnected.value = true;
+                     kwsAgentWs.send(JSON.stringify({
+                         action: 'start',
+                         ip: rpiHost.value.trim(),
+                         port: parseInt(rpiPort.value) || 9999
+                     }));
+                 };
+                 kwsAgentWs.onmessage = (event) => {
+                     const resp = JSON.parse(event.data);
+                     console.log('[KWS Agent]', resp);
+                 };
+                 kwsAgentWs.onclose = () => { kwsAgentConnected.value = false; };
+                 kwsAgentWs.onerror = () => {
+                     kwsAgentConnected.value = false;
+                     showToast('⚠️ KWS Agent 미실행 — PC에서 start_kws_agent.bat을 실행해주세요.', 'warning');
+                 };
+             } catch (e) {
+                 console.error('KWS Agent 연결 실패:', e);
+             }
+         }
+
+삽입 위치 정확히:
+  rpiConnected.value = data.rpi_connected;    ← 이 줄 바로 아래
+  [여기에 삽입]
+  showToast(                                   ← 이 줄 바로 위
+
+
+■ 변경점 E: 318~328라인 (endLiveSession 함수)
+
+endLiveSession() 함수에서 stopSTT(); 라인 직후,
+liveSession.value = ... 라인 직전에 아래 코드를 삽입한다.
+
+[삽입할 코드]
+         // OCI 환경: 로컬 WebSocket Agent에 마이크 클라이언트 종료 요청
+         if (kwsAgentWs && kwsAgentWs.readyState === WebSocket.OPEN) {
+             kwsAgentWs.send(JSON.stringify({ action: 'stop' }));
+             kwsAgentWs.close();
+         }
+         kwsAgentWs = null;
+         kwsAgentConnected.value = false;
+
+삽입 위치 정확히:
+  stopSTT();                                   ← 이 줄 바로 아래
+  [여기에 삽입]
+  liveSession.value = { ...liveSession.value, status: 'ENDED' };  ← 이 줄 바로 위
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+작업 3: [신규] temp_kws/kws_agent.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+교수 PC에서 실행되는 경량 WebSocket 서버 스크립트.
+브라우저(교수 대시보드)에서 ws://localhost:5555로 명령을 수신하여
+client_pc_mic_VAD.py 프로세스를 실행/종료한다.
+
+파일 경로: temp_kws/kws_agent.py
+
+[전체 코드 — 아래 내용을 그대로 생성할 것]
+
+"""
+KWS Local WebSocket Agent
+==========================
+교수 PC에서 상시 실행되는 경량 WebSocket 서버입니다.
+교수 대시보드(브라우저)에서 ws://localhost:5555로 명령을 수신하여
+client_pc_mic_VAD.py 프로세스를 자동으로 실행/종료합니다.
+
+사용법:
+  conda activate kws
+  python kws_agent.py
+
+또는:
+  start_kws_agent.bat 더블클릭
+"""
+
+import asyncio
+import websockets
+import json
+import subprocess
+import sys
+import os
+import signal
+
+# 설정
+WS_PORT = 5555
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CLIENT_SCRIPT = os.path.join(SCRIPT_DIR, 'client_pc_mic_VAD.py')
+
+# 현재 실행 중인 KWS 마이크 클라이언트 프로세스
+kws_process = None
+
+
+def start_kws_client(ip, port=9999):
+    """client_pc_mic_VAD.py를 subprocess로 실행"""
+    global kws_process
+
+    # 이미 실행 중이면 먼저 종료
+    stop_kws_client()
+
+    try:
+        # 현재 Python 인터프리터로 실행 (conda 환경 상속)
+        cmd = [sys.executable, CLIENT_SCRIPT, '--ip', str(ip), '--port', str(port)]
+        
+        # 새 콘솔 창에서 실행 (Windows)
+        kws_process = subprocess.Popen(
+            cmd,
+            creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0,
+            cwd=SCRIPT_DIR
+        )
+        print(f"✅ KWS 클라이언트 시작 (PID: {kws_process.pid}, IP: {ip}:{port})")
+        return True
+    except Exception as e:
+        print(f"❌ KWS 클라이언트 실행 실패: {e}")
+        kws_process = None
+        return False
+
+
+def stop_kws_client():
+    """실행 중인 client_pc_mic_VAD.py 프로세스를 종료"""
+    global kws_process
+
+    if kws_process is None:
+        return False
+
+    try:
+        if kws_process.poll() is None:  # 아직 살아있으면
+            kws_process.terminate()
+            try:
+                kws_process.wait(timeout=3)  # 최대 3초 대기
+            except subprocess.TimeoutExpired:
+                kws_process.kill()  # 강제 종료
+            print(f"🛑 KWS 클라이언트 종료 (PID: {kws_process.pid})")
+        kws_process = None
+        return True
+    except Exception as e:
+        print(f"⚠️ KWS 클라이언트 종료 중 오류: {e}")
+        kws_process = None
+        return False
+
+
+def get_status():
+    """현재 KWS 클라이언트 실행 상태 반환"""
+    if kws_process is None:
+        return {"running": False, "pid": None}
+    
+    is_running = kws_process.poll() is None
+    if not is_running:
+        return {"running": False, "pid": None}
+    
+    return {"running": True, "pid": kws_process.pid}
+
+
+async def handler(websocket):
+    """WebSocket 메시지 핸들러"""
+    client_addr = websocket.remote_address
+    print(f"🔌 클라이언트 연결: {client_addr}")
+
+    try:
+        async for message in websocket:
+            try:
+                data = json.loads(message)
+                action = data.get('action', '')
+
+                if action == 'start':
+                    ip = data.get('ip', '')
+                    port = data.get('port', 9999)
+                    
+                    if not ip:
+                        await websocket.send(json.dumps({
+                            "status": "error",
+                            "message": "IP 주소가 필요합니다."
+                        }))
+                        continue
+
+                    success = start_kws_client(ip, port)
+                    await websocket.send(json.dumps({
+                        "status": "started" if success else "error",
+                        "message": f"KWS 클라이언트 {'시작' if success else '실행 실패'}"
+                    }))
+
+                elif action == 'stop':
+                    success = stop_kws_client()
+                    await websocket.send(json.dumps({
+                        "status": "stopped" if success else "not_running",
+                        "message": f"KWS 클라이언트 {'종료' if success else '이미 중지 상태'}"
+                    }))
+
+                elif action == 'status':
+                    status = get_status()
+                    await websocket.send(json.dumps({
+                        "status": "ok",
+                        **status
+                    }))
+
+                else:
+                    await websocket.send(json.dumps({
+                        "status": "error",
+                        "message": f"알 수 없는 명령: {action}"
+                    }))
+
+            except json.JSONDecodeError:
+                await websocket.send(json.dumps({
+                    "status": "error",
+                    "message": "잘못된 JSON 형식"
+                }))
+
+    except websockets.exceptions.ConnectionClosed:
+        print(f"🔌 클라이언트 연결 해제: {client_addr}")
+
+
+async def main():
+    """메인 WebSocket 서버"""
+    print("=" * 50)
+    print(f"🟢 KWS Local Agent 시작")
+    print(f"   WebSocket: ws://localhost:{WS_PORT}")
+    print(f"   클라이언트 스크립트: {CLIENT_SCRIPT}")
+    print("=" * 50)
+    print("교수 대시보드에서 라이브 세션을 시작하면 자동으로 마이크 클라이언트가 실행됩니다.")
+    print("이 창을 닫지 마세요. (종료: Ctrl+C)\n")
+
+    async with websockets.serve(handler, "localhost", WS_PORT):
+        await asyncio.Future()  # 무한 대기
+
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n🛑 Agent 종료 중...")
+        stop_kws_client()
+        print("Agent가 종료되었습니다.")
+
+
+의존성: pip install websockets (또는 conda install websockets)
+이 스크립트는 교수 PC의 conda kws 환경에서 실행되어야 한다.
+client_pc_mic_VAD.py와 같은 디렉터리(temp_kws/)에 위치해야 한다.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+작업 4: [신규] temp_kws/start_kws_agent.bat
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Windows 시작프로그램에 등록할 수 있는 에이전트 실행 배치 파일.
+
+파일 경로: temp_kws/start_kws_agent.bat
+
+[전체 코드 — 아래 내용을 그대로 생성할 것]
+
+@echo off
+title KWS_Local_Agent
+echo ============================================
+echo   KWS Local WebSocket Agent 시작 중...
+echo ============================================
+call C:\ProgramData\anaconda3\condabin\conda.bat activate kws
+cd /d %~dp0
+python kws_agent.py
+pause
+
+
+================================================================================
+  확인 사항 (체크리스트)
+================================================================================
+
+[ ] 작업 1 완료: live_views.py에서 os.system / taskkill 코드 2군데 제거
+[ ] 작업 2 완료: LectureDetailView.vue에서 WebSocket Agent 연결 코드 3군데 추가
+[ ] 작업 3 완료: temp_kws/kws_agent.py 신규 생성
+[ ] 작업 4 완료: temp_kws/start_kws_agent.bat 신규 생성
+[ ] websockets 패키지가 conda kws 환경에 설치되어 있는지 확인
+
+================================================================================
+  주의사항
+================================================================================
+
+1. 기존 파일 중 client_pc_mic_VAD.py와 server_pi_socket_VAD.py는 
+   절대 수정하지 않는다. 그대로 사용한다.
+
+2. live_views.py 수정 시 해당 코드 블록의 들여쓰기(indentation)를 반드시 유지한다.
+   Python은 들여쓰기가 문법의 일부이므로 잘못 수정하면 서버가 기동되지 않는다.
+
+3. LectureDetailView.vue에서 kwsAgentWs 변수는 let으로 선언한다 (ref가 아님).
+   WebSocket 인스턴스는 Vue의 reactivity가 필요하지 않고 직접 할당/해제하기 때문이다.
+   kwsAgentConnected는 UI에 표시할 수 있으므로 ref()로 선언한다.
+
+4. kws_agent.py는 Windows 환경에서만 실행된다 (교수 PC).
+   CREATE_NEW_CONSOLE 플래그는 Windows 전용이다.
+   sys.platform 체크가 이미 포함되어 있으므로 다른 OS에서도 에러 없이 동작한다.
+
+5. OCI 서버의 보안 목록(Security List)에서 포트 8000의 인바운드 규칙이 
+   열려있어야 한다. 그래야 라즈베리파이의 웹훅 POST가 Django에 도달할 수 있다.
+
+================================================================================

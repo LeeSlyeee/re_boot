@@ -5,10 +5,14 @@ from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 import collections
 import time
 import os
+import json
+import urllib.request
+import urllib.error
 
 # --- 1. 파라미터 및 통신 설정 ---
 HOST = '0.0.0.0'  # 모든 인터페이스에서 접속 허용
 PORT = 9999       # 포트 번호
+
 
 SAMPLE_RATE = 16000
 CHUNK_DURATION_MS = 250
@@ -83,8 +87,16 @@ print("PC(클라이언트)의 연결을 대기 중입니다...\n")
 
 while True:
     client_socket, addr = server_socket.accept()
+    client_ip = addr[0]  # 연결한 PC의 IP 자동 추출
     print(f"\n✅ 클라이언트 연결됨: {addr}")
-    
+
+    # 환경변수 없으면 연결한 PC의 IP로 자동 구성 (매번 수동 변경 불필요)
+    webhook_url = os.environ.get(
+        'DJANGO_WEBHOOK_URL',
+        f'http://{client_ip}:8000/api/learning/live/kws-webhook/'
+    )
+    print(f"🌐 웹훅 URL: {webhook_url}")
+
     # 연결될 때마다 버퍼 초기화
     audio_buffer = np.zeros(CLIP_DURATION_SAMPLES, dtype=np.float32)
     window_history.clear()
@@ -160,12 +172,35 @@ while True:
                 
                 if target_triggered:
                     print(f"[{timestamp}] 🔥 {target_triggered.upper()} 포착! (점수: {target_score*100:.1f}%) [{debug_info}] 볼륨:{raw_volume:.3f} (x{norm_factor:.1f})")
-                    client_socket.sendall(f"TRIGGER_{target_triggered.upper()}\n".encode('utf-8'))
-                    suppression_counter = 4 # 약 1초 대기
+                    try:
+                        client_socket.sendall(f"TRIGGER_{target_triggered.upper()}\n".encode('utf-8'))
+                    except (BrokenPipeError, OSError):
+                        print(f"[{timestamp}] ⚠️ 클라이언트 연결 끊김 — 재연결 대기")
+                        break
+
+                    # Django 서버로 웹훅 발송
+                    try:
+                        payload = {"keyword": target_triggered.upper(), "confidence": float(target_score)}
+                        data = json.dumps(payload).encode('utf-8')
+                        req = urllib.request.Request(
+                            webhook_url, data=data,
+                            headers={'Content-Type': 'application/json'}, method='POST'
+                        )
+                        with urllib.request.urlopen(req, timeout=2) as response:
+                            res_json = json.loads(response.read().decode('utf-8'))
+                            print(f"[{timestamp}] 🌐 웹훅 발사 성공: {res_json.get('message', 'OK')}")
+                    except urllib.error.HTTPError as e:
+                        print(f"[{timestamp}] ⚠️ 웹훅 실패 (서버 응답: {e.code})")
+                    except urllib.error.URLError as e:
+                        print(f"[{timestamp}] ❌ 웹훅 접속 실패: {e.reason}")
+                    except Exception as e:
+                        print(f"[{timestamp}] ❌ 웹훅 오류: {e}")
+
+                    suppression_counter = 4  # 약 1초 대기
                 else:
                     print(f"[{timestamp}] ({debug_info}) 볼륨:{raw_volume:.3f} (x{norm_factor:.1f})")
 
-    except ConnectionResetError:
-        print(f"⚠️ 클라이언트({addr}) 비정상 종료")
+    except (ConnectionResetError, BrokenPipeError, OSError) as e:
+        print(f"⚠️ 클라이언트({addr}) 연결 종료: {e}")
     finally:
         client_socket.close()
