@@ -1000,7 +1000,9 @@ const fetchQuizSuggestion = async () => {
         if (data && data.id) {
             quizSuggestion.value = data;
         }
-    } catch {}
+    } catch (e) {
+        console.error('[fetchQuizSuggestion] Error:', e);
+    }
 };
 
 const approveQuizSuggestion = async () => {

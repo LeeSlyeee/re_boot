@@ -406,7 +406,7 @@ class LiveSessionViewSet(viewsets.ViewSet):
         confidence = request.data.get('confidence', 1.0)
         
         # 1안 전략 (데모/단일 교수 환경): 현재 활성화(LIVE)된 가장 최근의 세션을 자동 타겟팅
-        session = LiveSession.objects.filter(status='LIVE').order_by('-started_at').first()
+        session = LiveSession.objects.filter(status='LIVE').order_by('-id').first()
 
         if not session:
             logger.warning(f"⚠️ [Edge KWS] 웹훅 수신됨 (키워드: {keyword}), 하지만 진행 중인 LIVE 세션이 없습니다.")
