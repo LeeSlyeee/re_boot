@@ -152,8 +152,15 @@ class CompleteSpacedRepView(APIView):
 
     def post(self, request, pk):
         item = get_object_or_404(SpacedRepetitionItem, id=pk, student=request.user)
-        user_answer = request.data.get('answer', '')
-        is_correct = user_answer.strip() == item.review_answer.strip()
+        user_answer = request.data.get('answer', '').strip()
+        correct_ans = item.review_answer.strip()
+        
+        # "B: 어쩌구" 형태나 "B" 단독 등 여러 형태 허용
+        is_correct = False
+        if user_answer == correct_ans:
+            is_correct = True
+        elif user_answer.startswith(f"{correct_ans}:") or user_answer.startswith(f"{correct_ans}. ") or user_answer.startswith(f"{correct_ans} "):
+            is_correct = True
 
         # 정답이면 현재 주기 완료 처리
         if is_correct:

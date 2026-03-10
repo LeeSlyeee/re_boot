@@ -417,23 +417,23 @@ const generateCertificate = async (lecId, e) => {
   }
   .cert::before, .cert::after {
     content: ''; position: absolute; width: 60px; height: 60px;
-    border: 2px solid #c9a96e;
+    border: 2px solid #8b7340;
   }
   .cert::before { top: 20px; left: 20px; border-right: none; border-bottom: none; }
   .cert::after { bottom: 20px; right: 20px; border-left: none; border-top: none; }
-  .cert-header { color: #c9a96e; font-size: 14px; letter-spacing: 8px; margin-bottom: 8px; }
+  .cert-header { color: #8b7340; font-size: 14px; letter-spacing: 8px; margin-bottom: 8px; }
   .cert-title { font-size: 42px; font-weight: 900; color: #1e3a5f; margin-bottom: 30px; }
-  .cert-name { font-size: 32px; font-weight: 700; color: #333; border-bottom: 2px solid #c9a96e; display: inline-block; padding-bottom: 4px; margin-bottom: 20px; }
+  .cert-name { font-size: 32px; font-weight: 700; color: #333; border-bottom: 2px solid #8b7340; display: inline-block; padding-bottom: 4px; margin-bottom: 20px; }
   .cert-desc { font-size: 15px; color: #555; line-height: 1.8; margin-bottom: 30px; }
   .cert-stats { display: flex; justify-content: center; gap: 32px; margin-bottom: 30px; }
   .stat { text-align: center; }
   .stat-val { font-size: 28px; font-weight: 900; color: #1e3a5f; }
-  .stat-lbl { font-size: 12px; color: #888; margin-top: 2px; }
+  .stat-lbl { font-size: 12px; color: #9ba1a6; margin-top: 2px; }
   .cert-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }
-  .footer-info { text-align: left; font-size: 12px; color: #999; }
+  .footer-info { text-align: left; font-size: 12px; color: #767676; }
   .footer-sign { text-align: right; }
   .sign-name { font-size: 16px; font-weight: 700; color: #333; }
-  .sign-role { font-size: 12px; color: #888; }
+  .sign-role { font-size: 12px; color: #9ba1a6; }
   .print-btn { position: fixed; bottom: 20px; right: 20px; padding: 12px 24px; background: #1e3a5f; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; font-weight: 700; }
   @media print { .print-btn { display: none; } body { background: white; } }
 </style></head><body>
@@ -850,11 +850,11 @@ const generateCertificate = async (lecId, e) => {
                 :key="idx"
                 class="sr-option-btn"
                 :class="{
-                  correct: srResult && srResult.correct_answer === opt,
+                  correct: srResult && (srResult.correct_answer === opt || opt.startsWith(srResult.correct_answer + ':') || opt.startsWith(srResult.correct_answer + '.')),
                   wrong:
                     srResult &&
                     !srResult.is_correct &&
-                    opt === srResult.correct_answer,
+                    (opt === srResult.correct_answer || opt.startsWith(srResult.correct_answer + ':') || opt.startsWith(srResult.correct_answer + '.')),
                 }"
                 @click="submitSRAnswer(srAnswering.id, opt)"
                 :disabled="!!srResult"
@@ -1073,13 +1073,13 @@ h2 {
 }
 h3 {
   font-size: 16px;
-  color: #888;
+  color: #9ba1a6;
   margin-bottom: 20px;
   font-weight: normal;
 }
 
 .sub-text {
-  color: #888;
+  color: #9ba1a6;
   margin-bottom: 24px;
   font-size: 14px;
   text-align: center;
@@ -1140,7 +1140,7 @@ h3 {
   font-size: 15px;
 }
 .lec-instructor {
-  color: #888;
+  color: #9ba1a6;
   font-size: 13px;
 }
 .action-arrow {
@@ -1153,7 +1153,7 @@ h3 {
   opacity: 1;
 }
 .empty-list {
-  color: #666;
+  color: #9ba1a6;
   text-align: center;
   padding: 20px;
   font-size: 14px;
@@ -1243,7 +1243,7 @@ h3 {
       font-weight: 700;
     }
     .subtitle {
-      color: #888;
+      color: #9ba1a6;
       margin-top: 8px;
       font-size: 16px;
     }
@@ -1301,7 +1301,7 @@ h3 {
   .stat-info {
     h3 {
       font-size: 14px;
-      color: #888;
+      color: #9ba1a6;
       margin-bottom: 4px;
     }
     .value {
@@ -1310,7 +1310,7 @@ h3 {
     }
     .sub-value {
       font-size: 12px;
-      color: #666;
+      color: #9ba1a6;
       margin-top: 2px;
     }
   }
@@ -1417,7 +1417,7 @@ h3 {
   }
   p {
     font-size: 13px;
-    color: #888;
+    color: #9ba1a6;
   }
 }
 
@@ -1443,7 +1443,7 @@ h3 {
   }
   .btn-text {
     white-space: nowrap; /* Prevent wrapping */
-    color: #888;
+    color: #9ba1a6;
     font-size: 14px;
     &:hover {
       color: white;
@@ -1500,7 +1500,7 @@ h3 {
 
 .btn-text {
   background: transparent;
-  color: #888;
+  color: #9ba1a6;
   padding: 8px 16px;
 
   &:hover {
@@ -1518,7 +1518,7 @@ h3 {
   justify-content: center;
   padding: 8px;
   border-radius: 50%;
-  color: #888;
+  color: #9ba1a6;
   transition: all 0.2s;
 
   &:hover {
@@ -1566,12 +1566,12 @@ h3 {
     }
     .date {
       font-size: 12px;
-      color: #888;
+      color: #9ba1a6;
     }
   }
 
   .delete-btn {
-    color: #666;
+    color: #9ba1a6;
     &:hover {
       color: #ef4444;
       background: rgba(239, 68, 68, 0.1);
@@ -1582,7 +1582,7 @@ h3 {
 .empty-state {
   text-align: center;
   padding: 40px 0;
-  color: #666;
+  color: #9ba1a6;
   button {
     margin-top: 16px;
   }
@@ -1625,7 +1625,7 @@ h3 {
   }
   p {
     font-size: 13px;
-    color: #888;
+    color: #9ba1a6;
   }
 }
 
@@ -2031,7 +2031,7 @@ h3 {
   }
   p {
     font-size: 13px;
-    color: #888;
+    color: #9ba1a6;
     margin: 0;
   }
 }
@@ -2109,7 +2109,7 @@ h3 {
   padding: 4px 12px;
   font-size: 12px;
   font-weight: 700;
-  background: linear-gradient(135deg, #c9a96e, #dfc18e);
+  background: linear-gradient(135deg, #8b7340, #dfc18e);
   color: #1e3a5f;
   border: none;
   border-radius: 6px;
@@ -2139,7 +2139,7 @@ h3 {
 }
 .section-desc {
   font-size: 13px;
-  color: #888;
+  color: #9ba1a6;
   margin-bottom: 12px;
 }
 .absent-list {
@@ -2157,7 +2157,7 @@ h3 {
   display: flex;
   justify-content: space-between;
   font-size: 12px;
-  color: #888;
+  color: #9ba1a6;
   margin-bottom: 4px;
 }
 .absent-lecture {
