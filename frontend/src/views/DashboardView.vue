@@ -204,7 +204,7 @@ const submitSRAnswer = async (itemId, answer) => {
       `/learning/spaced-repetition/${itemId}/complete/`,
       { answer },
     );
-    srResult.value = data;
+    srResult.value = { ...data, selected_answer: answer };
     if (data.is_correct) {
       setTimeout(() => {
         srDueItems.value = srDueItems.value.filter((i) => i.id !== itemId);
@@ -850,11 +850,8 @@ const generateCertificate = async (lecId, e) => {
                 :key="idx"
                 class="sr-option-btn"
                 :class="{
-                  correct: srResult && (srResult.correct_answer === opt || opt.startsWith(srResult.correct_answer + ':') || opt.startsWith(srResult.correct_answer + '.')),
-                  wrong:
-                    srResult &&
-                    !srResult.is_correct &&
-                    (opt === srResult.correct_answer || opt.startsWith(srResult.correct_answer + ':') || opt.startsWith(srResult.correct_answer + '.')),
+                  correct: srResult && (srResult.correct_answer === opt || opt.startsWith(srResult.correct_answer + ':') || opt.startsWith(srResult.correct_answer + '.') || opt.startsWith(srResult.correct_answer + ' ')),
+                  wrong: srResult && !srResult.is_correct && srResult.selected_answer === opt
                 }"
                 @click="submitSRAnswer(srAnswering.id, opt)"
                 :disabled="!!srResult"
