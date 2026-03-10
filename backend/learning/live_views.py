@@ -1,3 +1,4 @@
+from .utils_text import check_answer_match
 """
 라이브 세션 API Views
 Phase 0: 세션 생성/입장/종료 + 교안 업로드 + 이해도 펄스
@@ -762,7 +763,7 @@ class LiveSessionViewSet(viewsets.ViewSet):
         if not answer:
             return Response({'error': 'answer는 필수입니다.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        is_correct = answer.strip() == quiz.correct_answer.strip()
+        is_correct = check_answer_match(answer, quiz.correct_answer)
 
         response_obj = LiveQuizResponse.objects.create(
             quiz=quiz,

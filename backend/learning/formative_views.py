@@ -1,3 +1,4 @@
+from .utils_text import check_answer_match
 """
 Phase 2-4: 사후 형성평가 API Views
 """
@@ -210,7 +211,7 @@ class SubmitFormativeView(APIView):
             if not q:
                 continue
 
-            is_correct = user_ans == q.get('correct_answer', '').strip()
+            is_correct = check_answer_match(user_ans, q.get('correct_answer', ''))
             if is_correct:
                 score += 1
             else:

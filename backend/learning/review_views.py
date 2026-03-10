@@ -155,12 +155,16 @@ class CompleteSpacedRepView(APIView):
         user_answer = request.data.get('answer', '').strip()
         correct_ans = item.review_answer.strip()
         
-        # "B: 어쩌구" 형태나 "B" 단독 등 여러 형태 허용
         is_correct = False
         if user_answer == correct_ans:
             is_correct = True
         elif user_answer.startswith(f"{correct_ans}:") or user_answer.startswith(f"{correct_ans}. ") or user_answer.startswith(f"{correct_ans} "):
             is_correct = True
+        if not is_correct:
+            if user_answer.startswith(correct_ans) and len(user_answer) > len(correct_ans) and user_answer[len(correct_ans)] in [':', '.', ' ', ')', ']']:
+                is_correct = True
+            elif user_answer.replace(" ", "").startswith(f"{correct_ans}:"):
+                is_correct = True
 
         # 정답이면 현재 주기 완료 처리
         if is_correct:
