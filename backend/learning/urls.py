@@ -106,7 +106,7 @@ urlpatterns = [
     path('skill-blocks/interview-data/', MockInterviewDataView.as_view(), name='interview-data'),
     path('skill-blocks/<int:block_id>/', SkillBlockDetailView.as_view(), name='skill-block-detail'),
     # 수료증
-    path('certificate/<int:lecture_id>/', CertificateDataView.as_view(), name='certificate-data'),
+    path('certificate/<str:lecture_code>/', CertificateDataView.as_view(), name='certificate-data'),
     # 매니저 대시보드 및 클래스 모니터링
     path('manager/dashboard/', ManagerDashboardView.as_view(), name='manager-dashboard'),
     path('manager/class/<int:class_id>/', ClassMonitorView.as_view(), name='class-monitor'),

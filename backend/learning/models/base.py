@@ -38,7 +38,33 @@ class VectorStore(models.Model):
 
 
 class Lecture(models.Model):
+    CATEGORY_CHOICES = (
+        # ── IT 기술 스택 ──
+        ('IT_FRONTEND', 'IT - 프론트엔드'),
+        ('IT_BACKEND', 'IT - 백엔드'),
+        ('IT_DB', 'IT - DB/ORM/캐시'),
+        ('IT_DEVOPS', 'IT - 인프라/DevOps'),
+        ('IT_TESTING', 'IT - 테스팅'),
+        ('IT_RUNTIME', 'IT - 런타임'),
+        ('IT_BUILD', 'IT - 빌드도구/CSS'),
+        ('IT_SECURITY', 'IT - 보안'),
+        ('IT_BAAS', 'IT - BaaS'),
+        ('IT_GENERAL', 'IT - 종합'),
+        # ── 교육공학 ──
+        ('EDU_THEORY', '교육공학 - 학습이론'),
+        ('EDU_DESIGN', '교육공학 - 교수설계'),
+        ('EDU_TECH', '교육공학 - 에듀테크'),
+        ('EDU_ASSESS', '교육공학 - 교육평가'),
+        ('EDU_AI', '교육공학 - AI in Education'),
+        ('EDU_LEARN_SCI', '교육공학 - 학습과학'),
+        ('EDU_METHOD', '교육공학 - 교수학습방법'),
+        ('EDU_GENERAL', '교육공학 - 종합'),
+        # ── 기타 ──
+        ('OTHER', '기타'),
+    )
+
     title = models.CharField(max_length=200, help_text="클래스/강의명")
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='OTHER', help_text="강의 분야 카테고리")
     instructor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='teaching_lectures')
     students = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='enrolled_lectures', blank=True)
     access_code = models.CharField(max_length=6, unique=True, blank=True, help_text="수강생 입장 코드")

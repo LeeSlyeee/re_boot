@@ -20,9 +20,9 @@ class CertificateDataView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, lecture_id):
+    def get(self, request, lecture_code):
         user = request.user
-        lecture = get_object_or_404(Lecture, id=lecture_id)
+        lecture = get_object_or_404(Lecture, access_code=lecture_code)
 
         # 수강 등록 확인
         if not lecture.students.filter(id=user.id).exists():
@@ -60,6 +60,26 @@ class CertificateDataView(APIView):
         now = datetime.now(kst).date()
         is_completed = bool(lecture.end_date and now >= lecture.end_date)
 
+        # 체크리스트 기반 완료율 계산
+        from .models import LearningObjective, StudentChecklist
+        total_objectives = LearningObjective.objects.filter(syllabus__lecture=lecture).count()
+        checked_count = StudentChecklist.objects.filter(
+            student=user,
+            objective__syllabus__lecture=lecture,
+            is_checked=True
+        ).count()
+
+        if total_objectives > 0:
+            completion_rate = int(round((checked_count / total_objectives) * 100))
+            remaining = total_objectives - checked_count
+        else:
+            # 체크리스트가 없으면 출석률이나 기본값 사용
+            completion_rate = int(attendance_rate)
+            remaining = max(total_days - attended, 0)
+            
+        # 보통 부트캠프 수료 기준은 80% 이상
+        eligible = completion_rate >= 80
+
         return Response({
             'lecture_title': lecture.title,
             'instructor_name': lecture.instructor.username,
@@ -74,4 +94,7 @@ class CertificateDataView(APIView):
             'avg_quiz_score': avg_quiz,
             'is_completed': is_completed,
             'issued_date': datetime.now(kst).strftime('%Y년 %m월 %d일'),
+            'completion_rate': completion_rate,
+            'remaining': remaining,
+            'eligible': eligible,
         })

@@ -82,7 +82,7 @@ class CurriculumViewSet(viewsets.ModelViewSet):
 
         skill_blocks = SkillBlock.objects.filter(student=student)
         skill_summary = "\n".join([
-            f"- {s.title}: {'획득' if s.is_earned else '미획득'}"
+            f"- {s.skill.name}: {'획득' if s.is_earned else '미획득'}"
             for s in skill_blocks
         ]) or "스킬블록 없음"
 
@@ -106,7 +106,7 @@ class CurriculumViewSet(viewsets.ModelViewSet):
 학생의 수강 강의, 퀴즈 성적, 보유 스킬을 분석하여 최적의 학습 커리큘럼을 설계해줘.
 
 [응답 규칙]
-1. JSON 형식으로만 응답
+1. 반드시 json 형식(JSON object)으로만 응답할 것.
 2. 8~15개의 학습 항목을 순서대로 제안
 3. 각 항목은 title, type(LECTURE/QUIZ/PROJECT/REVIEW), description을 포함
 4. 한국어로 작성
@@ -269,7 +269,7 @@ class CurriculumViewSet(viewsets.ModelViewSet):
 학생의 퀴즈 성적, 스킬 보유 현황, 현재 진도를 분석하여 최적의 학습 경로를 재설계해줘.
 
 [응답 규칙]
-1. JSON 형식으로 응답할 것.
+1. 반드시 json 형식(JSON object)으로 응답할 것.
 2. 추가할 보충 학습 항목과 순서 변경 사항을 제안할 것.
 3. 한국어로 근거를 설명할 것.
 

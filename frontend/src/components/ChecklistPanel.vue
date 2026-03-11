@@ -198,7 +198,7 @@ watch(() => props.lectureId, fetchChecklist);
     flex: 1; display: flex; align-items: center; gap: 6px;
     background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
     border-radius: 8px; padding: 6px 10px;
-    .search-icon { color: #666; flex-shrink: 0; }
+    .search-icon { color: #9ba1a6; flex-shrink: 0; }
     .search-input {
         flex: 1; background: none; border: none; outline: none;
         color: white; font-size: 13px;
@@ -246,6 +246,7 @@ watch(() => props.lectureId, fetchChecklist);
     background: rgba(255,255,255,0.03); 
     border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);
     overflow: hidden;
+    flex-shrink: 0;
 }
 
 .week-header {
@@ -255,7 +256,7 @@ watch(() => props.lectureId, fetchChecklist);
     
     &:hover { background: rgba(255,255,255,0.08); }
     .week-title { font-weight: 600; font-size: 14px; color: #eee; }
-    .arrow { color: #888; }
+    .arrow { color: #9ba1a6; }
 }
 
 .objective-list {
@@ -275,18 +276,18 @@ watch(() => props.lectureId, fetchChecklist);
     .checked-icon { color: var(--color-accent, #4caf50); }
     
     &:hover {
-        .unchecked-icon { color: #888; }
+        .unchecked-icon { color: #9ba1a6; }
         .content { color: white; }
     }
     
     &.checked .content {
-        color: #888;
+        color: #9ba1a6;
         text-decoration: line-through; /* Optional styling for completed items */
     }
 }
 
 .loading-state, .empty-state {
-    text-align: center; color: #888; margin-top: 40px; font-size: 14px;
+    text-align: center; color: #9ba1a6; margin-top: 40px; font-size: 14px;
 }
-.no-objectives { font-size: 12px; color: #666; font-style: italic; }
+.no-objectives { font-size: 12px; color: #9ba1a6; font-style: italic; }
 </style>

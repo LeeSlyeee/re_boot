@@ -143,9 +143,10 @@ class AssessmentViewSet(viewsets.ViewSet):
             )
             
             questions = quiz.questions.all()
+            from .utils_text import check_answer_match
             for question in questions:
                 s_answer = str(student_answers.get(str(question.id), "")).strip()
-                is_correct = (s_answer == question.correct_answer)
+                is_correct = check_answer_match(s_answer, question.correct_answer)
                 
                 if is_correct:
                     correct_count += 1

@@ -58,10 +58,12 @@ class PlacementViewSet(viewsets.ViewSet):
         category_scores = {'CONCEPT': 0, 'PRACTICE': 0, 'PATTERN': 0}
         category_totals = {'CONCEPT': 0, 'PRACTICE': 0, 'PATTERN': 0}
 
+        from .utils_text import check_answer_match
+
         for q in questions:
             category_totals[q.category] = category_totals.get(q.category, 0) + 1
             user_answer = answers.get(str(q.id), '')
-            if user_answer == q.correct_answer:
+            if check_answer_match(user_answer, q.correct_answer):
                 correct += 1
                 category_scores[q.category] = category_scores.get(q.category, 0) + 1
 

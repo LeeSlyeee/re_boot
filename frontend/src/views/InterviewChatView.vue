@@ -791,7 +791,7 @@ const isRecording = ref(false);
   flex-shrink: 0;
 }
 .topic {
-  color: #888;
+  color: #9ba1a6;
   font-size: 0.9rem;
   max-width: 180px;
   white-space: nowrap;
@@ -903,7 +903,7 @@ const isRecording = ref(false);
 }
 .remaining-label {
   font-size: 11px;
-  color: #888;
+  color: #9ba1a6;
   text-align: right;
 }
 .remaining-label.urgent {
@@ -1098,7 +1098,7 @@ const isRecording = ref(false);
 }
 .rubric-comment {
   font-size: 11px;
-  color: #888;
+  color: #9ba1a6;
   margin-top: 1px;
 }
 
@@ -1128,7 +1128,7 @@ const isRecording = ref(false);
 }
 .report-subtitle {
   text-align: center;
-  color: #888;
+  color: #9ba1a6;
   margin: 0 0 30px;
   font-size: 14px;
 }
@@ -1192,7 +1192,7 @@ const isRecording = ref(false);
   -webkit-background-clip: text;
 }
 .score-label {
-  color: #888;
+  color: #9ba1a6;
   font-size: 14px;
   margin-top: 4px;
 }
@@ -1559,7 +1559,7 @@ textarea {
   display: block;
 }
 .review-banner-content p {
-  color: #888;
+  color: #9ba1a6;
   font-size: 0.8rem;
   margin: 2px 0 0;
 }
@@ -1620,7 +1620,7 @@ textarea {
   color: #eee;
 }
 .sc-subtitle {
-  color: #888;
+  color: #9ba1a6;
   font-size: 13px;
   margin: 0 0 24px;
 }
@@ -1674,7 +1674,7 @@ textarea {
 }
 .sc-ring-label {
   font-size: 10px;
-  color: #888;
+  color: #9ba1a6;
   margin-top: 2px;
 }
 
@@ -1698,7 +1698,7 @@ textarea {
 .sc-stat-value.remaining { color: #ff9800; }
 .sc-stat-label {
   font-size: 11px;
-  color: #888;
+  color: #9ba1a6;
   display: block;
   margin-top: 4px;
 }
@@ -1783,7 +1783,7 @@ textarea {
   font-weight: 600;
 }
 .sc-skill-cat {
-  color: #888;
+  color: #9ba1a6;
   font-size: 11px;
 }
 
@@ -1807,7 +1807,7 @@ textarea {
   margin-bottom: 4px;
 }
 .sc-motivation-text p {
-  color: #999;
+  color: #767676;
   font-size: 12px;
   margin: 0;
   line-height: 1.5;

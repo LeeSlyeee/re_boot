@@ -95,7 +95,6 @@ const fetchDashboard = async () => {
 const syllabi = ref([]);
 const isAddingWeek = ref(false);
 const newWeekTitle = ref('');
-const newWeekDesc = ref('');
 const editingObjective = ref(null);
 
 const fetchChecklist = async () => {
@@ -113,10 +112,10 @@ const addWeek = async () => {
         await api.post(`/learning/lectures/${lectureId}/syllabus/`, {
             week_number: syllabi.value.length + 1,
             title: newWeekTitle.value,
-            description: newWeekDesc.value
+            description: ''
         });
         newWeekTitle.value = '';
-        newWeekDesc.value = '';
+
         isAddingWeek.value = false;
         await fetchChecklist();
     } catch (e) {
@@ -138,7 +137,7 @@ const addObjective = async (weekId) => {
 const deleteObjective = async (objId) => {
     if(!confirm("삭제하시겠습니까?")) return;
     try {
-        await api.delete(`/learning/objective/${objId}/`);
+        await api.delete(`/learning/objectives/${objId}/`);
         await fetchChecklist();
     } catch (e) {
         showToast("삭제 실패", 'error');
@@ -463,7 +462,7 @@ const renderMarkdown = (text) => {
     html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
     html = html.replace(/^• (.+)$/gm, '<li>$1</li>');
     // 블록인용
-    html = html.replace(/^> (.+)$/gm, '<blockquote style="border-left:3px solid #4facfe;padding-left:12px;color:#666;margin:8px 0;">$1</blockquote>');
+    html = html.replace(/^> (.+)$/gm, '<blockquote style="border-left:3px solid #4facfe;padding-left:12px;color:#636b72;margin:8px 0;">$1</blockquote>');
     // 수평선
     html = html.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;">');
     // 줄바꿈
@@ -1079,6 +1078,7 @@ const levelDonutData = computed(() => {
 
 const donutOptions = {
     responsive: true,
+    maintainAspectRatio: false,
     plugins: {
         legend: { position: 'bottom', labels: { font: { size: 12 }, padding: 16 } },
     },
@@ -1293,9 +1293,8 @@ const uploadFile = async (file) => {
 const viewSummary = async (sessionId) => {
     try {
         const res = await api.get(`/learning/sessions/${sessionId}/`);
-        const summaries = res.data.summaries || [];
-        if (summaries.length > 0) {
-            selectedSummary.value = summaries[0].content_text;
+        if (res.data.latest_summary) {
+            selectedSummary.value = res.data.latest_summary;
         } else {
             selectedSummary.value = '(요약본이 아직 생성되지 않았습니다)';
         }
@@ -1466,7 +1465,7 @@ onMounted(fetchDashboard);
                             </td>
                         </tr>
                         <tr v-if="students.length === 0">
-                            <td colspan="4" style="text-align: center; color: #888; padding: 40px;">
+                            <td colspan="4" style="text-align: center; color: #636b72; padding: 40px;">
                                 수강생 데이터가 없습니다.
                             </td>
                         </tr>
@@ -1481,12 +1480,12 @@ onMounted(fetchDashboard);
                 <div class="syllabus-list">
                     <div v-for="week in syllabi" :key="week.id" class="week-card">
                         <div class="week-header">
-                            <h3>
-                                {{week.week_number}}주차:
+                            <h3 style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                                <span style="white-space: nowrap;">{{week.week_number}}주차:</span>
                                 <input :value="week.title" 
                                     @blur="e => updateWeekTitle(week, e.target.value)" 
                                     @keyup.enter="e => e.target.blur()"
-                                    style="background:transparent; border:none; border-bottom:1px dashed rgba(0,0,0,0.2); font-size:inherit; font-weight:inherit; color:inherit; padding:2px 4px; outline:none; width:60%;" />
+                                    style="background:transparent; border:none; border-bottom:1px dashed rgba(0,0,0,0.2); font-size:inherit; font-weight:inherit; color:inherit; padding:2px 4px; outline:none; flex: 1; min-width: 0;" />
                             </h3>
                             <button class="btn-micro" @click="addObjective(week.id)">+ 목표 추가</button>
                         </div>
@@ -1515,9 +1514,8 @@ onMounted(fetchDashboard);
                 
                 <div class="add-week-form">
                     <h3>+ 주차 추가</h3>
-                    <input v-model="newWeekTitle" placeholder="주차 주제 (예: React 기초)" />
-                    <input v-model="newWeekDesc" placeholder="설명 (선택)" />
-                    <button @click="addWeek">추가</button>
+                    <input v-model="newWeekTitle" placeholder="주차 주제 (예: React 기초)" style="flex: 1;" />
+                    <button style="white-space: nowrap;" @click="addWeek">추가</button>
                 </div>
             </div>
         </div>
@@ -1597,7 +1595,7 @@ onMounted(fetchDashboard);
                                 </td>
                             </tr>
                             <tr v-if="attendanceData.students.length === 0">
-                                <td colspan="4" style="text-align:center; color:#888; padding:40px;">
+                                <td colspan="4" style="text-align:center; color:#636b72; padding:40px;">
                                     출석 데이터가 없습니다.
                                 </td>
                             </tr>
@@ -1695,7 +1693,7 @@ onMounted(fetchDashboard);
                                 </td>
                             </tr>
                             <tr v-if="quizData.students.length === 0">
-                                <td colspan="4" style="text-align:center; color:#888; padding:40px;">
+                                <td colspan="4" style="text-align:center; color:#636b72; padding:40px;">
                                     퀴즈 데이터가 없습니다.
                                 </td>
                             </tr>
@@ -1848,7 +1846,7 @@ onMounted(fetchDashboard);
                             </td>
                         </tr>
                         <tr v-if="recordings.length === 0">
-                            <td colspan="6" style="text-align:center; color:#888; padding:40px;">
+                            <td colspan="6" style="text-align:center; color:#636b72; padding:40px;">
                                 업로드된 녹음이 없습니다.
                             </td>
                         </tr>
@@ -2523,7 +2521,7 @@ onMounted(fetchDashboard);
         <!-- ══════════════════════════════════════ -->
         <div v-if="activeTab === 'review'" class="review-tab-content">
             <h2>🔄 복습 루트 승인 관리</h2>
-            <p style="color:#888;font-size:14px;margin-bottom:16px;">AI가 생성한 복습 루트를 검토하고 학생에게 배포할 수 있습니다.</p>
+            <p style="color:#636b72;font-size:14px;margin-bottom:16px;">AI가 생성한 복습 루트를 검토하고 학생에게 배포할 수 있습니다.</p>
 
             <div v-if="reviewRoutesLoading" class="loading-state"><div class="spinner"></div>로딩 중...</div>
 
@@ -2582,7 +2580,7 @@ onMounted(fetchDashboard);
 }
 .tab-btn {
     flex: 1; padding: 12px 20px; border: none; border-radius: 10px;
-    background: transparent; color: #666; font-size: 14px; font-weight: 600;
+    background: transparent; color: #636b72; font-size: 14px; font-weight: 600;
     cursor: pointer; transition: all 0.25s ease;
 }
 .tab-btn:hover { background: rgba(255,255,255,0.6); color: #333; }
@@ -2607,7 +2605,7 @@ onMounted(fetchDashboard);
 }
 .card-icon { font-size: 28px; margin-bottom: 8px; }
 .card-value { font-size: 28px; font-weight: 800; color: #1a1a2e; margin-bottom: 4px; }
-.card-label { font-size: 13px; color: #888; }
+.card-label { font-size: 13px; color: #636b72; }
 
 /* ── Charts ── */
 .chart-container { 
@@ -2630,7 +2628,7 @@ onMounted(fetchDashboard);
 }
 .tl-icon { font-size: 28px; }
 .tl-count { font-size: 32px; font-weight: 800; }
-.tl-label { font-size: 13px; color: #888; }
+.tl-label { font-size: 13px; color: #636b72; }
 .tl-critical { border-left: 4px solid #ef4444; }
 .tl-critical .tl-count { color: #dc2626; }
 .tl-warning { border-left: 4px solid #f59e0b; }
@@ -2646,7 +2644,7 @@ tr:hover td { background: #fafbfc; }
 
 /* ── Student Info ── */
 .student-name { font-weight: 600; font-size: 14px; margin-bottom: 2px; color: #333; }
-.student-email { font-size: 12px; color: #999; }
+.student-email { font-size: 12px; color: #6e6e6e; }
 
 /* ── Status Badges ── */
 .status-badge {
@@ -2717,7 +2715,7 @@ tr:hover td { background: #fafbfc; }
 .week-header h3 { margin: 0; font-size: 16px; color: #333; }
 .btn-micro { padding: 4px 8px; font-size: 12px; cursor: pointer; border: 1px solid #ccc; background: white; border-radius: 4px; }
 .objective-list { padding-left: 20px; }
-.obj-item { margin-bottom: 5px; font-size: 14px; position: relative; }
+.obj-item { display: flex; align-items: center; gap: 4px; margin-bottom: 5px; font-size: 14px; position: relative; }
 .delete-x { color: #aaa; cursor: pointer; margin-left: 10px; font-weight: bold; display: none; }
 .obj-item:hover .delete-x { display: inline; color: red; }
 .add-week-form { margin-top: 24px; background: #f0f8ff; padding: 20px; border-radius: 10px; display: flex; gap: 10px; align-items: center; }
@@ -2725,14 +2723,14 @@ tr:hover td { background: #fafbfc; }
 .add-week-form button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
 
 /* ── Loading & Empty ── */
-.loading-state { text-align: center; padding: 60px; color: #888; }
+.loading-state { text-align: center; padding: 60px; color: #636b72; }
 .spinner {
     width: 40px; height: 40px; margin: 0 auto 16px;
     border: 4px solid #eee; border-top-color: #4facfe;
     border-radius: 50%; animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.empty-state { text-align: center; padding: 60px; color: #999; }
+.empty-state { text-align: center; padding: 60px; color: #6e6e6e; }
 
 /* ── Recording Upload Zone ── */
 .upload-zone {
@@ -2747,7 +2745,7 @@ tr:hover td { background: #fafbfc; }
 
 .upload-icon { font-size: 48px; margin-bottom: 12px; }
 .upload-text { font-size: 16px; font-weight: 600; color: #333; margin-bottom: 6px; }
-.upload-hint { font-size: 13px; color: #999; }
+.upload-hint { font-size: 13px; color: #6e6e6e; }
 .upload-status { font-size: 15px; font-weight: 600; color: #ef6c00; margin-bottom: 4px; }
 
 .upload-progress { display: flex; flex-direction: column; align-items: center; gap: 8px; }
@@ -2791,7 +2789,7 @@ tr:hover td { background: #fafbfc; }
 }
 .modal-header h2 { margin: 0; font-size: 20px; }
 .close-btn {
-    background: none; border: none; font-size: 28px; color: #999;
+    background: none; border: none; font-size: 28px; color: #6e6e6e;
     cursor: pointer; padding: 0 4px; line-height: 1;
 }
 .close-btn:hover { color: #333; }
@@ -2812,7 +2810,7 @@ tr:hover td { background: #fafbfc; }
     border: 2px dashed #22c55e33; max-width: 480px; width: 100%;
 }
 .create-card h2 { margin: 0 0 8px; font-size: 22px; }
-.create-card .sub { color: #888; font-size: 14px; margin-bottom: 24px; }
+.create-card .sub { color: #636b72; font-size: 14px; margin-bottom: 24px; }
 .session-title-input {
     width: 100%; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px;
     font-size: 14px; margin-bottom: 16px; box-sizing: border-box;
@@ -2846,7 +2844,7 @@ tr:hover td { background: #fafbfc; }
     border-radius: 16px; margin-bottom: 20px; cursor: pointer; transition: transform 0.1s;
 }
 .code-display:hover { transform: scale(1.02); }
-.code-label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 2px; }
+.code-label { font-size: 12px; color: #636b72; text-transform: uppercase; letter-spacing: 2px; }
 .code-value { font-size: 56px; font-weight: 800; color: #166534; letter-spacing: 12px; font-family: monospace; }
 .code-hint { font-size: 11px; color: #aaa; margin-top: 8px; }
 
@@ -2857,7 +2855,7 @@ tr:hover td { background: #fafbfc; }
     padding: 16px; background: white; border-radius: 12px;
     border: 1px solid #e5e7eb;
 }
-.qr-hint { font-size: 11px; color: #888; }
+.qr-hint { font-size: 11px; color: #636b72; }
 
 .live-controls { display: flex; gap: 12px; margin-bottom: 24px; }
 .btn-live-start {
@@ -3003,7 +3001,7 @@ tr:hover td { background: #fafbfc; }
 }
 .btn-approve:hover { background: #16a34a; }
 .btn-dismiss {
-    padding: 10px 16px; background: #f3f4f6; color: #888; border: none;
+    padding: 10px 16px; background: #f3f4f6; color: #636b72; border: none;
     border-radius: 8px; font-size: 14px; cursor: pointer;
 }
 .btn-dismiss:hover { background: #e5e7eb; }
@@ -3167,7 +3165,7 @@ tr:hover td { background: #fafbfc; }
 .quiz-q { font-size: 13px; margin: 0 0 8px; color: #333; }
 .quiz-result-bar { height: 8px; border-radius: 4px; background: #e5e7eb; }
 .result-fill { height: 100%; border-radius: 4px; background: #3b82f6; transition: width 0.5s; }
-.quiz-meta { font-size: 11px; color: #888; margin: 4px 0 0; }
+.quiz-meta { font-size: 11px; color: #636b72; margin: 4px 0 0; }
 
 .quiz-action-row { display: flex; gap: 8px; margin-bottom: 12px; }
 .btn-quiz-ai, .btn-quiz-manual {
@@ -3207,14 +3205,14 @@ tr:hover td { background: #fafbfc; }
 .qa-item.answered { border-color: #22c55e; background: #f0fdf4; }
 .qa-header { display: flex; justify-content: space-between; margin-bottom: 6px; }
 .qa-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #f3e8ff; color: #7c3aed; }
-.qa-votes { font-size: 12px; color: #888; }
+.qa-votes { font-size: 12px; color: #636b72; }
 .qa-question { font-size: 13px; color: #333; margin: 0 0 8px; font-weight: 500; }
 
 .qa-ai-ref {
     padding: 8px; background: #eff6ff; border-radius: 6px; margin-bottom: 8px;
 }
 .ai-tag { font-size: 10px; color: #3b82f6; font-weight: 600; }
-.qa-ai-ref p { font-size: 11px; color: #666; margin: 4px 0 0; }
+.qa-ai-ref p { font-size: 11px; color: #636b72; margin: 4px 0 0; }
 
 .qa-instructor-answer { padding: 8px; background: #f0fdf4; border-radius: 6px; }
 .instructor-tag { font-size: 10px; color: #16a34a; font-weight: 600; }
@@ -3236,16 +3234,17 @@ tr:hover td { background: #fafbfc; }
 .diagnostic-loading { text-align: center; padding: 40px 0; color: #aaa; }
 .diagnostic-empty { text-align: center; padding: 40px 0; color: #aaa; }
 .diagnostic-section { margin-bottom: 32px; }
-.section-subtitle { font-size: 13px; color: #888; margin: -12px 0 16px; }
+.section-subtitle { font-size: 13px; color: #636b72; margin: -12px 0 16px; }
 
 .level-dist-row { display: flex; gap: 32px; align-items: center; }
 .donut-wrapper { position: relative; width: 220px; height: 220px; flex-shrink: 0; }
 .donut-center {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    position: absolute; top: calc(50% - 45px); left: 50%; transform: translate(-50%, -50%);
     text-align: center; pointer-events: none;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
-.center-num { display: block; font-size: 28px; font-weight: 800; color: #333; }
-.center-lbl { font-size: 11px; color: #aaa; }
+.center-num { display: block; font-size: 28px; font-weight: 800; color: #333; line-height: 1; }
+.center-lbl { font-size: 12px; color: #555; margin-top: 4px; }
 
 .level-cards { display: flex; flex-direction: column; gap: 10px; flex: 1; }
 .level-card {
@@ -3257,7 +3256,7 @@ tr:hover td { background: #fafbfc; }
 .level-card.lv3 { border-left: 4px solid #8b5cf6; }
 .lv-icon { font-size: 24px; }
 .lv-count { font-size: 20px; font-weight: 700; color: #333; }
-.lv-pct { font-size: 14px; color: #888; margin-left: auto; }
+.lv-pct { font-size: 14px; color: #636b72; margin-left: auto; }
 .lv-label { display: none; }
 
 .weak-skills-list { display: flex; flex-direction: column; gap: 10px; }
@@ -3281,7 +3280,7 @@ tr:hover td { background: #fafbfc; }
 
 /* ── Insight Report ── */
 .insight-section { margin-top: 28px; padding: 20px; background: #fafafa; border-radius: 12px; border: 1px solid #eee; }
-.insight-loading { text-align: center; padding: 40px 0; color: #888; }
+.insight-loading { text-align: center; padding: 40px 0; color: #636b72; }
 .insight-spinner {
     width: 36px; height: 36px; border: 3px solid #eee; border-top-color: #3b82f6;
     border-radius: 50%; animation: spin-insight 0.8s linear infinite; margin: 0 auto 12px;
@@ -3393,7 +3392,7 @@ tr:hover td { background: #fafbfc; }
 .apm-status { font-size: 11px; padding: 2px 8px; border-radius: 4px; }
 .apm-approved { background: #d1fae5; color: #065f46; }
 .apm-draft { background: #fef3c7; color: #92400e; }
-.apm-close { background: none; border: none; font-size: 18px; cursor: pointer; color: #999; padding: 4px; }
+.apm-close { background: none; border: none; font-size: 18px; cursor: pointer; color: #6e6e6e; padding: 4px; }
 .apm-close:hover { color: #333; }
 .apm-content {
     padding: 20px; overflow-y: auto; flex: 1;
@@ -3420,7 +3419,7 @@ tr:hover td { background: #fafbfc; }
 }
 .btn-apm-approve:hover { background: #059669; }
 .btn-apm-close {
-    padding: 8px 20px; background: #f3f4f6; color: #666; border: none;
+    padding: 8px 20px; background: #f3f4f6; color: #636b72; border: none;
     border-radius: 8px; font-size: 13px; cursor: pointer;
 }
 .btn-apm-close:hover { background: #e5e7eb; }
@@ -3437,7 +3436,7 @@ tr:hover td { background: #fafbfc; }
 .sub-tab-btn { padding: 8px 16px; border: 1px solid #e0e0e0; border-radius: 20px; background: #fff; cursor: pointer; font-size: 13px; transition: all 0.2s; }
 .sub-tab-btn.active { background: #1565c0; color: white; border-color: #1565c0; }
 .sub-tab-btn:hover:not(.active) { background: #f5f5f5; }
-.analytics-loading { text-align: center; padding: 40px; color: #999; }
+.analytics-loading { text-align: center; padding: 40px; color: #6e6e6e; }
 
 .an-panel { animation: fadeIn 0.2s; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -3445,7 +3444,7 @@ tr:hover td { background: #fafbfc; }
 .an-summary-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
 .an-stat-card { flex: 1; min-width: 120px; background: linear-gradient(135deg, #f8f9fa, #e8eaf6); border-radius: 12px; padding: 16px; text-align: center; }
 .an-stat-value { display: block; font-size: 24px; font-weight: 700; color: #1565c0; }
-.an-stat-label { display: block; font-size: 12px; color: #666; margin-top: 4px; }
+.an-stat-label { display: block; font-size: 12px; color: #636b72; margin-top: 4px; }
 
 .an-chart-row { margin-bottom: 20px; }
 .an-chart-box { background: #fafafa; border-radius: 12px; padding: 16px; }
@@ -3461,7 +3460,7 @@ tr:hover td { background: #fafbfc; }
 .an-risk-tag { display: inline-block; padding: 2px 6px; margin: 1px; border-radius: 4px; font-size: 10px; background: #ffcdd2; color: #b71c1c; }
 .an-msg-btn { background: #42a5f5; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
 .an-msg-btn:hover { background: #1e88e5; }
-.an-empty { text-align: center; padding: 40px; color: #999; font-size: 14px; }
+.an-empty { text-align: center; padding: 40px; color: #6e6e6e; font-size: 14px; }
 
 /* 취약구간 */
 .an-weak-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -3476,7 +3475,7 @@ tr:hover td { background: #fafbfc; }
 .an-suggestion-card { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
 .an-sg-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .an-sg-type { font-weight: 600; font-size: 13px; }
-.an-sg-student { font-size: 12px; color: #666; }
+.an-sg-student { font-size: 12px; color: #636b72; }
 .an-sg-detail { margin: 0; font-size: 13px; color: #444; }
 .an-sg-actions { display: flex; gap: 8px; margin-top: 12px; }
 .an-btn-approve { background: #4caf50; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
@@ -3484,7 +3483,7 @@ tr:hover td { background: #fafbfc; }
 .an-btn-reject { background: #ef5350; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
 .an-btn-reject:hover { background: #c62828; }
 .an-decision-item { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f0f0f0; font-size: 12px; }
-.an-decision-detail { color: #999; }
+.an-decision-detail { color: #6e6e6e; }
 
 /* 리포트 */
 .an-report-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -3494,7 +3493,7 @@ tr:hover td { background: #fafbfc; }
 /* 재분류 */
 .an-redistribution { margin-top: 20px; padding: 16px; background: #fff8e1; border-radius: 12px; }
 .an-reclass-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
-.an-reclass-reason { font-size: 11px; color: #666; }
+.an-reclass-reason { font-size: 11px; color: #636b72; }
 .an-btn-apply { background: #7c4dff; color: white; border: none; padding: 8px 20px; border-radius: 8px; cursor: pointer; margin-top: 12px; font-weight: 600; }
 .an-btn-apply:hover { background: #651fff; }
 
@@ -3521,7 +3520,7 @@ tr:hover td { background: #fafbfc; }
 .review-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; }
 .review-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
 .review-header h3 { margin: 0 0 4px; font-size: 17px; color: #333; }
-.review-meta { font-size: 13px; color: #888; }
+.review-meta { font-size: 13px; color: #636b72; }
 .review-status { padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; }
 .review-status.pending { background: #fff3e0; color: #e65100; }
 .review-items { margin-bottom: 12px; }

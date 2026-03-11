@@ -35,6 +35,12 @@ const router = createRouter({
         name: 'manager',
         component: ManagerView,
         meta: { requiresAuth: true }
+    },
+    // 404 Catch-all
+    {
+        path: '/:pathMatch(.*)*',
+        name: 'not-found',
+        component: () => import('../views/NotFoundView.vue')
     }
   ]
 });

@@ -278,11 +278,11 @@ export default {
 .manager-view { padding: 30px; max-width: 1200px; margin: 0 auto; min-height: 100vh; }
 .mv-header { margin-bottom: 30px; }
 .mv-header h1 { font-size: 28px; margin: 8px 0 4px; color: #333; }
-.mv-header .subtitle { color: #888; font-size: 13px; }
+.mv-header .subtitle { color: #636b72; font-size: 13px; }
 .back-btn { background: none; border: none; color: #4facfe; cursor: pointer; font-size: 14px; padding: 0; }
 .back-btn:hover { text-decoration: underline; }
 
-.loading { text-align: center; padding: 60px; color: #888; }
+.loading { text-align: center; padding: 60px; color: #636b72; }
 
 /* Stat Cards */
 .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
@@ -293,13 +293,13 @@ export default {
 }
 .stat-icon { font-size: 32px; }
 .stat-value { font-size: 28px; font-weight: 800; }
-.stat-label { color: #888; font-size: 13px; margin-top: 2px; }
+.stat-label { color: #636b72; font-size: 13px; margin-top: 2px; }
 
 /* Tabs */
 .tabs { display: flex; gap: 4px; margin-bottom: 24px; background: #f5f5f5; border-radius: 8px; padding: 4px; }
 .tabs button {
     flex: 1; padding: 10px; border: none; background: none;
-    border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; color: #666;
+    border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; color: #636b72;
     transition: all 0.2s;
 }
 .tabs button.active { background: #fff; color: #333; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
@@ -318,8 +318,8 @@ h3 { color: #333; margin-bottom: 16px; font-size: 18px; }
 .class-item:hover { border-color: #4facfe; transform: translateY(-2px); }
 .class-item.active { border-color: #4facfe; background: #f0f7ff; }
 .class-name { font-weight: 700; font-size: 16px; color: #333; margin-bottom: 8px; }
-.class-meta { display: flex; gap: 12px; font-size: 13px; color: #666; margin-bottom: 4px; }
-.class-period { font-size: 12px; color: #999; }
+.class-meta { display: flex; gap: 12px; font-size: 13px; color: #636b72; margin-bottom: 4px; }
+.class-period { font-size: 12px; color: #6e6e6e; }
 
 /* Lecture List */
 .lecture-items { display: flex; flex-direction: column; gap: 8px; }
@@ -330,7 +330,7 @@ h3 { color: #333; margin-bottom: 16px; font-size: 18px; }
 }
 .lecture-item:hover { border-color: #4facfe; background: #fafcff; }
 .lec-title { font-weight: 600; color: #333; }
-.lec-meta { display: flex; gap: 12px; font-size: 13px; color: #888; }
+.lec-meta { display: flex; gap: 12px; font-size: 13px; color: #636b72; }
 .lec-code { background: #e3f2fd; color: #1976d2; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; }
 
 /* Student Table */
@@ -338,7 +338,7 @@ h3 { color: #333; margin-bottom: 16px; font-size: 18px; }
 .table-header {
     display: grid; grid-template-columns: 2fr 1fr 1fr 1.5fr 1fr;
     padding: 12px 18px; background: #f8f9fa; font-weight: 600;
-    font-size: 13px; color: #666; border-bottom: 1px solid #eee;
+    font-size: 13px; color: #636b72; border-bottom: 1px solid #eee;
 }
 .table-row {
     display: grid; grid-template-columns: 2fr 1fr 1fr 1.5fr 1fr;
@@ -348,7 +348,7 @@ h3 { color: #333; margin-bottom: 16px; font-size: 18px; }
 .table-row:hover { background: #f8f9fa; }
 .table-row.at-risk { background: #fff5f5; }
 .student-name { font-weight: 600; color: #333; }
-.last-active { color: #888; font-size: 13px; }
+.last-active { color: #636b72; font-size: 13px; }
 .risk-badge { background: #ffebee; color: #d32f2f; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
 .ok-badge { background: #e8f5e9; color: #2e7d32; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
 
@@ -363,11 +363,11 @@ h3 { color: #333; margin-bottom: 16px; font-size: 18px; }
 .risk-level { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
 .risk-level.HIGH { background: #ffebee; color: #d32f2f; }
 .risk-level.MEDIUM { background: #fff3e0; color: #e65100; }
-.risk-details { display: flex; gap: 16px; font-size: 13px; color: #666; margin-bottom: 8px; }
+.risk-details { display: flex; gap: 16px; font-size: 13px; color: #636b72; margin-bottom: 8px; }
 .risk-factors { display: flex; gap: 6px; flex-wrap: wrap; }
 .factor-tag { font-size: 11px; background: #fce4ec; color: #c62828; padding: 2px 8px; border-radius: 10px; }
 
-.empty-state { text-align: center; padding: 40px; color: #888; }
+.empty-state { text-align: center; padding: 40px; color: #636b72; }
 
 /* Analytics */
 .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -380,15 +380,15 @@ h3 { color: #333; margin-bottom: 16px; font-size: 18px; }
 .bar-chart { display: flex; align-items: flex-end; gap: 12px; height: 120px; margin-bottom: 12px; }
 .bar-item { display: flex; flex-direction: column; align-items: center; flex: 1; }
 .bar { width: 100%; border-radius: 4px 4px 0 0; min-height: 4px; transition: height 0.3s; }
-.bar-label { font-size: 11px; color: #888; margin-top: 6px; }
+.bar-label { font-size: 11px; color: #636b72; margin-top: 6px; }
 .bar-val { font-size: 12px; font-weight: 700; color: #333; }
 
 .engagement-chart { display: flex; align-items: flex-end; gap: 4px; height: 80px; margin-bottom: 12px; overflow-x: auto; }
 .eng-bar-item { display: flex; flex-direction: column; align-items: center; min-width: 20px; }
 .eng-bar { width: 16px; background: #4facfe; border-radius: 3px 3px 0 0; min-height: 2px; }
-.eng-label { font-size: 9px; color: #999; margin-top: 4px; }
+.eng-label { font-size: 9px; color: #6e6e6e; margin-top: 4px; }
 
-.stats-row { display: flex; gap: 16px; font-size: 13px; color: #666; }
+.stats-row { display: flex; gap: 16px; font-size: 13px; color: #636b72; }
 .stats-row strong { color: #333; }
 
 .ranking-list { max-height: 400px; overflow-y: auto; }
@@ -399,7 +399,7 @@ h3 { color: #333; margin-bottom: 16px; font-size: 18px; }
 .rank { font-weight: 800; color: #4facfe; }
 .rank-name { font-weight: 500; color: #333; }
 .rank-score { color: #00f260; font-weight: 700; }
-.rank-count { color: #888; font-size: 12px; }
+.rank-count { color: #636b72; font-size: 12px; }
 
 /* Skill Heatmap */
 .heatmap-category { margin-bottom: 16px; }

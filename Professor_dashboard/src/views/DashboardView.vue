@@ -23,8 +23,54 @@ const fetchLectures = async () => {
 
 const showModal = ref(false);
 const newLectureTitle = ref('');
+const newLectureCategory = ref('OTHER');
 const isSubmitting = ref(false);
 const modalError = ref('');
+
+// 카테고리 옵션 (그룹별)
+const categoryGroups = [
+    {
+        label: '🖥️ IT 기술 스택',
+        options: [
+            { value: 'IT_FRONTEND', label: 'IT - 프론트엔드' },
+            { value: 'IT_BACKEND', label: 'IT - 백엔드' },
+            { value: 'IT_DB', label: 'IT - DB/ORM/캐시' },
+            { value: 'IT_DEVOPS', label: 'IT - 인프라/DevOps' },
+            { value: 'IT_TESTING', label: 'IT - 테스팅' },
+            { value: 'IT_RUNTIME', label: 'IT - 런타임' },
+            { value: 'IT_BUILD', label: 'IT - 빌드도구/CSS' },
+            { value: 'IT_SECURITY', label: 'IT - 보안' },
+            { value: 'IT_BAAS', label: 'IT - BaaS' },
+            { value: 'IT_GENERAL', label: 'IT - 종합' },
+        ]
+    },
+    {
+        label: '🎓 교육공학',
+        options: [
+            { value: 'EDU_THEORY', label: '교육공학 - 학습이론' },
+            { value: 'EDU_DESIGN', label: '교육공학 - 교수설계' },
+            { value: 'EDU_TECH', label: '교육공학 - 에듀테크' },
+            { value: 'EDU_ASSESS', label: '교육공학 - 교육평가' },
+            { value: 'EDU_AI', label: '교육공학 - AI in Education' },
+            { value: 'EDU_LEARN_SCI', label: '교육공학 - 학습과학' },
+            { value: 'EDU_METHOD', label: '교육공학 - 교수학습방법' },
+            { value: 'EDU_GENERAL', label: '교육공학 - 종합' },
+        ]
+    },
+    {
+        label: '📁 기타',
+        options: [
+            { value: 'OTHER', label: '기타' },
+        ]
+    },
+];
+
+const getCategoryBadge = (category) => {
+    if (!category) return { label: '기타', color: '#6c757d' };
+    if (category.startsWith('IT_')) return { label: 'IT', color: '#4facfe' };
+    if (category.startsWith('EDU_')) return { label: '교육공학', color: '#00b894' };
+    return { label: '기타', color: '#6c757d' };
+};
 
 // ── 강의 일정 수정 ──
 const editingSchedule = ref(null); // lecture id
@@ -60,6 +106,7 @@ const cancelScheduleEdit = (e) => {
 const openModal = () => {
     showModal.value = true;
     newLectureTitle.value = '';
+    newLectureCategory.value = 'OTHER';
     modalError.value = '';
 };
 
@@ -76,7 +123,7 @@ const createLecture = async () => {
     modalError.value = '';
 
     try {
-        await api.post('/learning/lectures/', { title: newLectureTitle.value });
+        await api.post('/learning/lectures/', { title: newLectureTitle.value, category: newLectureCategory.value });
         showModal.value = false;
         fetchLectures();
     } catch (e) {
@@ -136,7 +183,12 @@ onMounted(fetchLectures);
         <div class="grid">
             <div v-for="lecture in lectures" :key="lecture.id" class="card" @click="goToDetail(lecture.id)">
                 <div class="card-header">
-                    <h3>{{ lecture.title }}</h3>
+                    <div class="card-title-area">
+                        <h3>{{ lecture.title }}</h3>
+                        <span class="category-badge" :style="{ background: getCategoryBadge(lecture.category).color }">
+                            {{ lecture.category_display || getCategoryBadge(lecture.category).label }}
+                        </span>
+                    </div>
                     <button class="btn-delete" @click.stop="deleteLecture(lecture.id)">
                         <Trash2 :size="18" />
                     </button>
@@ -179,6 +231,15 @@ onMounted(fetchLectures);
             <div class="modal-content">
                 <h2>새 강의 개설</h2>
                 <input type="text" v-model="newLectureTitle" placeholder="강의명을 입력하세요 (예: React 기초)" @keyup.enter="createLecture" :disabled="isSubmitting" />
+
+                <label class="select-label">📂 강의 분야 (DB 자료 연동)</label>
+                <select v-model="newLectureCategory" class="category-select" :disabled="isSubmitting">
+                    <optgroup v-for="group in categoryGroups" :key="group.label" :label="group.label">
+                        <option v-for="opt in group.options" :key="opt.value" :value="opt.value">
+                            {{ opt.label }}
+                        </option>
+                    </optgroup>
+                </select>
                 
                 <p v-if="modalError" class="error-text">{{ modalError }}</p>
 
@@ -217,13 +278,13 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 .card-header h3 { margin: 0; font-size: 20px; color: #333; flex: 1; text-align: left; }
 
 .btn-delete {
-    padding: 6px; background: transparent; color: #999; border: none; 
+    padding: 6px; background: transparent; color: #6e6e6e; border: none; 
     border-radius: 4px; cursor: pointer; transition: all 0.2s;
     display: flex; align-items: center; justify-content: center;
 }
 .btn-delete:hover { background: #ffebeb; color: #dc3545; }
 
-p { color: #666; margin: 4px 0; }
+p { color: #636b72; margin: 4px 0; }
 .code { font-weight: bold; color: #4facfe; font-size: 14px; background: rgba(79, 172, 254, 0.1); display: inline-block; padding: 2px 8px; border-radius: 4px; }
 
 /* 강의 일정 */
@@ -248,7 +309,7 @@ p { color: #666; margin: 4px 0; }
 button { padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; }
 button:hover { background: #218838; }
 
-.empty-state { text-align: center; margin-top: 50px; color: #888; }
+.empty-state { text-align: center; margin-top: 50px; color: #636b72; }
 .error-text { color: #dc3545; font-size: 14px; margin-bottom: 15px; }
 
 /* Modal Styles */
@@ -270,5 +331,25 @@ button:hover { background: #218838; }
 .btn-cancel { background: #ddd; color: #333; }
 .btn-cancel:hover { background: #ccc; }
 .btn-confirm { background: #007bff; color: white; }
+
+/* 카테고리 배지 */
+.card-title-area { flex: 1; }
+.category-badge {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 700; color: #fff; margin-top: 6px;
+    letter-spacing: 0.3px;
+}
+
+/* 카테고리 선택 */
+.select-label {
+    display: block; font-size: 14px; font-weight: 600; color: #555;
+    margin-bottom: 6px;
+}
+.category-select {
+    width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px;
+    font-size: 14px; margin-bottom: 20px; box-sizing: border-box;
+    background: #fff; color: #333; cursor: pointer; appearance: auto;
+}
+.category-select:focus { border-color: #4facfe; outline: none; box-shadow: 0 0 0 3px rgba(79,172,254,0.15); }
 .btn-confirm:hover { background: #0056b3; }
 </style>

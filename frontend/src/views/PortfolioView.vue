@@ -484,7 +484,7 @@ const deleteSkillBlock = async (blockId) => {
     margin-bottom: 8px;
   }
   .subtitle {
-    color: #888;
+    color: #9ba1a6;
   }
   .action-buttons {
     display: flex;
@@ -544,7 +544,7 @@ const deleteSkillBlock = async (blockId) => {
   right: 16px;
   background: none;
   border: none;
-  color: #666;
+  color: #9ba1a6;
   cursor: pointer;
   &:hover {
     color: white;
@@ -593,7 +593,7 @@ const deleteSkillBlock = async (blockId) => {
 
   h3 {
     font-size: 13px;
-    color: #888;
+    color: #9ba1a6;
     text-transform: uppercase;
     margin-bottom: 12px;
     letter-spacing: 0.5px;
@@ -632,7 +632,7 @@ const deleteSkillBlock = async (blockId) => {
       margin-bottom: 2px;
     }
     p {
-      color: #888;
+      color: #9ba1a6;
     }
   }
 }
@@ -715,11 +715,11 @@ const deleteSkillBlock = async (blockId) => {
     }
     .total-num {
       font-size: 14px;
-      color: #888;
+      color: #9ba1a6;
     }
     .unit {
       font-size: 12px;
-      color: #666;
+      color: #9ba1a6;
       margin-left: 6px;
     }
   }
@@ -771,14 +771,14 @@ const deleteSkillBlock = async (blockId) => {
 
   h4 {
     font-size: 14px;
-    color: #888;
+    color: #9ba1a6;
     font-weight: 600;
     margin: 0;
   }
 
   .category-progress {
     font-size: 12px;
-    color: #666;
+    color: #9ba1a6;
     font-weight: 500;
   }
 
@@ -824,7 +824,7 @@ const deleteSkillBlock = async (blockId) => {
     &:hover {
       background: rgba(255, 255, 255, 0.06);
       border-color: rgba(255, 255, 255, 0.2);
-      color: #888;
+      color: #9ba1a6;
       transform: translateY(-1px);
     }
 
@@ -887,7 +887,7 @@ const deleteSkillBlock = async (blockId) => {
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     margin-bottom: 16px;
     font-size: 16px;
-    color: #888;
+    color: #9ba1a6;
   }
 }
 
@@ -918,7 +918,7 @@ const deleteSkillBlock = async (blockId) => {
   }
 
   .icon {
-    color: #888;
+    color: #9ba1a6;
   }
   .item-info {
     flex: 1;
@@ -934,7 +934,7 @@ const deleteSkillBlock = async (blockId) => {
   }
   .item-date {
     font-size: 12px;
-    color: #666;
+    color: #9ba1a6;
   }
   .arrow {
     color: #444;
@@ -977,7 +977,7 @@ const deleteSkillBlock = async (blockId) => {
     }
   }
   .doc-meta {
-    color: #666;
+    color: #9ba1a6;
     font-size: 14px;
   }
 }
@@ -1052,8 +1052,8 @@ const deleteSkillBlock = async (blockId) => {
 .project-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .project-top h4 { margin: 0; font-size: 15px; color: #eee; }
 .project-delete { background: none; border: none; color: #555; cursor: pointer; font-size: 14px; &:hover { color: #ff5555; } }
-.project-desc { font-size: 13px; color: #888; margin: 0 0 8px; line-height: 1.4; }
-.project-role { font-size: 12px; color: #999; margin-bottom: 8px; }
+.project-desc { font-size: 13px; color: #9ba1a6; margin: 0 0 8px; line-height: 1.4; }
+.project-role { font-size: 12px; color: #767676; margin-bottom: 8px; }
 .project-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .tech-tag { font-size: 11px; padding: 2px 8px; background: rgba(79,172,254,0.1); color: #4facfe; border-radius: 4px; }
 .project-links { display: flex; gap: 10px; }
@@ -1072,7 +1072,7 @@ const deleteSkillBlock = async (blockId) => {
   max-width: 95vw;
 }
 .category-desc {
-  color: #888;
+  color: #9ba1a6;
   font-size: 14px;
   margin-bottom: 20px;
   text-align: center;

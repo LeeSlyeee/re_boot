@@ -17,17 +17,20 @@ const router = createRouter({
     {
       path: '/learning',
       name: 'learning',
-      component: () => import('../views/LearningView.vue')
+      component: () => import('../views/LearningView.vue'),
+      meta: { requiresAuth: true }
     },
     {
       path: '/dashboard',
       name: 'dashboard',
-      component: () => import('../views/DashboardView.vue')
+      component: () => import('../views/DashboardView.vue'),
+      meta: { requiresAuth: true }
     },
     {
       path: '/portfolio',
       name: 'portfolio',
-      component: () => import('../views/PortfolioView.vue')
+      component: () => import('../views/PortfolioView.vue'),
+      meta: { requiresAuth: true }
     },
     {
       path: '/interview/setup',
@@ -71,7 +74,23 @@ const router = createRouter({
       component: () => import('../views/OnboardingView.vue'),
       meta: { requiresAuth: true }
     },
+    // 404 Catch-all
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('../views/NotFoundView.vue')
+    },
   ],
+});
+
+// Navigation Guard: 로그인 필수 라우트 보호
+router.beforeEach((to, from, next) => {
+  const token = localStorage.getItem('token');
+  if (to.meta.requiresAuth && !token) {
+    next({ name: 'auth', query: { redirect: to.fullPath } });
+  } else {
+    next();
+  }
 });
 
 export default router;

@@ -266,12 +266,12 @@ onMounted(fetchCurriculums);
 .cv-header {
     margin-bottom: 32px;
     h1 { font-size: 28px; margin: 12px 0 8px; }
-    .subtitle { color: #888; font-size: 14px; }
+    .subtitle { color: #9ba1a6; font-size: 14px; }
 }
 
 .back-btn {
     display: flex; align-items: center; gap: 6px;
-    background: none; border: none; color: #888; cursor: pointer; font-size: 13px; padding: 0;
+    background: none; border: none; color: #9ba1a6; cursor: pointer; font-size: 13px; padding: 0;
     &:hover { color: #4facfe; }
 }
 
@@ -287,14 +287,14 @@ onMounted(fetchCurriculums);
     display: flex; justify-content: space-between; align-items: center;
     margin-bottom: 24px;
     h2 { font-size: 20px; margin-bottom: 8px; }
-    .course-name { color: #888; font-size: 13px; display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
+    .course-name { color: #9ba1a6; font-size: 13px; display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
 }
 
 .progress-stats {
     display: flex; align-items: baseline; gap: 8px;
     .progress-pct { font-size: 36px; font-weight: 900; }
-    .progress-label { color: #888; font-size: 14px; }
-    .target-date { color: #666; font-size: 12px; display: flex; align-items: center; gap: 4px; margin-left: 16px; }
+    .progress-label { color: #9ba1a6; font-size: 14px; }
+    .target-date { color: #9ba1a6; font-size: 12px; display: flex; align-items: center; gap: 4px; margin-left: 16px; }
 }
 
 .progress-ring-wrap {
@@ -404,7 +404,7 @@ onMounted(fetchCurriculums);
 .cv-history { margin-top: 32px; }
 
 .history-toggle {
-    width: 100%; background: none; border: none; color: #888;
+    width: 100%; background: none; border: none; color: #9ba1a6;
     font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 8px;
     &:hover { color: #4facfe; }
 }
@@ -416,7 +416,7 @@ onMounted(fetchCurriculums);
 }
 .history-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
 .history-reason { color: #fbc531; font-weight: 600; font-size: 13px; }
-.history-date { color: #666; font-size: 12px; }
+.history-date { color: #9ba1a6; font-size: 12px; }
 .history-detail { color: #aaa; font-size: 13px; margin-bottom: 8px; }
 .history-rec { color: #4facfe; font-size: 13px; background: rgba(79,172,254,0.05); padding: 8px 12px; border-radius: 8px; }
 
@@ -437,7 +437,7 @@ onMounted(fetchCurriculums);
     background: #1a1a1a;
     border: 1px solid #333;
     border-radius: 20px;
-    color: #888;
+    color: #9ba1a6;
     cursor: pointer;
     font-size: 13px;
     white-space: nowrap;
@@ -453,7 +453,7 @@ onMounted(fetchCurriculums);
     text-align: center; padding: 60px;
     .empty-icon { font-size: 64px; margin-bottom: 16px; }
     h2 { font-size: 20px; margin-bottom: 12px; }
-    p { color: #888; line-height: 1.6; margin-bottom: 24px; }
+    p { color: #9ba1a6; line-height: 1.6; margin-bottom: 24px; }
 }
 
 .generate-btn {

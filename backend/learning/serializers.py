@@ -25,10 +25,11 @@ class SyllabusSerializer(serializers.ModelSerializer):
 class LectureSerializer(serializers.ModelSerializer):
     student_count = serializers.SerializerMethodField()
     syllabi = SyllabusSerializer(many=True, read_only=True)
+    category_display = serializers.CharField(source='get_category_display', read_only=True)
 
     class Meta:
         model = Lecture
-        fields = ['id', 'title', 'instructor', 'access_code', 'student_count', 'created_at', 'syllabi', 'start_date', 'end_date']
+        fields = ['id', 'title', 'category', 'category_display', 'instructor', 'access_code', 'student_count', 'created_at', 'syllabi', 'start_date', 'end_date']
         read_only_fields = ['instructor', 'access_code', 'created_at']
 
     def get_student_count(self, obj):

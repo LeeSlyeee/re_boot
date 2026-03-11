@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <title>Re:Boot 최종 발표</title>
+    <meta name="description" content="Re:Boot AI 기반 실시간 학습 경험 자산화 플랫폼">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <!-- Reveal.js 핵심 CSS (CDN) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reset.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/theme/white.min.css" id="theme">
+
+    <!-- 신택스 하이라이트 테마 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/monokai.css">
+    
+    <style>
+        /* 이미지 확대(Dim) 모달 스타일 */
+        #image-modal {
+            display: none;
+            position: fixed;
+            z-index: 99999;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.85);
+            backdrop-filter: blur(5px);
+            align-items: center;
+            justify-content: center;
+            cursor: zoom-out;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        #image-modal.show {
+            opacity: 1;
+        }
+        #image-modal img {
+            max-width: 90%;
+            max-height: 90%;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+            transform: scale(0.9);
+            transition: transform 0.3s ease;
+            background: white; /* 투명도 보정용 배경 */
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        #image-modal.show img {
+            transform: scale(1);
+        }
+        .zoomable {
+            cursor: zoom-in;
+            transition: transform 0.2s ease;
+        }
+        .zoomable:hover {
+            transform: scale(1.02);
+            box-shadow: 0 0 20px rgba(255,255,255,0.3);
+        }
+
+        /* 한글 및 커스텀 폰트 (Pretendard) 적용 */
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        .reveal {
+            font-family: 'Pretendard', sans-serif;
+        }
+        .reveal h1, .reveal h2, .reveal h3, .reveal h4, .reveal h5, .reveal h6 {
+            font-family: 'Pretendard', sans-serif;
+            text-transform: none; /* 영문 자동 대문자 변환 방지 */
+            font-weight: 700;
+        }
+        .reveal table {
+            font-size: 0.7em; /* 테이블 폰트 크기 조정 */
+        }
+        /* 포인트 컬러용 CSS 클래스 */
+        .color-primary { color: #3b82f6; }
+        .color-success { color: #10b981; }
+    </style>
+</head>
+<body>
+    <div class="reveal">
+        <div class="slides">
+            
+            <!-- 1. 타이틀 -->
+            <section data-background-image="/static/ppt_images/image1.jpeg" data-background-opacity="0.3">
+                <h3 style="color: #555; font-size: 1em; font-weight: normal; margin-bottom: 20px; letter-spacing: 2px;">AI 기반 온-오프라인 학습 지원 서비스</h3>
+                <h1 class="color-primary" style="font-size: 4em; font-weight: 900; margin-bottom: 30px;">Re : Boot</h1>
+                
+                <div style="margin-top: 50px; padding: 20px; border-top: 1px solid #ddd; display: inline-block; text-align: center;">
+                    <p style="margin: 0; font-size: 0.9em; color: #777;">26.03.16 | 4조</p>
+                    <p style="margin: 10px 0 0 0; font-size: 1.1em; color: #222;"><strong>김지훈, 이성희, 김혜진</strong></p>
+                </div>
+            </section>
+
+            <!-- 2. 목 차 -->
+            <section>
+                <h2 style="color: #f97316; margin-bottom: 40px;">목 차</h2>
+                <div style="display: flex; justify-content: center;">
+                    <ol style="font-size: 0.75em; line-height: 1.8; color: #444; text-align: left; padding: 30px; background: rgba(0,0,0,0.03); border: 1px solid #eaeaea; border-radius: 15px;">
+                        <li>팀 소개 및 역할</li>
+                        <li>Re:Boot 소개 (Pain point, Solution, Core value)</li>
+                        <li>4주간의 개발 과정</li>
+                        <li>Service Flow (Student, Instructor)</li>
+                        <li>라이브 데모 시나리오 (시연 영상)</li>
+                        <li>시스템 아키텍처</li>
+                        <li>기대 효과 및 비즈니스 임팩트</li>
+                        <li>한계점 및 향후 계획</li>
+                        <li>Q&A</li>
+                    </ol>
+                </div>
+            </section>
+
+            <!-- 3. 팀 소개 및 역할 -->
+            <section>
+                <h2 class="color-primary" style="margin-bottom: 40px;">팀 소개 및 역할</h2>
+                <div style="display: flex; gap: 20px; justify-content: center; font-size: 0.65em;">
+                    <div style="flex: 1; background-color: #fff; border-radius: 15px; padding: 25px; background: rgba(0,0,0,0.03); border: 1px solid #eaeaea;">
+                        <h3 style="color: #222; margin-bottom: 15px;">김지훈</h3>
+                        <p style="color: #777; line-height: 1.5;">조장 및 최종 발표<br>온디바이스 AI (엣지 AI) 구현</p>
+                    </div>
+                    <div style="flex: 1; background-color: #fff; border-radius: 15px; padding: 25px; background: rgba(0,0,0,0.03); border: 1px solid #eaeaea;">
+                        <h3 style="color: #222; margin-bottom: 15px;">이성희</h3>
+                        <p style="color: #777; line-height: 1.5;">전반적인 시스템 아키텍처 설계 및 구현<br>(Front-End, Back-End)</p>
+                    </div>
+                    <div style="flex: 1; background-color: #fff; border-radius: 15px; padding: 25px; background: rgba(0,0,0,0.03); border: 1px solid #eaeaea;">
+                        <h3 style="color: #222; margin-bottom: 15px;">김혜진</h3>
+                        <p style="color: #777; line-height: 1.5;">기획 및 기획안 작성, 기획 발표<br>최종 서비스 QA, 기획 최종 발표</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 4. 문제 제기 (Pain Point) -->
+            <section data-background-image="/static/ppt_images/image1.jpeg" data-background-opacity="0.3">
+                <h2 style="color: #ef4444; font-size: 3em;">문제 제기</h2>
+                <h3 style="color: #777; font-weight: normal;">Problem (오프닝)</h3>
+            </section>
+            
+            <section>
+                <h3 style="color: #ef4444; margin-bottom: 30px;">1. 문제 제기 - 부트캠프 현황</h3>
+                <p style="font-size: 0.65em; color: #555; line-height: 1.6; text-align: left; background: rgba(0,0,0,0.03); border: 1px solid #eaeaea; padding: 20px; border-radius: 10px; border-left: 5px solid #ef4444;">
+                    "부트캠프 키워드 검색을 통해 프로그램의 다양성과 학습자 참여율이 높아지는 것을 알 수 있습니다. 앞으로 AI의 발전을 기반으로 다양한 분야에 대해 IT, 개발 등 부트캠프의 수요도 꾸준할 것으로 기대됩니다."<br>
+                    <span style="font-size: 0.8em; color: #888;">출처: 컴퓨터교육학회 논문지 2024년 제27권 제1호</span>
+                </p>
+                <div style="display: flex; gap: 20px; justify-content: center; margin-top: 30px; align-items: stretch;">
+                    <div style="flex: 1; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center;">
+                        <img class="zoomable" src="/static/ppt_images/image2.png" style="width: 100%; height: auto; max-height: 25vh; object-fit: contain; margin: 0; box-shadow: none;" />
+                    </div>
+                    <div style="flex: 1; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center;">
+                        <img class="zoomable" src="/static/ppt_images/image3.png" style="width: 100%; height: auto; max-height: 25vh; object-fit: contain; margin: 0; box-shadow: none;" />
+                    </div>
+                    <div style="flex: 1; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center;">
+                        <img class="zoomable" src="/static/ppt_images/image4.png" style="width: 100%; height: auto; max-height: 25vh; object-fit: contain; margin: 0; box-shadow: none;" />
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h3 style="color: #ef4444; margin-bottom: 30px;">1. 문제 제기 - 한계점 분석</h3>
+                <div style="display: flex; justify-content: center; gap: 40px; margin-top: 40px; align-items: center;">
+                    <div style="max-width: 45%; background: white; padding: 20px; border-radius: 15px;">
+                        <img class="zoomable" src="/static/ppt_images/image5.png" style="max-height: 45vh; width: 100%; object-fit: contain; margin: 0; display: block;" />
+                    </div>
+                    <div style="text-align: left; font-size: 0.8em;">
+                        <ul style="color: #444; line-height: 2;">
+                            <li><strong>보이지 않는 격차</strong> : 강사와 학생의 이해도 괴리</li>
+                            <li><strong>필기의 역설</strong> : 필기에 집중하느라 강의를 놓침</li>
+                            <li><strong>중도 포기</strong> : 미수료 시 0으로 수렴하는 성취감</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h3 class="color-success" style="margin-bottom: 40px;">2. 주제 - 패러다임의 전환</h3>
+                <div style="background: rgba(16,185,129,0.1); border: 1px solid #10b981; border-radius: 15px; padding: 40px;">
+                    <h4 style="font-size: 1.1em; color: #222; line-height: 1.5; font-weight: normal;">
+                        <span style="opacity: 0.5;">"단순한 지식 전달(Content)"</span> 에서<br>
+                        <span style="color: #10b981; font-weight: bold; font-size: 1.2em;">"학습자의 최종 완주와 커리어 전환(Completion)의 혁신"</span> 으로.
+                    </h4>
+                </div>
+                <p style="margin-top: 40px; font-size: 0.7em; color: #777; line-height: 1.8;">
+                    단 1%의 노력도 증발하지 않도록,<br>
+                    '학습의 실패'를 완벽한 '커리어 자산'으로 전환하는<br>
+                    <strong>AI 페이스메이커 Re:Boot</strong>입니다.
+                </p>
+            </section>
+
+            <!-- 5. Re:Boot 소개 (Solution) -->
+            <section>
+                <h2 class="color-primary">Reboot 소개</h2>
+                <div style="display: flex; gap: 20px; text-align: left; margin-top: 40px; font-size: 0.65em;">
+                    <div style="background: rgba(0,0,0,0.03); border: 1px solid #eaeaea; padding: 25px; border-radius: 10px; flex: 1;">
+                        <h4 style="color: #222;">1. 몰입형 AI 학습 비서</h4>
+                        <p style="color: #777; margin-top: 10px;">실시간 STT 및 문맥 인식 AI 튜터, 자동 생성 요약 노트</p>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.03); border: 1px solid #eaeaea; padding: 25px; border-radius: 10px; flex: 1; position: relative;">
+                        <h4 style="color: #222;">2. 적응형 학습</h4>
+                        <p style="color: #777; margin-top: 10px;">학습 부진 자동 감지 및 커리큘럼 재설계, 맞춤 보충 자료 제공</p>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.03); border: 1px solid #eaeaea; padding: 25px; border-radius: 10px; flex: 1;">
+                        <h4 style="color: #222;">3. 학습 경험 자산화</h4>
+                        <p style="color: #777; margin-top: 10px;">중도 포기하더라도 배운 내용이 사라지지 않는 '스킬블록' 자산화 시스템 적용</p>
+                    </div>
+                </div>
+            </section>
+
+             <!-- 6. 4주간의 개발 과정 -->
+             <section>
+                <h2 style="color: #14b8a6; margin-bottom: 40px;">4주간의 개발 과정</h2>
+                <div style="font-size: 0.55em; text-align: left; display: flex; justify-content: center; gap: 15px;">
+                    <div style="background: rgba(59, 130, 246, 0.1); border-top: 4px solid #3b82f6; padding: 20px; border-radius: 10px; flex: 1;">
+                        <h4 class="color-primary" style="margin-bottom: 15px;">1주차: 기획 & 설계</h4>
+                        <ul style="padding-left: 15px; color: #444; line-height: 1.8;">
+                            <li>User Journey 매핑</li>
+                            <li>Figma UI/UX 디자인</li>
+                            <li>요구사항 및 ERD 설계</li>
+                        </ul>
+                    </div>
+                    <div class="fragment fade-up" style="background: rgba(14, 165, 233, 0.1); border-top: 4px solid #0ea5e9; padding: 20px; border-radius: 10px; flex: 1;">
+                        <h4 style="color: #0ea5e9; margin-bottom: 15px;">2주차: 백엔드 & AI</h4>
+                        <ul style="padding-left: 15px; color: #444; line-height: 1.8;">
+                            <li>Django 코어 API 세팅</li>
+                            <li>STT 엔진 파이프라인 구축</li>
+                            <li>GPT-4o 텍스트 분석</li>
+                        </ul>
+                    </div>
+                    <div class="fragment fade-up" style="background: rgba(20, 184, 166, 0.1); border-top: 4px solid #14b8a6; padding: 20px; border-radius: 10px; flex: 1;">
+                        <h4 style="color: #14b8a6; margin-bottom: 15px;">3주차: 프론트 연동</h4>
+                        <ul style="padding-left: 15px; color: #444; line-height: 1.8;">
+                            <li>Vue.js + TailwindCSS</li>
+                            <li>학생/교수 독립 SPA 분리</li>
+                            <li>Chart.js 데이터 시각화</li>
+                        </ul>
+                    </div>
+                    <div class="fragment fade-up" style="background: rgba(16, 185, 129, 0.1); border-top: 4px solid #10b981; padding: 20px; border-radius: 10px; flex: 1;">
+                        <h4 class="color-success" style="margin-bottom: 15px;">4주차: 배포 최적화</h4>
+                        <ul style="padding-left: 15px; color: #444; line-height: 1.8;">
+                            <li>OCI 서버 구축 & 배포</li>
+                            <li>Nginx 환경 설정</li>
+                            <li>네트워크 예외 처리</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 7. Service Flow -->
+            <section>
+                <h2 style="color: #10b981;">Service Flow</h2>
+                <div style="display: flex; justify-content: space-between; font-size: 0.65em; margin-top: 40px; gap: 30px;">
+                    <div style="flex: 1; border: 1px solid #3b82f6; background: rgba(59,130,246,0.05); border-radius: 15px; padding: 30px;">
+                        <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+                            <span style="font-size: 2em; margin-right: 10px;">🧑‍🎓</span>
+                            <h3 class="color-primary" style="margin: 0;">Student</h3>
+                        </div>
+                        <ol style="line-height: 2; padding-left: 20px; color: #555;">
+                            <li>수준 진단 (Placement Test)</li>
+                            <li>라이브 세션 참여 (STT & 이해도 체크)</li>
+                            <li>AI 통합 노트 & 자동 퀴즈</li>
+                            <li>스킬블록 자산화 & 맞춤 복습</li>
+                        </ol>
+                    </div>
+                    <div style="flex: 1; border: 1px solid #10b981; background: rgba(16,185,129,0.05); border-radius: 15px; padding: 30px;">
+                        <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+                            <span style="font-size: 2em; margin-right: 10px;">👨‍🏫</span>
+                            <h3 class="color-success" style="margin: 0;">Instructor</h3>
+                        </div>
+                        <ol style="line-height: 2; padding-left: 20px; color: #555;">
+                            <li>데이터 통합 모니터링 (진도/출석)</li>
+                            <li>예측 AI 기반 위험군 자동 탐지</li>
+                            <li>AI 튜터링 제안 검토 (HITL)</li>
+                            <li>타겟 맞춤 보충 자료 및 메시지 발송</li>
+                        </ol>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 8. 시연 영상 (Preview) -->
+            <section>
+                <h2 style="color: #d946ef;">시연 영상 (Preview)</h2>
+                <p style="font-size: 0.8em; color: #888; margin-bottom: 30px;">라이브 데모 시나리오</p>
+                <div style="width: 100%; max-width: 800px; height: 400px; margin: 0 auto; background: #fff; border: 1px solid #eaeaea; border-radius: 15px; display: flex; align-items: center; justify-content: center; position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
+                    <div style="width: 80px; height: 80px; background: rgba(0,0,0,0.08); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                        <div style="width: 0; height: 0; border-top: 15px solid transparent; border-bottom: 15px solid transparent; border-left: 25px solid #fff; margin-left: 10px;"></div>
+                    </div>
+                    <p style="position: absolute; bottom: 20px; font-size: 0.6em; color: #666; letter-spacing: 2px;">[ 영상을 클릭하여 재생하세요 ]</p>
+                </div>
+            </section>
+
+            <!-- 9. 시스템 아키텍처 -->
+            <section data-background-image="/static/ppt_images/image1.jpeg" data-background-opacity="0.3">
+                <h2 class="color-primary" style="margin-bottom: 20px;">시스템 아키텍처</h2>
+                <div style="background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); display: inline-block;">
+                    <img class="zoomable" src="/static/ppt_images/image9.png" style="height: auto; max-height: 50vh; width: auto; max-width: 100%; object-fit: contain; margin: 0; display: block;" alt="System Architecture Diagram" />
+                </div>
+                <p style="font-size: 0.5em; color: #888; margin-top: 10px;">(이미지를 클릭하면 확대됩니다)</p>
+            </section>
+            
+            <section>
+                <h2 style="color: #3b82f6;">아키텍처 스택 한눈에 보기</h2>
+                <table style="width: 100%; font-size: 0.7em; margin-top: 40px; border-collapse: collapse;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid #222;">
+                            <th style="padding: 15px; text-align: left;">영역</th>
+                            <th style="padding: 15px; text-align: left;">기술 스택</th>
+                            <th style="padding: 15px; text-align: left;">핵심 역할</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="border-bottom: 1px solid #eaeaea;">
+                            <td style="padding: 15px; color: #3b82f6;"><strong>Frontend</strong></td>
+                            <td style="padding: 15px;">Vue.js 3 + Vite + Tailwind</td>
+                            <td style="padding: 15px;">학생/교수 독립 SPA 웹앱</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #eaeaea;">
+                            <td style="padding: 15px; color: #10b981;"><strong>Backend</strong></td>
+                            <td style="padding: 15px;">Django REST Framework</td>
+                            <td style="padding: 15px;">API 서빙, JWT 인증 로직</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #eaeaea;">
+                            <td style="padding: 15px; color: #d946ef;"><strong>Database</strong></td>
+                            <td style="padding: 15px;">PostgreSQL + pgvector</td>
+                            <td style="padding: 15px;">RAG를 위한 벡터 유사도 검색</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #eaeaea;">
+                            <td style="padding: 15px; color: #8b5cf6;"><strong>AI Engine</strong></td>
+                            <td style="padding: 15px;">OpenAI API (GPT-4o) / Whisper</td>
+                            <td style="padding: 15px;">STT, 튜터링, 퀴즈, 요약 노트</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 15px; color: #ef4444;"><strong>Infra</strong></td>
+                            <td style="padding: 15px;">Oracle Cloud (OCI) + Nginx</td>
+                            <td style="padding: 15px;">클라우드 배포 및 프로덕션 운영</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- 10. 기대 효과 및 비즈니스 임팩트 -->
+            <section>
+                <h2 class="color-success">기대 효과</h2>
+                <p style="font-size: 0.75em; color: #666; line-height: 1.8; margin-top: 40px; padding: 30px; border: 1px solid #10b981; background: rgba(16,185,129,0.05); border-radius: 15px;">
+                    중도 포기라는 낙인을 지우고, <br>
+                    학습자가 걸어온 모든 과정을 지워지지 않는 <strong>'스킬 블록'</strong>으로 자산화하는 <br>
+                    교육 네비게이션입니다.
+                </p>
+            </section>
+
+            <section>
+                <h2 class="color-success">기대 효과 및 비즈니스 임팩트</h2>
+                <div style="font-size: 0.75em; text-align: left; margin-top: 40px; display: flex; flex-direction: column; gap: 20px;">
+                    <div style="background: rgba(0,0,0,0.02); border: 1px solid #eaeaea; padding: 25px; border-radius: 12px; border-left: 5px solid #10b981;">
+                        <h3 style="color: #10b981; margin-bottom: 15px; font-size: 1.3em;">B2B / B2G (교육기관)</h3>
+                        <ul style="color: #555; line-height: 1.6; padding-left: 20px;">
+                            <li>위험군 조기 탐지로 <strong>중도 이탈률 하락 및 수료율 상승</strong> (예산 효율화)</li>
+                            <li>AI를 활용한 보충자료 및 데이터 통합으로 <strong>교수자 업무 로드 30% 감소</strong></li>
+                        </ul>
+                    </div>
+                    
+                    <div style="background: rgba(0,0,0,0.02); border: 1px solid #eaeaea; padding: 25px; border-radius: 12px; border-left: 5px solid #3b82f6;">
+                        <h3 style="color: #3b82f6; margin-bottom: 15px; font-size: 1.3em;">B2C (학습자)</h3>
+                        <ul style="color: #555; line-height: 1.6; padding-left: 20px;">
+                            <li>미수료 시에도 경험이 증발하지 않는 <strong>스킬블록으로 진입 장벽 완화</strong></li>
+                            <li>취약 구역만 정밀 타격하는 <strong>초개인화 학습 경험</strong> 제공</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 11. 한계점 및 향후 계획 -->
+            <section>
+                <h2 style="color: #ef4444;">한계점 (Limitations)</h2>
+                <ul style="font-size: 0.8em; line-height: 2; margin-top: 40px; color: #444;">
+                    <li><strong>기술적 한계 :</strong> HTTP 통신 기반으로 인한 양방향 레이턴시 제약</li>
+                    <li><strong>정책/비용적 한계 :</strong> 전면 외부 LLM(OpenAI) 의존으로 인한 데이터 보안 및 비용 이슈</li>
+                    <li><strong>구조적 한계 :</strong> 단일 강좌 기준의 데이터베이스 설계 모델 (현재 멀티 테넌시 미적용)</li>
+                </ul>
+            </section>
+            <section>
+                <h2 class="color-primary">향후 계획 (Future Plan)</h2>
+                <p style="font-size: 0.7em; color: #888;">Phase 2 고도화 로드맵</p>
+                <div style="display: flex; flex-direction: column; gap: 15px; font-size: 0.65em; text-align: left; margin-top: 30px;">
+                    <div style="padding: 15px 20px; background: #f8fafc; border-radius: 8px; border-left: 3px solid #10b981;">
+                        <strong style="color: #10b981;">1. 초실시간성:</strong> WebSocket(Socket.io) 연동으로 지연 없는 실시간 펄스 및 출석
+                    </div>
+                    <div style="padding: 15px 20px; background: #f8fafc; border-radius: 8px; border-left: 3px solid #0ea5e9;">
+                        <strong style="color: #0ea5e9;">2. B2B SaaS 전환:</strong> 조직/워크스페이스 단위 멀티 테넌시 아키텍처 도입
+                    </div>
+                    <div style="padding: 15px 20px; background: #f8fafc; border-radius: 8px; border-left: 3px solid #8b5cf6;">
+                        <strong style="color: #8b5cf6;">3. 프라이버시 및 비용 절감:</strong> 기업보안이 요구되는 환경을 위한 로컬 sLLM 혼합 구성
+                    </div>
+                </div>
+            </section>
+
+            <!-- 12. Q&A -->
+            <section>
+                <h2 style="color: #f97316; margin-bottom: 20px;">질의 응답</h2>
+                <h1 style="font-size: 3em; font-weight: 900; letter-spacing: 5px; margin-bottom: 20px;" class="color-primary">Q & A</h1>
+                <p style="font-size: 1em; color: #555;">궁금하신 점은 질문해 주세요!</p>
+                <div style="margin-top: 50px; display: inline-block; text-align: left; background: rgba(0,0,0,0.03); border: 1px solid #eaeaea; padding: 20px 40px; border-radius: 15px; border: 1px solid #eaeaea;">
+                    <p style="margin: 0; font-size: 0.9em; color: #222;">발표자: <strong>김지훈, 이성희, 김혜진</strong></p>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <!-- Reveal.js 스크립트 (CDN) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.js"></script>
+    <!-- 마크다운 분석, 코드 하이라이트 플러그인 로드 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/markdown/markdown.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/highlight.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/notes/notes.js"></script>
+    
+    <!-- Image Zoom Modal -->
+    <div id="image-modal">
+        <img id="modal-img" src="" alt="Zoomed Image">
+        <p style="position: absolute; bottom: 30px; font-size: 1.2em; font-weight: bold; color: white; margin: 0;">✕ 닫으려면 클릭하세요</p>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // 이미지 줌 모달 로직
+            const modal = document.getElementById('image-modal');
+            const modalImg = document.getElementById('modal-img');
+            const zoomables = document.querySelectorAll('.zoomable');
+            
+            zoomables.forEach(img => {
+                img.addEventListener('click', (e) => {
+                    modalImg.src = e.target.src;
+                    modal.style.display = 'flex';
+                    // reflow
+                    void modal.offsetWidth;
+                    modal.classList.add('show');
+                });
+            });
+            
+            modal.addEventListener('click', () => {
+                modal.classList.remove('show');
+                setTimeout(() => {
+                    modal.style.display = 'none';
+                    modalImg.src = '';
+                }, 300);
+            });
+        });
+
+        // Reveal.js 초기화 및 설정
+        Reveal.initialize({
+            hash: true, // URL 해시 활성화 (슬라이드 새로고침 가능)
+            slideNumber: true, // 우측 하단 슬라이드 넘버링
+            controls: true, // 방향 화살표
+            progress: true, // 진행률 상단 바
+            transition: 'slide', // none/fade/slide/convex/concave/zoom
+            
+            // 사용 플러그인 등록
+            plugins: [ RevealMarkdown, RevealHighlight, RevealNotes ]
+        });
+    </script>
+</body>
+</html>

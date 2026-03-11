@@ -475,7 +475,7 @@ export default {
 
 .back-btn {
     display: flex; align-items: center; gap: 6px;
-    background: none; border: none; color: #888; cursor: pointer; font-size: 13px;
+    background: none; border: none; color: #9ba1a6; cursor: pointer; font-size: 13px;
     padding: 0;
     &:hover { color: #4facfe; }
 }
@@ -526,7 +526,7 @@ export default {
     display: flex; flex-direction: column;
 }
 .session-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.session-date { font-size: 11px; color: #666; margin-top: 2px; }
+.session-date { font-size: 11px; color: #9ba1a6; margin-top: 2px; }
 
 .delete-session {
     background: none; border: none; color: #555; cursor: pointer; padding: 4px;
@@ -557,7 +557,7 @@ export default {
     gap: 16px;
     .empty-icon { font-size: 64px; }
     h2 { font-size: 24px; color: #fff; }
-    p { color: #888; text-align: center; line-height: 1.6; font-size: 14px; }
+    p { color: #9ba1a6; text-align: center; line-height: 1.6; font-size: 14px; }
 }
 
 .btn-start-chat {
@@ -665,7 +665,7 @@ export default {
 .msg-sources {
     display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px;
 }
-.sources-label { font-size: 11px; color: #666; display: flex; align-items: center; gap: 4px; }
+.sources-label { font-size: 11px; color: #9ba1a6; display: flex; align-items: center; gap: 4px; }
 .source-link {
     font-size: 11px; color: #4facfe; background: rgba(79,172,254,0.1);
     padding: 2px 8px; border-radius: 10px; text-decoration: none;
@@ -734,7 +734,7 @@ export default {
 .search-toggle-btn {
     width: 48px; height: 48px;
     background: #1a1a1a; border: 1px solid #333; border-radius: 12px;
-    color: #888; cursor: pointer;
+    color: #9ba1a6; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     transition: all 0.2s;
     &:hover { border-color: #4facfe; color: #4facfe; }
@@ -754,7 +754,7 @@ export default {
     display: flex; justify-content: space-between; align-items: center;
     h3 { font-size: 15px; margin: 0; display: flex; align-items: center; gap: 8px; color: #eee; }
 }
-.sp-close { background: none; border: none; color: #666; cursor: pointer; &:hover { color: #ff5555; } }
+.sp-close { background: none; border: none; color: #9ba1a6; cursor: pointer; &:hover { color: #ff5555; } }
 
 .sp-input {
     padding: 12px 16px; display: flex; gap: 8px;
@@ -771,7 +771,7 @@ export default {
 }
 
 .sp-results { flex: 1; overflow-y: auto; padding: 0 16px 16px; }
-.sp-loading, .sp-empty { text-align: center; padding: 40px 0; color: #666; font-size: 13px; }
+.sp-loading, .sp-empty { text-align: center; padding: 40px 0; color: #9ba1a6; font-size: 13px; }
 
 .sp-result-card {
     background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px;

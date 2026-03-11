@@ -16,18 +16,29 @@ class ChecklistViewSet(viewsets.ViewSet):
 
     def list(self, request):
         lecture_id = request.query_params.get('lecture_id')
-        if not lecture_id:
-            return Response({"error": "lecture_id required"}, status=400)
-
-        lecture = get_object_or_404(Lecture, id=lecture_id)
-
-        # Check enrollment
-        if not lecture.students.filter(id=request.user.id).exists() and lecture.instructor != request.user:
-             return Response({"error": "Not enrolled"}, status=403)
-
-        syllabi = Syllabus.objects.filter(lecture=lecture)
-        serializer = SyllabusSerializer(syllabi, many=True, context={'request': request})
-        return Response(serializer.data)
+        
+        if lecture_id:
+            lecture = get_object_or_404(Lecture, id=lecture_id)
+            if not lecture.students.filter(id=request.user.id).exists() and lecture.instructor != request.user:
+                 return Response({"error": "Not enrolled"}, status=403)
+            syllabi = Syllabus.objects.filter(lecture=lecture)
+            serializer = SyllabusSerializer(syllabi, many=True, context={'request': request})
+            return Response(serializer.data)
+        else:
+            # Return flattened checklist for all enrolled lectures for onboarding map
+            lectures = Lecture.objects.filter(students=request.user)
+            items = []
+            for lec in lectures:
+                objectives = LearningObjective.objects.filter(syllabus__lecture=lec).select_related('syllabus')
+                for obj in objectives:
+                    is_checked = StudentChecklist.objects.filter(student=request.user, objective=obj, is_checked=True).exists()
+                    items.append({
+                        "id": obj.id,
+                        "content": obj.content,
+                        "week": obj.syllabus.week_number,
+                        "is_checked": is_checked
+                    })
+            return Response({"items": items})
 
     # POST /api/learning/checklist/<objective_id>/toggle/
     @action(detail=True, methods=['post'])
@@ -50,20 +61,32 @@ class ChecklistViewSet(viewsets.ViewSet):
     def analyze(self, request):
         lecture_id = request.query_params.get('lecture_id')
         if not lecture_id:
-            return Response({"error": "lecture_id required"}, status=400)
-
-        lecture = get_object_or_404(Lecture, id=lecture_id)
+            # Fallback to all enrolled
+            lectures = Lecture.objects.filter(students=request.user)
+            if not lectures.exists():
+                return Response({"status": "clean", "progress": 0, "message": "아직 수강중인 강의가 없습니다."})
+            base_query = LearningObjective.objects.filter(syllabus__lecture__in=lectures)
+        else:
+            lecture = get_object_or_404(Lecture, id=lecture_id)
+            base_query = LearningObjective.objects.filter(syllabus__lecture=lecture)
 
         # 1. Calculate Progress
-        total_objectives = LearningObjective.objects.filter(syllabus__lecture=lecture).count()
+        total_objectives = base_query.count()
         if total_objectives == 0:
             return Response({"status": "clean", "progress": 0, "message": "아직 학습 목표가 없습니다."})
 
-        checked_count = StudentChecklist.objects.filter(
-            student=request.user,
-            objective__syllabus__lecture=lecture,
-            is_checked=True
-        ).count()
+        if lecture_id:
+            checked_count = StudentChecklist.objects.filter(
+                student=request.user,
+                objective__syllabus__lecture_id=lecture_id,
+                is_checked=True
+            ).count()
+        else:
+            checked_count = StudentChecklist.objects.filter(
+                student=request.user,
+                objective__syllabus__lecture__in=lectures,
+                is_checked=True
+            ).count()
 
         progress = (checked_count / total_objectives) * 100
 
@@ -97,25 +120,27 @@ class ChecklistViewSet(viewsets.ViewSet):
             }
 
         return Response({
-            "progress": round(progress, 1),
+            "completion_rate": round(progress, 1),
             "status": result_status,
             "recommendation": recommendation
         })
 
     # POST /api/learning/checklist/recovery_plan/
     # [Dynamic Re-routing Action]
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], url_path='recovery_plan')
     def recovery_plan(self, request):
         lecture_id = request.data.get('lecture_id')
         if not lecture_id:
-            return Response({"error": "lecture_id required"}, status=400)
-
-        lecture = get_object_or_404(Lecture, id=lecture_id)
+            lectures = Lecture.objects.filter(students=request.user)
+            if not lectures.exists():
+                return Response({"message": "수강중인 강의가 없습니다."})
+            base_query = LearningObjective.objects.filter(syllabus__lecture__in=lectures)
+        else:
+            lecture = get_object_or_404(Lecture, id=lecture_id)
+            base_query = LearningObjective.objects.filter(syllabus__lecture=lecture)
 
         # 1. Collect unfinished objectives
-        unfinished_objectives = LearningObjective.objects.filter(
-            syllabus__lecture=lecture
-        ).exclude(
+        unfinished_objectives = base_query.exclude(
             student_checks__student=request.user,
             student_checks__is_checked=True
         )

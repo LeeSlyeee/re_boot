@@ -6,7 +6,7 @@ import { useRouter } from 'vue-router';
 import axios from 'axios';
 
 const router = useRouter();
-const API = axios.create({ baseURL: 'http://localhost:8000/api' });
+const API = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' });
 API.interceptors.request.use(c => { const t = localStorage.getItem('token'); if (t) c.headers.Authorization = `Bearer ${t}`; return c; });
 
 // ── 상태 ──
@@ -163,7 +163,7 @@ const levelLabel = computed(() => {
 });
 const levelColor = computed(() => {
     const colors = { 1: '#f59e0b', 2: '#3b82f6', 3: '#8b5cf6' };
-    return colors[result.value?.level] || '#888';
+    return colors[result.value?.level] || '#9ba1a6';
 });
 const levelIcon = computed(() => {
     const icons = { 1: '🌱', 2: '🌿', 3: '🌳' };

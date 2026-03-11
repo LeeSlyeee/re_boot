@@ -22,7 +22,7 @@ screencapture-*.png
 .DS_Store
 
 # Node
-node_modules/
+node_modules*/
 dist/
 # SSH 키
 sshKey/
@@ -38,3 +38,5 @@ __pycache__/
 # 기타
 backend/nul
 android/
+trash/
+

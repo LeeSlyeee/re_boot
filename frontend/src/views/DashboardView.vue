@@ -217,6 +217,35 @@ const submitSRAnswer = async (itemId, answer) => {
   }
 };
 
+const isOptionCorrect = (opt, correctAns) => {
+  if (!opt || !correctAns) return false;
+  
+  const optStr = String(opt).trim();
+  const ansStr = String(correctAns).trim();
+  
+  if (/^\d+$/.test(optStr) && /^\d+$/.test(ansStr)) {
+    return parseInt(optStr, 10) === parseInt(ansStr, 10);
+  }
+  
+  if (optStr === ansStr) return true;
+  
+  const prefixes = [':', '. ', ' ', ')', ']'];
+  if (prefixes.some(p => optStr.startsWith(ansStr + p))) return true;
+  
+  const optNoSpace = optStr.replace(/[\s\n\t]/g, '');
+  const prefixesNoSpace = [':', '.', ')', ']'];
+  if (prefixesNoSpace.some(p => optNoSpace.startsWith(ansStr + p))) return true;
+  
+  if (ansStr.length === 1 && /^[a-zA-Z]$/.test(ansStr)) {
+      if (optStr.startsWith(ansStr) && optStr.length > 1) {
+          const nextChar = optStr[1];
+          if (!/^[a-zA-Z0-9]$/.test(nextChar)) return true;
+      }
+  }
+  
+  return false;
+};
+
 const closeSRQuiz = () => {
   srAnswering.value = null;
   srResult.value = null;
@@ -850,7 +879,10 @@ const generateCertificate = async (lecId, e) => {
                 :key="idx"
                 class="sr-option-btn"
                 :class="{
-                  correct: srResult && (srResult.correct_answer === opt || opt.startsWith(srResult.correct_answer + ':') || opt.startsWith(srResult.correct_answer + '.') || opt.startsWith(srResult.correct_answer + ' ')),
+                  correct: srResult && (
+                    (srResult.is_correct && srResult.selected_answer === opt) ||
+                    isOptionCorrect(opt, srResult.correct_answer)
+                  ),
                   wrong: srResult && !srResult.is_correct && srResult.selected_answer === opt
                 }"
                 @click="submitSRAnswer(srAnswering.id, opt)"

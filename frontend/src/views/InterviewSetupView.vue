@@ -513,7 +513,7 @@ const startInterview = async () => {
 }
 .mode-card p {
   font-size: 0.85rem;
-  color: #999;
+  color: #767676;
   margin: 0 0 12px;
   line-height: 1.4;
 }
@@ -739,7 +739,7 @@ const startInterview = async () => {
 }
 .history-meta {
   font-size: 0.8rem;
-  color: #888;
+  color: #9ba1a6;
   display: flex;
   align-items: center;
   gap: 4px;

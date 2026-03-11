@@ -11,6 +11,8 @@ const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const isLoginMode = ref(true);
+const isLoading = ref(false);
+const errorMessage = ref('');
 
 const form = ref({
     username: '',
@@ -20,6 +22,10 @@ const form = ref({
 });
 
 const handleLogin = async () => {
+    if (isLoading.value) return;
+    errorMessage.value = '';
+    isLoading.value = true;
+    
     try {
         const { data } = await api.post('/auth/login/', {
             username: form.value.username,
@@ -33,20 +39,31 @@ const handleLogin = async () => {
         
         // redirect 쿼리 파라미터가 있으면 해당 경로로, 없으면 /learning
         const redirectTo = route.query.redirect || '/learning';
-        router.push(redirectTo);
+        
+        // router.push()도 비동기이므로 await 처리하여 네비게이션 실패를 방지
+        await router.push(redirectTo);
         
     } catch (e) {
-        console.error(e);
+        console.error('Login Error:', e);
+        const detail = e.response?.data?.detail;
+        errorMessage.value = detail || '아이디 또는 비밀번호가 올바르지 않습니다.';
         showToast('로그인 실패: 아이디와 비밀번호를 확인해주세요.', 'error');
+    } finally {
+        isLoading.value = false;
     }
 };
 
 const handleRegister = async () => {
+    if (isLoading.value) return;
+    errorMessage.value = '';
+    
     if (form.value.password !== form.value.confirmPassword) {
+        errorMessage.value = '비밀번호가 일치하지 않습니다.';
         showToast('비밀번호가 일치하지 않습니다.', 'error');
         return;
     }
     
+    isLoading.value = true;
     try {
         await api.post('/auth/register/', {
             username: form.value.username,
@@ -58,8 +75,19 @@ const handleRegister = async () => {
         isLoginMode.value = true;
         
     } catch (e) {
-        console.error(e);
-        showToast('회원가입 실패: 이미 존재하는 아이디이거나 오류가 발생했습니다.', 'error');
+        console.error('Register Error:', e);
+        if (e.response?.data?.detail) {
+            errorMessage.value = e.response.data.detail;
+        } else if (e.response?.data) {
+            errorMessage.value = Object.entries(e.response.data)
+                .map(([key, val]) => `${Array.isArray(val) ? val.join(', ') : val}`)
+                .join(' · ');
+        } else {
+            errorMessage.value = '회원가입에 실패했습니다. 다시 시도해주세요.';
+        }
+        showToast('회원가입 실패', 'error');
+    } finally {
+        isLoading.value = false;
     }
 };
 </script>
@@ -87,8 +115,13 @@ const handleRegister = async () => {
                 <input type="password" v-model="form.confirmPassword" placeholder="비밀번호 확인" required />
             </div>
             
-            <button type="submit" class="btn btn-primary btn-full">
-                {{ isLoginMode ? '시작하기' : '계정 생성' }}
+            <div v-if="errorMessage" class="error-inline">
+                <span>⚠️ {{ errorMessage }}</span>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full" :disabled="isLoading">
+                <span v-if="isLoading">처리 중...</span>
+                <span v-else>{{ isLoginMode ? '시작하기' : '계정 생성' }}</span>
             </button>
         </form>
         
@@ -152,6 +185,23 @@ const handleRegister = async () => {
     margin-top: 16px;
     height: 48px;
     font-size: 16px;
+}
+
+.error-inline {
+    margin-top: 8px;
+    margin-bottom: 4px;
+    padding: 10px 14px;
+    background: rgba(255, 69, 58, 0.12);
+    border: 1px solid rgba(255, 69, 58, 0.3);
+    border-radius: 10px;
+    text-align: left;
+
+    span {
+        color: #ff6b6b;
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.4;
+    }
 }
 
 .toggle-mode {
