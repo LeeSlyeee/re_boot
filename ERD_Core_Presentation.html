@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Re:Boot — 핵심 ERD (발표용)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'base',
+            themeVariables: {
+                primaryColor: '#1e293b',
+                primaryTextColor: '#f1f5f9',
+                primaryBorderColor: '#334155',
+                lineColor: '#6366f1',
+                secondaryColor: '#0f172a',
+                tertiaryColor: '#1e293b',
+                fontSize: '14px',
+                fontFamily: 'Pretendard, sans-serif',
+                edgeLabelBackground: '#0f172a',
+
+                /* Entity styling */
+                entityBorder: '#6366f1',
+                entityBkg: '#1e293b',
+                entityTextColor: '#e2e8f0',
+                attributeBackgroundColorOdd: '#1e293b',
+                attributeBackgroundColorEven: '#0f172a',
+            },
+            er: {
+                useMaxWidth: false,
+                entityPadding: 15,
+                fontSize: 14,
+                layoutDirection: 'TB',
+            }
+        });
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0a0e1a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* === Header === */
+        .header {
+            text-align: center;
+            padding: 48px 24px 16px;
+            position: relative;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 50%;
+            transform: translateX(-50%);
+            width: 600px; height: 300px;
+            background: radial-gradient(circle, rgba(99,102,241,.15) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .header h1 {
+            font-size: 42px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #818cf8, #6366f1, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        .header .subtitle {
+            font-size: 16px;
+            color: #94a3b8;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        /* === Legend === */
+        .legend {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+            padding: 20px 24px 8px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #94a3b8;
+        }
+
+        .legend-dot {
+            width: 12px; height: 12px;
+            border-radius: 50%;
+        }
+
+        .dot-user { background: #f472b6; }
+        .dot-lecture { background: #60a5fa; }
+        .dot-live { background: #34d399; }
+        .dot-ai { background: #fbbf24; }
+        .dot-career { background: #c084fc; }
+
+        /* === Diagram Container === */
+        .diagram-container {
+            margin: 16px auto;
+            max-width: 100%;
+            overflow-x: auto;
+            padding: 24px;
+        }
+
+        .diagram-card {
+            background: linear-gradient(145deg, rgba(15,23,42,.95), rgba(30,41,59,.9));
+            border: 1px solid rgba(99,102,241,.2);
+            border-radius: 20px;
+            padding: 40px 32px;
+            backdrop-filter: blur(12px);
+            box-shadow:
+                0 4px 40px rgba(99,102,241,.08),
+                inset 0 1px 0 rgba(255,255,255,.03);
+            min-width: 1200px;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+        }
+
+        /* Mermaid override for dark theme */
+        .mermaid svg {
+            max-width: none !important;
+        }
+
+        /* === Stats Footer === */
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 32px;
+            padding: 32px 24px 48px;
+            flex-wrap: wrap;
+        }
+
+        .stat-card {
+            background: rgba(30,41,59,.7);
+            border: 1px solid rgba(99,102,241,.15);
+            border-radius: 16px;
+            padding: 20px 28px;
+            text-align: center;
+            min-width: 140px;
+            transition: transform .2s, border-color .2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(99,102,241,.4);
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #818cf8, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 4px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        /* === Footer Note === */
+        .footer-note {
+            text-align: center;
+            padding: 0 24px 32px;
+            font-size: 12px;
+            color: #475569;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <h1>Re:Boot — Core ERD</h1>
+        <div class="subtitle">AI-Powered Adaptive Learning Platform · Database Architecture</div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend">
+        <div class="legend-item"><span class="legend-dot dot-user"></span>사용자 & 인증</div>
+        <div class="legend-item"><span class="legend-dot dot-lecture"></span>수업 & 콘텐츠</div>
+        <div class="legend-item"><span class="legend-dot dot-live"></span>라이브 세션 인프라</div>
+        <div class="legend-item"><span class="legend-dot dot-ai"></span>AI 학습 분석</div>
+        <div class="legend-item"><span class="legend-dot dot-career"></span>커리어 자산화</div>
+    </div>
+
+    <!-- ERD Diagram -->
+    <div class="diagram-container">
+        <div class="diagram-card">
+            <div class="mermaid">
+erDiagram
+
+    %% ═══════════════════════════════════
+    %% 1. 사용자 & 인증
+    %% ═══════════════════════════════════
+    User {
+        int id PK
+        string username UK "로그인 ID"
+        string role "STUDENT / INSTRUCTOR / ADMIN"
+        string nickname "닉네임"
+        string career_goal "JOB_SEEKER / ENTREPRENEUR"
+    }
+
+    %% ═══════════════════════════════════
+    %% 2. 수업 & 콘텐츠
+    %% ═══════════════════════════════════
+    Lecture {
+        int id PK
+        string title "클래스명"
+        string category "IT_FRONTEND 등 18종"
+        string access_code UK "수강 입장 코드 6자리"
+        int instructor_id FK
+    }
+
+    Syllabus {
+        int id PK
+        int lecture_id FK
+        int week_number "주차"
+        string title "주차별 주제"
+    }
+
+    LectureMaterial {
+        int id PK
+        int lecture_id FK
+        string content_type "LINK / MARKDOWN / PDF"
+        string title "자료명"
+    }
+
+    %% ═══════════════════════════════════
+    %% 3. 라이브 세션 인프라
+    %% ═══════════════════════════════════
+    LiveSession {
+        int id PK
+        int lecture_id FK
+        int instructor_id FK
+        string session_code UK "입장 코드 6자리"
+        string status "WAITING / LIVE / ENDED"
+        datetime started_at
+    }
+
+    LiveParticipant {
+        int id PK
+        int live_session_id FK
+        int student_id FK
+        string status "JOINED / LEFT"
+    }
+
+    LiveSTTLog {
+        int id PK
+        int live_session_id FK
+        int sequence "실시간 자막 순서"
+        text text_chunk "STT 텍스트"
+    }
+
+    PulseCheck {
+        int id PK
+        int live_session_id FK
+        string check_type "UNDERSTANDING / SPEED"
+        string status "ACTIVE / CLOSED"
+    }
+
+    LiveQuiz {
+        int id PK
+        int live_session_id FK
+        string question_text "퀴즈 문제"
+        jsonb options "선택지"
+        string correct_answer "정답"
+        boolean is_ai_generated
+    }
+
+    LiveQuizResponse {
+        int id PK
+        int quiz_id FK
+        int student_id FK
+        string answer "학생 답변"
+        boolean is_correct
+    }
+
+    WeakZoneAlert {
+        int id PK
+        int live_session_id FK
+        int student_id FK
+        string alert_type "QUIZ_WEAK / PULSE_LOW"
+        text suggestion "AI 추천 학습 자료"
+    }
+
+    %% ═══════════════════════════════════
+    %% 4. 개인 학습 세션
+    %% ═══════════════════════════════════
+    LearningSession {
+        int id PK
+        int student_id FK
+        int lecture_id FK
+        int session_order "N교시"
+        boolean is_completed
+        text context_summary "대화 압축 요약"
+    }
+
+    STTLog {
+        int id PK
+        int session_id FK
+        int sequence_order
+        text text_chunk "STT 텍스트"
+    }
+
+    SessionSummary {
+        int id PK
+        int session_id FK
+        text content_text "AI 요약본"
+    }
+
+    %% ═══════════════════════════════════
+    %% 5. AI 학습 분석 & 적응형 콘텐츠
+    %% ═══════════════════════════════════
+    PlacementResult {
+        int id PK
+        int student_id FK
+        int lecture_id FK
+        string level "BEGINNER / INTERMEDIATE / ADVANCED"
+        jsonb category_scores "영역별 점수"
+    }
+
+    SkillBlock {
+        int id PK
+        int lecture_id FK
+        string name "스킬명"
+        string category "카테고리"
+    }
+
+    ReviewRoute {
+        int id PK
+        int student_id FK
+        int live_session_id FK
+        string status "PENDING / APPROVED / REJECTED"
+        jsonb items "복습 항목 목록"
+    }
+
+    FormativeAssessment {
+        int id PK
+        int session_id FK
+        jsonb questions "문항 리스트"
+        int score "총점"
+    }
+
+    AIChatSession {
+        int id PK
+        int user_id FK
+        int lecture_id FK
+        string session_type "TUTOR / GENERAL"
+    }
+
+    Curriculum {
+        int id PK
+        int user_id FK
+        int lecture_id FK
+        string status "ACTIVE / COMPLETED"
+        jsonb milestones "마일스톤"
+    }
+
+    %% ═══════════════════════════════════
+    %% 6. 커리어 자산화
+    %% ═══════════════════════════════════
+    Portfolio {
+        int id PK
+        int user_id FK
+        string type "RESUME / BUSINESS_PLAN"
+        text compiled_markdown "생성된 문서"
+    }
+
+    MockInterview {
+        int id PK
+        int user_id FK
+        int portfolio_id FK
+        string persona_role "TECH_LEAD / HR / VC"
+        int score "평가 점수"
+        string status "IN_PROGRESS / COMPLETED"
+    }
+
+    %% ═════════════════════════════════════════
+    %% RELATIONSHIPS
+    %% ═════════════════════════════════════════
+
+    %% 수업 구조
+    User ||--o{ Lecture : "개설 (교수자)"
+    User }o--o{ Lecture : "수강 (학생)"
+    Lecture ||--o{ Syllabus : "주차별 커리큘럼"
+    Lecture ||--o{ LectureMaterial : "강의 자료"
+
+    %% 라이브 세션 핵심 플로우
+    Lecture ||--o{ LiveSession : "라이브 세션 생성"
+    User ||--o{ LiveSession : "교수자 호스트"
+    LiveSession ||--o{ LiveParticipant : "학생 참여"
+    User ||--o{ LiveParticipant : "참여 학생"
+    LiveSession ||--o{ LiveSTTLog : "실시간 자막"
+    LiveSession ||--o{ PulseCheck : "이해도 체크"
+    LiveSession ||--o{ LiveQuiz : "실시간 퀴즈"
+    LiveQuiz ||--o{ LiveQuizResponse : "퀴즈 응답"
+    User ||--o{ LiveQuizResponse : "응답 학생"
+    LiveSession ||--o{ WeakZoneAlert : "취약점 알림"
+    User ||--o{ WeakZoneAlert : "대상 학생"
+
+    %% 개인 학습 세션
+    User ||--o{ LearningSession : "학습 기록"
+    Lecture ||--o{ LearningSession : "강의 연결"
+    LearningSession ||--o{ STTLog : "자막 로그"
+    LearningSession ||--o{ SessionSummary : "AI 요약"
+
+    %% AI 분석 & 적응형
+    User ||--o{ PlacementResult : "수준 진단"
+    Lecture ||--o{ SkillBlock : "스킬 블록"
+    User ||--o{ ReviewRoute : "복습 경로"
+    LearningSession ||--o{ FormativeAssessment : "형성 평가"
+    User ||--o{ AIChatSession : "AI 튜터"
+    Lecture ||--o{ AIChatSession : "질문 맥락"
+    User ||--o{ Curriculum : "커리큘럼"
+
+    %% 커리어 자산화
+    User ||--o{ Portfolio : "포트폴리오"
+    User ||--o{ MockInterview : "모의 면접"
+    Portfolio ||--o{ MockInterview : "면접 대상 문서"
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats">
+        <div class="stat-card">
+            <div class="stat-value">22</div>
+            <div class="stat-label">핵심 엔티티</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">6</div>
+            <div class="stat-label">도메인 영역</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">30+</div>
+            <div class="stat-label">관계 정의</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">pgvector</div>
+            <div class="stat-label">RAG 벡터 DB</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">Real-time</div>
+            <div class="stat-label">라이브 STT</div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer-note">
+        Re:Boot Database Architecture v3.0 · PostgreSQL + pgvector · Django ORM · 2026.03
+    </div>
+
+</body>
+</html>
