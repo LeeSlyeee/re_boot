@@ -680,6 +680,16 @@ const sessionSummary = ref("");
 const activeTab = ref("stt");
 const isGeneratingSummary = ref(false);
 
+// --- 세션 상세 화면용 퀴즈 이력 (강의 기반) ---
+const lectureQuizHistory = ref(null);
+const fetchLectureQuizHistory = async () => {
+  if (!currentLectureId.value) return;
+  try {
+    const { data } = await api.get(`/learning/lectures/${currentLectureId.value}/quiz-history/`);
+    lectureQuizHistory.value = data;
+  } catch (e) { /* silent */ }
+};
+
 // [FIX] 학습노트에서 메모 섹션을 분리하여 표시 (DB에 합쳐진 경우 대응)
 const displaySummary = computed(() => {
   const raw = sessionSummary.value || "";
@@ -2688,6 +2698,15 @@ const openSessionReview = (id) => {
               @click="activeTab = 'summary'"
               >AI 학습노트</span
             >
+            <span
+              :class="{ active: activeTab === 'quiz-history' }"
+              @click="activeTab = 'quiz-history'; if (!lectureQuizHistory) fetchLectureQuizHistory();"
+            >
+              📊 퀴즈 결과
+              <span v-if="lectureQuizHistory && lectureQuizHistory.total_quizzes > 0" style="background: #6366f1; color: #fff; font-size: 11px; padding: 1px 7px; border-radius: 10px; margin-left: 4px;">{{
+                lectureQuizHistory.total_quizzes
+              }}</span>
+            </span>
           </div>
 
           <!-- 1. STT View -->
@@ -2861,6 +2880,77 @@ const openSessionReview = (id) => {
                       <span>취소</span>
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. 📊 퀴즈 결과 뷰 (강의 기반) -->
+          <div v-show="activeTab === 'quiz-history'" class="quiz-history-view">
+            <div v-if="!lectureQuizHistory || lectureQuizHistory.total_quizzes === 0" class="empty-state">
+              <p>📊 아직 출제된 퀴즈가 없습니다.</p>
+            </div>
+            <div v-else class="quiz-history-content">
+              <!-- 요약 카드 -->
+              <div class="qh-summary-card">
+                <div class="qh-stat">
+                  <span class="qh-stat-value">{{ lectureQuizHistory.total_quizzes }}</span>
+                  <span class="qh-stat-label">총 퀴즈</span>
+                </div>
+                <div class="qh-stat">
+                  <span class="qh-stat-value">{{ lectureQuizHistory.answered_count }}</span>
+                  <span class="qh-stat-label">응답</span>
+                </div>
+                <div class="qh-stat">
+                  <span class="qh-stat-value correct-text">{{ lectureQuizHistory.correct_count }}</span>
+                  <span class="qh-stat-label">정답</span>
+                </div>
+                <div class="qh-stat">
+                  <span class="qh-stat-value" :class="lectureQuizHistory.accuracy >= 70 ? 'correct-text' : 'wrong-text'">
+                    {{ lectureQuizHistory.accuracy }}%
+                  </span>
+                  <span class="qh-stat-label">정답률</span>
+                </div>
+              </div>
+
+              <!-- 개별 퀴즈 결과 리스트 -->
+              <div
+                v-for="(q, idx) in lectureQuizHistory.results"
+                :key="q.quiz_id"
+                class="qh-item"
+                :class="{
+                  'qh-correct': q.is_correct === true,
+                  'qh-wrong': q.is_correct === false,
+                  'qh-unanswered': !q.answered,
+                }"
+              >
+                <div class="qh-item-header">
+                  <span class="qh-num">Q{{ idx + 1 }}</span>
+                  <span v-if="q.is_correct === true" class="qh-badge correct">✅ 정답</span>
+                  <span v-else-if="q.is_correct === false" class="qh-badge wrong">❌ 오답</span>
+                  <span v-else class="qh-badge unanswered">⏭ 미응답</span>
+                  <span v-if="q.is_ai_generated" class="qh-ai-tag">🤖 AI</span>
+                </div>
+                <p class="qh-question">{{ q.question_text }}</p>
+                <div v-if="q.options && q.options.length > 0" class="qh-options">
+                  <div
+                    v-for="opt in q.options"
+                    :key="opt"
+                    class="qh-option"
+                    :class="{
+                      'is-correct-answer': opt === q.correct_answer,
+                      'is-my-answer': q.answered && opt === q.my_answer,
+                      'is-my-wrong': q.answered && opt === q.my_answer && !q.is_correct,
+                    }"
+                  >
+                    <span v-if="opt === q.correct_answer" class="opt-icon">✅</span>
+                    <span v-else-if="q.answered && opt === q.my_answer && !q.is_correct" class="opt-icon">❌</span>
+                    <span v-else class="opt-icon">○</span>
+                    {{ opt }}
+                  </div>
+                </div>
+                <div v-if="q.explanation && q.answered && !q.is_correct" class="qh-explanation">
+                  💡 {{ q.explanation }}
                 </div>
               </div>
             </div>

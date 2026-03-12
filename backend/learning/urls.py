@@ -4,7 +4,7 @@ from .views import LearningSessionViewSet, EnrollLectureView, PublicLectureListV
 from .views_assessment import AssessmentViewSet
 from .professor_views import LectureViewSet
 from .rag_views import RAGViewSet
-from .live_views import LiveSessionViewSet, JoinLiveSessionView, LectureMaterialViewSet, LiveNoteView, NoteApproveView, NoteMaterialLinkView, AbsentNoteListView, StudentSessionSummaryView
+from .live_views import LiveSessionViewSet, JoinLiveSessionView, LectureMaterialViewSet, LiveNoteView, NoteApproveView, NoteMaterialLinkView, AbsentNoteListView, StudentSessionSummaryView, LectureQuizHistoryView
 from .note_views import AbsentSelfTestView
 from .placement_views import PlacementViewSet, GoalViewSet, GapMapViewSet, ProfessorDiagnosticView
 from .review_views import (
@@ -54,6 +54,8 @@ urlpatterns = [
     path('enroll/', EnrollLectureView.as_view(), name='enroll-lecture'),
     path('lectures/public/', PublicLectureListView.as_view(), name='public-lectures'),
     path('lectures/my/', MyLectureListView.as_view(), name='my-lectures'),
+    # 강의 기반 퀴즈 누적 이력 (세션 상세 화면용)
+    path('lectures/<int:lecture_id>/quiz-history/', LectureQuizHistoryView.as_view(), name='lecture-quiz-history'),
     # 라이브 세션 입장 (학생용)
     path('live/join/', JoinLiveSessionView.as_view(), name='live-join'),
     path('live/<int:pk>/note/', LiveNoteView.as_view(), name='live-note'),

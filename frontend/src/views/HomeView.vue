@@ -28,8 +28,8 @@ async function startDemoLearning() {
     // 2. authStore에 토큰 저장 (기존 인증 체계 그대로 활용)
     authStore.login(access, user);
 
-    // 3. 학습 페이지로 이동 (오프라인 모드 자동 선택)
-    router.push('/learning?mode=offline');
+    // 3. 학습 페이지로 이동 (클래스 참여 자동 진입)
+    router.push('/learning?mode=join');
   } catch (e) {
     console.error('데모 로그인 실패:', e);
     alert('데모 로그인에 실패했습니다. 서버 상태를 확인해주세요.');
@@ -64,8 +64,8 @@ async function startDemoLearning() {
               :disabled="isDemoLoading"
               @click="startDemoLearning"
             >
-              <span class="btn-cta-icon">🎤</span>
-              {{ isDemoLoading ? '준비 중...' : '현장 강의 테스트하기' }}
+              <span class="btn-cta-icon">📚</span>
+              {{ isDemoLoading ? '준비 중...' : '현장 강의 테스트' }}
             </button>
             <button class="btn-cta-secondary" @click="startLearning">
               로그인하여 학습 시작

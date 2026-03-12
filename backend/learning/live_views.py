@@ -1184,6 +1184,73 @@ class LiveSessionViewSet(viewsets.ViewSet):
         })
 
 # ══════════════════════════════════════════════════════════
+# 학습자: 강의 기반 퀴즈 누적 이력 (세션 상세 화면용)
+# ══════════════════════════════════════════════════════════
+
+class LectureQuizHistoryView(APIView):
+    """
+    GET /api/learning/lectures/<lecture_id>/quiz-history/
+    학생용: 해당 강의의 모든 라이브 세션에서 본인이 응답한 퀴즈 결과 누적 조회
+    (대시보드 > 수업목록 > 세션 상세 화면에서 사용)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, lecture_id):
+        lecture = get_object_or_404(Lecture, id=lecture_id)
+
+        # 해당 강의의 모든 라이브 세션 (최신순)
+        live_sessions = LiveSession.objects.filter(
+            lecture=lecture
+        ).order_by('created_at')
+
+        all_results = []
+        total_quizzes = 0
+        total_answered = 0
+        total_correct = 0
+
+        for session in live_sessions:
+            quizzes = LiveQuiz.objects.filter(
+                live_session=session, is_suggestion=False
+            ).order_by('triggered_at')
+
+            for quiz in quizzes:
+                response = LiveQuizResponse.objects.filter(
+                    quiz=quiz, student=request.user
+                ).first()
+
+                all_results.append({
+                    'quiz_id': quiz.id,
+                    'session_id': session.id,
+                    'session_title': session.title or f'세션 #{session.id}',
+                    'question_text': quiz.question_text,
+                    'options': quiz.options or [],
+                    'correct_answer': quiz.correct_answer,
+                    'explanation': quiz.explanation or '',
+                    'is_ai_generated': quiz.is_ai_generated,
+                    'triggered_at': quiz.triggered_at,
+                    'my_answer': response.answer if response else None,
+                    'is_correct': response.is_correct if response else None,
+                    'responded_at': response.responded_at if response else None,
+                    'answered': response is not None,
+                })
+                total_quizzes += 1
+                if response is not None:
+                    total_answered += 1
+                    if response.is_correct:
+                        total_correct += 1
+
+        return Response({
+            'lecture_id': lecture.id,
+            'lecture_title': lecture.title,
+            'total_quizzes': total_quizzes,
+            'answered_count': total_answered,
+            'correct_count': total_correct,
+            'accuracy': round((total_correct / total_answered) * 100, 1) if total_answered > 0 else 0,
+            'results': all_results,
+        })
+
+
+# ══════════════════════════════════════════════════════════
 # 학습자: 세션 입장
 # ══════════════════════════════════════════════════════════
 
