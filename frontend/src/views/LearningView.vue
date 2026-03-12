@@ -584,9 +584,8 @@ const joinClass = async () => {
       await fetchSharedNotes(lectureId);
       mode.value = "lecture";
     } else {
-      // lecture_id가 없는 경우 fallback
-      currentClassTitle.value = res.data.title;
-      selectMode("offline");
+      // lecture_id가 없는 경우 → 대시보드로 이동 (수강목록 확인 유도)
+      router.push("/dashboard");
     }
   } catch (e) {
     console.error(e);
@@ -1715,6 +1714,9 @@ const openSessionReview = (id) => {
 
       <!-- ═══ LIVE SESSION VIEW ═══ -->
       <div v-if="mode === 'live' && liveSessionData" class="live-session-view">
+        <div class="live-session-grid">
+        <!-- 왼쪽: 메인 라이브 콘텐츠 -->
+        <div class="live-main-column">
         <div class="glass-panel live-info-panel">
           <div class="live-header">
             <h2>🟢 {{ liveSessionData.title }}</h2>
@@ -2136,6 +2138,14 @@ const openSessionReview = (id) => {
                 {{ m.title }} ({{ m.file_type }})
               </span>
             </div>
+            <!-- 학습 재설계 반영 안내 -->
+            <div
+              v-if="!quizResult.is_correct && quizResult.learning_redesign_triggered"
+              class="redesign-notice"
+            >
+              <p class="redesign-title">🔄 학습 경로에 반영되었습니다</p>
+              <p class="redesign-desc">이 개념이 간격반복 학습에 자동 등록되었습니다. 복습 일정을 확인하세요.</p>
+            </div>
             <button class="btn btn-primary" @click="dismissQuizResult">
               확인
             </button>
@@ -2261,6 +2271,15 @@ const openSessionReview = (id) => {
         >
           ← 돌아가기 (수업 종료됨)
         </button>
+        </div>
+        <!-- /live-main-column -->
+
+        <!-- 오른쪽: 체크리스트 사이드바 -->
+        <div v-if="liveSessionData.lecture_id" class="live-checklist-sidebar">
+          <ChecklistPanel :lectureId="liveSessionData.lecture_id" :compact="true" />
+        </div>
+        </div>
+        <!-- /live-session-grid -->
       </div>
 
       <!-- [NEW] Lecture List View -->
@@ -4453,6 +4472,29 @@ const openSessionReview = (id) => {
 .live-session-view {
   padding: 20px 0;
 }
+.live-session-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+  align-items: start;
+}
+.live-main-column {
+  min-width: 0;
+}
+.live-checklist-sidebar {
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 40px);
+}
+@media (max-width: 1024px) {
+  .live-session-grid {
+    grid-template-columns: 1fr;
+  }
+  .live-checklist-sidebar {
+    position: static;
+    max-height: none;
+  }
+}
 .live-info-panel {
   padding: 24px;
   margin-bottom: 20px;
@@ -4815,6 +4857,28 @@ const openSessionReview = (id) => {
   border-radius: 6px;
   font-size: 11px;
   border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* 학습 재설계 반영 안내 */
+.redesign-notice {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: 8px;
+  text-align: left;
+}
+.redesign-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4ade80;
+  margin: 0 0 4px;
+}
+.redesign-desc {
+  font-size: 12px;
+  color: #86efac;
+  margin: 0;
+  line-height: 1.4;
 }
 
 /* B2: 개인 요약 카드 */

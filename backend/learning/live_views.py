@@ -17,7 +17,7 @@ from .models import (
     LiveSession, LiveParticipant, LectureMaterial, LiveSTTLog,
     Lecture, LearningSession, PulseCheck, PulseLog, LiveQuiz, LiveQuizResponse,
     LiveQuestion, LiveSessionNote, WeakZoneAlert, NoteViewLog,
-    PlacementResult
+    PlacementResult, SpacedRepetitionItem, StudentSkill, Skill
 )
 
 import openai
@@ -778,6 +778,67 @@ class LiveSessionViewSet(viewsets.ViewSet):
             from .weak_zone_utils import check_quiz_weak_zone
             weak_zone_alert = check_quiz_weak_zone(session, request.user, response_obj)
 
+            # ── 학습 재설계 반영: SR 등록 + GapMap 업데이트 (비동기) ──
+            def _update_learning_redesign():
+                try:
+                    from datetime import timedelta as _td
+                    from django.utils import timezone as _tz
+                    now = _tz.now()
+
+                    concept = quiz.question_text[:60]  # 문제 자체를 개념명으로 사용
+                    # 1) 간격반복(SR) 자동 등록
+                    if not SpacedRepetitionItem.objects.filter(
+                        student=request.user,
+                        concept_name=concept[:200],
+                    ).exists():
+                        schedule = [
+                            {'review_num': 1, 'label': '10분 후', 'due_at': (now + _td(minutes=10)).isoformat(), 'completed': False},
+                            {'review_num': 2, 'label': '1일 후', 'due_at': (now + _td(days=1)).isoformat(), 'completed': False},
+                            {'review_num': 3, 'label': '1주일 후', 'due_at': (now + _td(weeks=1)).isoformat(), 'completed': False},
+                            {'review_num': 4, 'label': '1개월 후', 'due_at': (now + _td(days=30)).isoformat(), 'completed': False},
+                        ]
+                        SpacedRepetitionItem.objects.create(
+                            student=request.user,
+                            concept_name=concept[:200],
+                            source_session=session,
+                            review_question=quiz.question_text,
+                            review_answer=quiz.correct_answer,
+                            review_options=quiz.options or [],
+                            schedule=schedule,
+                        )
+                        print(f"📝 [LiveQuiz→SR] {request.user.username}: '{concept}' SR 등록")
+
+                    # 2) GapMap(StudentSkill) 업데이트 — 오답 개념 반영
+                    try:
+                        from .models import StudentSkill, Skill
+                        # 문제 텍스트에서 매칭되는 스킬 탐색
+                        skills = Skill.objects.all()
+                        matched_skill = None
+                        for s in skills:
+                            if s.name.lower() in quiz.question_text.lower():
+                                matched_skill = s
+                                break
+                        if matched_skill:
+                            student_skill, _ = StudentSkill.objects.update_or_create(
+                                student=request.user,
+                                skill=matched_skill,
+                                defaults={'status': 'WEAK'},
+                            )
+                            # progress 감소
+                            if student_skill.progress > 0:
+                                student_skill.progress = max(0, student_skill.progress - 10)
+                                student_skill.save(update_fields=['progress'])
+                            print(f"📊 [LiveQuiz→GapMap] {request.user.username}: {matched_skill.name} → WEAK")
+                    except Exception as gm_err:
+                        print(f"⚠️ [LiveQuiz→GapMap] 업데이트 실패: {gm_err}")
+
+                except Exception as sr_err:
+                    print(f"⚠️ [LiveQuiz→SR] 등록 실패: {sr_err}")
+
+            thread = threading.Thread(target=_update_learning_redesign)
+            thread.daemon = True
+            thread.start()
+
         resp = {
             'is_correct': is_correct,
             'correct_answer': quiz.correct_answer,
@@ -788,6 +849,7 @@ class LiveSessionViewSet(viewsets.ViewSet):
             resp['weak_zone_detected'] = True
         # A3: 오답 시 보충 설명 제공
         if not is_correct:
+            resp['learning_redesign_triggered'] = True  # 프론트에 학습 재설계 트리거됨을 알림
             # WeakZone에서 AI 보충 설명 가져오기
             recent_wz = WeakZoneAlert.objects.filter(
                 live_session=session, student=request.user,
@@ -820,15 +882,23 @@ class LiveSessionViewSet(viewsets.ViewSet):
         correct = responses.filter(is_correct=True).count()
         total_participants = session.participants.filter(is_active=True).count()
 
+        # 보기별 선택 분포 계산
+        option_distribution = {}
+        for opt in (quiz.options or []):
+            option_distribution[opt] = responses.filter(answer=opt).count()
+
         return Response({
             'quiz_id': quiz.id,
             'question_text': quiz.question_text,
+            'options': quiz.options or [],
             'correct_answer': quiz.correct_answer,
+            'is_ai_generated': quiz.is_ai_generated,
             'total_responses': total,
             'correct_count': correct,
             'accuracy': round((correct / total) * 100, 1) if total > 0 else 0,
             'total_participants': total_participants,
             'response_rate': round((total / total_participants) * 100, 1) if total_participants > 0 else 0,
+            'option_distribution': option_distribution,
             'responses': [
                 {
                     'username': r.student.username,
@@ -1109,6 +1179,7 @@ class JoinLiveSessionView(APIView):
                     'session_code': session.session_code,
                     'status': session.status,
                     'title': session.title or session.lecture.title,
+                    'lecture_id': session.lecture_id,
                     'learning_session_id': existing.learning_session_id if existing.learning_session_id else None,
                 })
 
@@ -1141,6 +1212,7 @@ class JoinLiveSessionView(APIView):
                 'session_code': session.session_code,
                 'status': session.status,
                 'title': session.title or session.lecture.title,
+                'lecture_id': session.lecture_id,
                 'learning_session_id': learning_session.id,
             }, status=status.HTTP_201_CREATED)
 
