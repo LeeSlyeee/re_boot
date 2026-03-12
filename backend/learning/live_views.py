@@ -1135,6 +1135,54 @@ class LiveSessionViewSet(viewsets.ViewSet):
         alert.save()
         return Response({'ok': True})
 
+    @action(detail=True, methods=['get'], url_path='my-quiz-history')
+    def my_quiz_history(self, request, pk=None):
+        """
+        GET /api/learning/live/{id}/my-quiz-history/
+        학생용: 해당 세션에서 본인이 응답한 모든 퀴즈 결과 누적 조회
+        """
+        session = get_object_or_404(LiveSession, id=pk)
+
+        # 해당 세션의 모든 퀴즈 (시간순)
+        quizzes = LiveQuiz.objects.filter(
+            live_session=session, is_suggestion=False
+        ).order_by('triggered_at')
+
+        results = []
+        for quiz in quizzes:
+            # 본인 응답 조회
+            response = LiveQuizResponse.objects.filter(
+                quiz=quiz, student=request.user
+            ).first()
+
+            results.append({
+                'quiz_id': quiz.id,
+                'question_text': quiz.question_text,
+                'options': quiz.options or [],
+                'correct_answer': quiz.correct_answer,
+                'explanation': quiz.explanation or '',
+                'is_ai_generated': quiz.is_ai_generated,
+                'triggered_at': quiz.triggered_at,
+                'my_answer': response.answer if response else None,
+                'is_correct': response.is_correct if response else None,
+                'responded_at': response.responded_at if response else None,
+                'answered': response is not None,
+            })
+
+        total = len(results)
+        answered = sum(1 for r in results if r['answered'])
+        correct = sum(1 for r in results if r['is_correct'])
+
+        return Response({
+            'session_id': session.id,
+            'session_title': session.title,
+            'total_quizzes': total,
+            'answered_count': answered,
+            'correct_count': correct,
+            'accuracy': round((correct / answered) * 100, 1) if answered > 0 else 0,
+            'results': results,
+        })
+
 # ══════════════════════════════════════════════════════════
 # 학습자: 세션 입장
 # ══════════════════════════════════════════════════════════

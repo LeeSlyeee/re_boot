@@ -104,6 +104,8 @@ const {
   fetchFormative,
   submitFormative,
   fetchMyContent,
+  myQuizHistory,
+  fetchMyQuizHistory,
 } = useLiveSession(sttLogs);
 
 // Wrap leaveLiveSession to also reset mode
@@ -2013,6 +2015,15 @@ const openSessionReview = (id) => {
             >
               🤖 AI 학습노트
             </button>
+            <button
+              :class="['ln-tab', { active: liveNoteTab === 'quiz-history' }]"
+              @click="liveNoteTab = 'quiz-history'; if (!myQuizHistory) fetchMyQuizHistory();"
+            >
+              📊 퀴즈 결과
+              <span v-if="myQuizHistory && myQuizHistory.total_quizzes > 0" class="ln-count">{{
+                myQuizHistory.total_quizzes
+              }}</span>
+            </button>
           </div>
 
           <!-- 자막 뷰 -->
@@ -2049,6 +2060,77 @@ const openSessionReview = (id) => {
               class="note-body"
               v-html="renderMarkdown(sessionSummary)"
             ></div>
+          </div>
+
+          <!-- 📊 퀴즈 결과 뷰 -->
+          <div v-show="liveNoteTab === 'quiz-history'" class="quiz-history-view">
+            <div v-if="!myQuizHistory || myQuizHistory.total_quizzes === 0" class="subtitle-empty">
+              <p>📊 아직 출제된 퀴즈가 없습니다.</p>
+            </div>
+            <div v-else class="quiz-history-content">
+              <!-- 요약 카드 -->
+              <div class="qh-summary-card">
+                <div class="qh-stat">
+                  <span class="qh-stat-value">{{ myQuizHistory.total_quizzes }}</span>
+                  <span class="qh-stat-label">총 퀴즈</span>
+                </div>
+                <div class="qh-stat">
+                  <span class="qh-stat-value">{{ myQuizHistory.answered_count }}</span>
+                  <span class="qh-stat-label">응답</span>
+                </div>
+                <div class="qh-stat">
+                  <span class="qh-stat-value correct-text">{{ myQuizHistory.correct_count }}</span>
+                  <span class="qh-stat-label">정답</span>
+                </div>
+                <div class="qh-stat">
+                  <span class="qh-stat-value" :class="myQuizHistory.accuracy >= 70 ? 'correct-text' : 'wrong-text'">
+                    {{ myQuizHistory.accuracy }}%
+                  </span>
+                  <span class="qh-stat-label">정답률</span>
+                </div>
+              </div>
+
+              <!-- 개별 퀴즈 결과 리스트 -->
+              <div
+                v-for="(q, idx) in myQuizHistory.results"
+                :key="q.quiz_id"
+                class="qh-item"
+                :class="{
+                  'qh-correct': q.is_correct === true,
+                  'qh-wrong': q.is_correct === false,
+                  'qh-unanswered': !q.answered,
+                }"
+              >
+                <div class="qh-item-header">
+                  <span class="qh-num">Q{{ idx + 1 }}</span>
+                  <span v-if="q.is_correct === true" class="qh-badge correct">✅ 정답</span>
+                  <span v-else-if="q.is_correct === false" class="qh-badge wrong">❌ 오답</span>
+                  <span v-else class="qh-badge unanswered">⏭ 미응답</span>
+                  <span v-if="q.is_ai_generated" class="qh-ai-tag">🤖 AI</span>
+                </div>
+                <p class="qh-question">{{ q.question_text }}</p>
+                <div v-if="q.options && q.options.length > 0" class="qh-options">
+                  <div
+                    v-for="opt in q.options"
+                    :key="opt"
+                    class="qh-option"
+                    :class="{
+                      'is-correct-answer': opt === q.correct_answer,
+                      'is-my-answer': q.answered && opt === q.my_answer,
+                      'is-my-wrong': q.answered && opt === q.my_answer && !q.is_correct,
+                    }"
+                  >
+                    <span v-if="opt === q.correct_answer" class="opt-icon">✅</span>
+                    <span v-else-if="q.answered && opt === q.my_answer && !q.is_correct" class="opt-icon">❌</span>
+                    <span v-else class="opt-icon">○</span>
+                    {{ opt }}
+                  </div>
+                </div>
+                <div v-if="q.explanation && q.answered && !q.is_correct" class="qh-explanation">
+                  💡 {{ q.explanation }}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -5519,5 +5601,141 @@ const openSessionReview = (id) => {
   font-size: 13px;
   color: #cbd5e1;
   line-height: 1.7;
+}
+
+/* ── 📊 퀴즈 히스토리 뷰 ── */
+.quiz-history-view {
+  padding: 16px;
+  overflow-y: auto;
+  max-height: 600px;
+}
+.quiz-history-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 요약 카드 */
+.qh-summary-card {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+.qh-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.qh-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+.qh-stat-value.correct-text { color: #34d399; }
+.qh-stat-value.wrong-text { color: #f87171; }
+.qh-stat-label {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+/* 개별 퀴즈 아이템 */
+.qh-item {
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  transition: border-color 0.2s;
+}
+.qh-item.qh-correct { border-left: 3px solid #34d399; }
+.qh-item.qh-wrong { border-left: 3px solid #f87171; }
+.qh-item.qh-unanswered { border-left: 3px solid #64748b; }
+
+.qh-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.qh-num {
+  font-weight: 700;
+  font-size: 13px;
+  color: #94a3b8;
+  min-width: 28px;
+}
+.qh-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.qh-badge.correct { background: rgba(52, 211, 153, 0.15); color: #34d399; }
+.qh-badge.wrong { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+.qh-badge.unanswered { background: rgba(100, 116, 139, 0.15); color: #94a3b8; }
+.qh-ai-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: rgba(79, 172, 254, 0.15);
+  color: #4facfe;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.qh-question {
+  font-size: 13.5px;
+  color: #e2e8f0;
+  line-height: 1.6;
+  margin: 0 0 10px 0;
+}
+
+/* 보기 리스트 */
+.qh-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.qh-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+}
+.qh-option.is-correct-answer {
+  background: rgba(52, 211, 153, 0.08);
+  border-color: rgba(52, 211, 153, 0.2);
+  color: #34d399;
+}
+.qh-option.is-my-wrong {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.2);
+  color: #f87171;
+}
+.opt-icon {
+  font-size: 12px;
+  min-width: 16px;
+  text-align: center;
+}
+
+/* 해설 */
+.qh-explanation {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(79, 172, 254, 0.06);
+  border: 1px solid rgba(79, 172, 254, 0.1);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: #93c5fd;
+  line-height: 1.6;
 }
 </style>

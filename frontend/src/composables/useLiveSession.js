@@ -27,6 +27,9 @@ export function useLiveSession(sttLogs) {
     const quizTimerInterval = ref(null);
     const quizTimeLimit = ref(60);
 
+    // --- Quiz History State ---
+    const myQuizHistory = ref(null);
+
     // --- Weak Zone Alert State ---
     const weakZoneAlerts = ref([]);
     const showWeakZonePopup = ref(false);
@@ -244,6 +247,15 @@ export function useLiveSession(sttLogs) {
         } catch (e) { /* silent */ }
     };
 
+    // --- Quiz History ---
+    const fetchMyQuizHistory = async () => {
+        if (!liveSessionData.value) return;
+        try {
+            const { data } = await api.get(`/learning/live/${liveSessionData.value.session_id}/my-quiz-history/`);
+            myQuizHistory.value = data;
+        } catch (e) { /* silent */ }
+    };
+
     // --- Polling ---
     const fetchLiveNote = async () => {
         if (!liveSessionData.value) return;
@@ -255,6 +267,7 @@ export function useLiveSession(sttLogs) {
                 if (data.status === 'DONE') {
                     fetchMyReviewRoutes();
                     fetchFormative();
+                    fetchMyQuizHistory();
                 }
             }
         } catch { }
@@ -275,6 +288,7 @@ export function useLiveSession(sttLogs) {
                 if (data.status === 'ENDED') {
                     stopLiveStatusPolling();
                     startNotePolling();
+                    fetchMyQuizHistory();
                 }
                 // 펄스 통계
                 try {
@@ -344,6 +358,7 @@ export function useLiveSession(sttLogs) {
         myReviewRoutes, srDueItems,
         formativeData, formativeAnswers, formativeResult, formativeSubmitting,
         myAdaptiveContent, myStudentLevel,
+        myQuizHistory,
 
         // Computed
         timerPercent,
@@ -358,5 +373,6 @@ export function useLiveSession(sttLogs) {
         fetchMyReviewRoutes, completeReviewItem, fetchSRDue, completeSR,
         fetchFormative, submitFormative,
         fetchMyContent,
+        fetchMyQuizHistory,
     };
 }
