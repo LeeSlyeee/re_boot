@@ -108,7 +108,7 @@ const joinClass = async () => {
   if (!joinCode.value || joinCode.value.length < 6) return;
   try {
     const res = await api.post("/learning/enroll/", {
-      access_code: joinCode.value,
+      access_code: joinCode.value.toUpperCase(),
     });
     showToast(`'${res.data.title}' 클래스 입장 완료!`, "success");
     closeJoinModal();
@@ -633,6 +633,16 @@ const generateCertificate = async (lecId, e) => {
             </div>
             <div v-else class="class-no-schedule">
               <span>📅 강의 일정 미설정</span>
+            </div>
+            <!-- 클래스별 출석률 -->
+            <div class="class-attendance-bar">
+              <div class="att-label-row">
+                <span class="att-label">📋 출석률</span>
+                <span class="att-value">{{ lec.attended_days ?? 0 }}/{{ lec.total_class_days ?? 0 }}일 ({{ lec.attendance_rate ?? 0 }}%)</span>
+              </div>
+              <div class="att-track">
+                <div class="att-fill" :style="{ width: (lec.attendance_rate ?? 0) + '%' }"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -2161,7 +2171,43 @@ h3 {
   }
 }
 
-/* 결석 노트 */
+/* 클래스별 출석률 바 */
+.class-attendance-bar {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(139, 92, 246, 0.06);
+  border-radius: 8px;
+  border: 1px solid rgba(139, 92, 246, 0.12);
+}
+.att-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.att-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a78bfa;
+}
+.att-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: #c4b5fd;
+  font-variant-numeric: tabular-nums;
+}
+.att-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+.att-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+  transition: width 0.6s ease;
+}
 .absent-notes-section h2 {
   font-size: 18px;
   margin-bottom: 4px;

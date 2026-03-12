@@ -567,16 +567,27 @@ const joinClass = async () => {
 
   try {
     const res = await api.post("/learning/enroll/", {
-      access_code: joinCode.value,
+      access_code: joinCode.value.toUpperCase(),
     });
 
     // 1. 성공 알림 및 모달 닫기
     showToast(`'${res.data.title}' 클래스 입장 완료!`, "success");
     closeJoinModal();
 
-    // 2. 클래스 정보 설정 및 오프라인 모드 진입
-    currentClassTitle.value = res.data.title;
-    selectMode("offline");
+    // 2. 해당 강의의 수업 목록을 로드하고 lecture 모드로 진입
+    const lectureId = res.data.lecture_id;
+    if (lectureId) {
+      currentClassTitle.value = res.data.title;
+      currentLectureId.value = lectureId;
+      await fetchLectureSessions(lectureId);
+      await fetchMissedSessions(lectureId);
+      await fetchSharedNotes(lectureId);
+      mode.value = "lecture";
+    } else {
+      // lecture_id가 없는 경우 fallback
+      currentClassTitle.value = res.data.title;
+      selectMode("offline");
+    }
   } catch (e) {
     console.error(e);
     const msg =
@@ -601,12 +612,17 @@ onMounted(async () => {
       if (joined) mode.value = "live";
     }
 
-    // [DEMO] ?mode=offline → 모드 선택 건너뛰고 바로 현장 강의 모드 진입
+    // [DEMO] ?mode=join → 클래스 참여 모달 자동 열기
     const queryMode = route.query.mode;
-    if (queryMode === "offline") {
-      console.log("🎤 데모 모드: 현장 강의 자동 진입");
-      mode.value = "offline";
+    if (queryMode === "join") {
+      console.log("📚 데모 모드: 클래스 참여 자동 진입");
+      // 모드 선택 화면을 먼저 보여주고, 클래스 참여 모달을 자동으로 열기
+      mode.value = null;
       isLoadingSession.value = false;
+      // DOM 렌더링 후 모달 열기
+      nextTick(() => {
+        openJoinModal();
+      });
       return; // 나머지 세션 복원 로직 스킵
     }
 
@@ -1605,8 +1621,8 @@ const openSessionReview = (id) => {
               </div>
               <div class="mode-item" @click="selectMode('offline')">
                 <Mic size="36" class="icon" />
-                <h3>현장 강의(1회용)</h3>
-                <p class="desc">단발성 특강 녹음</p>
+                <h3>클래스 모드</h3>
+                <p class="desc">강의 녹음 학습</p>
               </div>
               <div class="mode-item" @click="selectMode('youtube')">
                 <Youtube size="36" class="icon" />

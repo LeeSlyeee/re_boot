@@ -25,11 +25,10 @@ class SyllabusSerializer(serializers.ModelSerializer):
 class LectureSerializer(serializers.ModelSerializer):
     student_count = serializers.SerializerMethodField()
     syllabi = SyllabusSerializer(many=True, read_only=True)
-    category_display = serializers.CharField(source='get_category_display', read_only=True)
 
     class Meta:
         model = Lecture
-        fields = ['id', 'title', 'category', 'category_display', 'instructor', 'access_code', 'student_count', 'created_at', 'syllabi', 'start_date', 'end_date']
+        fields = ['id', 'title', 'instructor', 'access_code', 'student_count', 'created_at', 'syllabi', 'start_date', 'end_date']
         read_only_fields = ['instructor', 'access_code', 'created_at']
 
     def get_student_count(self, obj):
@@ -38,16 +37,65 @@ class LectureSerializer(serializers.ModelSerializer):
 class PublicLectureSerializer(serializers.ModelSerializer):
     instructor_name = serializers.CharField(source='instructor.username', read_only=True)
     is_enrolled = serializers.SerializerMethodField()
+    attendance_rate = serializers.SerializerMethodField()
+    attended_days = serializers.SerializerMethodField()
+    total_class_days = serializers.SerializerMethodField()
     
     class Meta:
         model = Lecture
-        fields = ['id', 'title', 'instructor_name', 'created_at', 'is_enrolled', 'start_date', 'end_date']
+        fields = ['id', 'title', 'instructor_name', 'created_at', 'is_enrolled',
+                  'start_date', 'end_date', 'attendance_rate', 'attended_days', 'total_class_days']
 
     def get_is_enrolled(self, obj):
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.students.filter(id=request.user.id).exists()
         return False
+
+    def _calc_attendance(self, obj):
+        """해당 강의의 클래스별 출석 데이터를 계산 (캐시)"""
+        cache_attr = f'_attendance_cache_{obj.id}'
+        if hasattr(self, cache_attr):
+            return getattr(self, cache_attr)
+
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            result = (0, 0, 0)
+            setattr(self, cache_attr, result)
+            return result
+
+        user = request.user
+        # 이 강의에서 수업이 진행된 모든 날짜 (전체 학생 기준)
+        all_dates = set(
+            LearningSession.objects
+            .filter(lecture=obj)
+            .values_list('session_date', flat=True)
+            .distinct()
+        )
+        total = len(all_dates)
+
+        # 이 학생이 이 강의에서 출석한 날짜
+        my_dates = set(
+            LearningSession.objects
+            .filter(lecture=obj, student=user)
+            .values_list('session_date', flat=True)
+            .distinct()
+        )
+        attended = len(my_dates & all_dates)
+        rate = round((attended / total * 100), 1) if total > 0 else 0
+
+        result = (rate, attended, total)
+        setattr(self, cache_attr, result)
+        return result
+
+    def get_attendance_rate(self, obj):
+        return self._calc_attendance(obj)[0]
+
+    def get_attended_days(self, obj):
+        return self._calc_attendance(obj)[1]
+
+    def get_total_class_days(self, obj):
+        return self._calc_attendance(obj)[2]
 
 class LearningSessionSerializer(serializers.ModelSerializer):
     latest_summary = serializers.SerializerMethodField()

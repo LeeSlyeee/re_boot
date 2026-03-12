@@ -35,7 +35,7 @@ class EnrollLectureView(APIView):
             return Response({'error': '입장 코드를 입력해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            lecture = Lecture.objects.get(access_code=access_code)
+            lecture = Lecture.objects.get(access_code__iexact=access_code)
         except Lecture.DoesNotExist:
             return Response({'error': '코드가 올바르지 않거나 존재하지 않는 강의입니다.'}, status=status.HTTP_404_NOT_FOUND)
 
