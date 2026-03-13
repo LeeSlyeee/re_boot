@@ -11,22 +11,22 @@
             startOnLoad: true,
             theme: 'base',
             themeVariables: {
-                primaryColor: '#1e293b',
-                primaryTextColor: '#f1f5f9',
-                primaryBorderColor: '#334155',
+                primaryColor: '#ffffff',
+                primaryTextColor: '#1e293b',
+                primaryBorderColor: '#cbd5e1',
                 lineColor: '#6366f1',
-                secondaryColor: '#0f172a',
-                tertiaryColor: '#1e293b',
+                secondaryColor: '#f8fafc',
+                tertiaryColor: '#f1f5f9',
                 fontSize: '14px',
                 fontFamily: 'Pretendard, sans-serif',
-                edgeLabelBackground: '#0f172a',
+                edgeLabelBackground: '#ffffff',
 
                 /* Entity styling */
-                entityBorder: '#6366f1',
-                entityBkg: '#1e293b',
-                entityTextColor: '#e2e8f0',
-                attributeBackgroundColorOdd: '#1e293b',
-                attributeBackgroundColorEven: '#0f172a',
+                entityBorder: '#818cf8',
+                entityBkg: '#ffffff',
+                entityTextColor: '#1e293b',
+                attributeBackgroundColorOdd: '#f8fafc',
+                attributeBackgroundColorEven: '#f1f5f9',
             },
             er: {
                 useMaxWidth: false,
@@ -41,8 +41,8 @@
 
         body {
             font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: #0a0e1a;
-            color: #e2e8f0;
+            background: #f0f2f7;
+            color: #1e293b;
             min-height: 100vh;
             overflow-x: hidden;
         }
@@ -60,14 +60,14 @@
             top: 0; left: 50%;
             transform: translateX(-50%);
             width: 600px; height: 300px;
-            background: radial-gradient(circle, rgba(99,102,241,.15) 0%, transparent 70%);
+            background: radial-gradient(circle, rgba(99,102,241,.08) 0%, transparent 70%);
             pointer-events: none;
         }
 
         .header h1 {
             font-size: 42px;
             font-weight: 800;
-            background: linear-gradient(135deg, #818cf8, #6366f1, #a78bfa);
+            background: linear-gradient(135deg, #4f46e5, #6366f1, #7c3aed);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 8px;
@@ -75,7 +75,7 @@
 
         .header .subtitle {
             font-size: 16px;
-            color: #94a3b8;
+            color: #64748b;
             letter-spacing: 2px;
             text-transform: uppercase;
         }
@@ -94,7 +94,7 @@
             align-items: center;
             gap: 8px;
             font-size: 13px;
-            color: #94a3b8;
+            color: #475569;
         }
 
         .legend-dot {
@@ -117,14 +117,14 @@
         }
 
         .diagram-card {
-            background: linear-gradient(145deg, rgba(15,23,42,.95), rgba(30,41,59,.9));
-            border: 1px solid rgba(99,102,241,.2);
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
             border-radius: 20px;
             padding: 40px 32px;
             backdrop-filter: blur(12px);
             box-shadow:
-                0 4px 40px rgba(99,102,241,.08),
-                inset 0 1px 0 rgba(255,255,255,.03);
+                0 4px 40px rgba(0,0,0,.06),
+                0 1px 3px rgba(0,0,0,.04);
             min-width: 1200px;
         }
 
@@ -133,7 +133,7 @@
             justify-content: center;
         }
 
-        /* Mermaid override for dark theme */
+        /* Mermaid override for light theme */
         .mermaid svg {
             max-width: none !important;
         }
@@ -148,8 +148,8 @@
         }
 
         .stat-card {
-            background: rgba(30,41,59,.7);
-            border: 1px solid rgba(99,102,241,.15);
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
             border-radius: 16px;
             padding: 20px 28px;
             text-align: center;
@@ -159,20 +159,21 @@
 
         .stat-card:hover {
             transform: translateY(-2px);
-            border-color: rgba(99,102,241,.4);
+            border-color: #818cf8;
+            box-shadow: 0 4px 12px rgba(99,102,241,.12);
         }
 
         .stat-value {
             font-size: 32px;
             font-weight: 800;
-            background: linear-gradient(135deg, #818cf8, #a78bfa);
+            background: linear-gradient(135deg, #4f46e5, #6366f1);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
         .stat-label {
             font-size: 12px;
-            color: #64748b;
+            color: #94a3b8;
             margin-top: 4px;
             letter-spacing: 1px;
             text-transform: uppercase;
@@ -183,7 +184,7 @@
             text-align: center;
             padding: 0 24px 32px;
             font-size: 12px;
-            color: #475569;
+            color: #94a3b8;
         }
     </style>
 </head>
