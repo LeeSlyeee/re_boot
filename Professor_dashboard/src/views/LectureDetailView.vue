@@ -1,10 +1,10 @@
 <script setup>
-import { ref, onMounted, computed, nextTick } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../api/axios';
 import { useToast } from '../composables/useToast';
 const { showToast } = useToast();
-import QrcodeVue from 'qrcode.vue';
+
 import { Bar, Doughnut } from 'vue-chartjs';
 import { Chart as ChartJS, Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement } from 'chart.js';
 
@@ -101,13 +101,6 @@ const fetchChecklist = async () => {
     try {
         const res = await api.get(`/learning/checklist/?lecture_id=${lectureId}`);
         syllabi.value = res.data;
-        // 데이터 로드 후 모든 textarea 높이 자동 조절
-        nextTick(() => {
-            document.querySelectorAll('.obj-textarea').forEach(el => {
-                el.style.height = 'auto';
-                el.style.height = el.scrollHeight + 'px';
-            });
-        });
     } catch (e) {
         console.error("Failed to fetch checklist", e);
     }
@@ -170,18 +163,6 @@ const updateObjective = async (obj, newContent) => {
     } catch(e) {
         showToast('목표 수정 실패', 'error');
     }
-};
-
-// textarea 자동 높이 조절
-const autoResizeTextarea = (event) => {
-    const el = event.target;
-    el.style.height = 'auto';
-    el.style.height = el.scrollHeight + 'px';
-};
-const initTextareaHeight = (event) => {
-    const el = event.target;
-    el.style.height = 'auto';
-    el.style.height = el.scrollHeight + 'px';
 };
 
 // [3-2] 파일 업로드
@@ -1030,7 +1011,10 @@ const approveQuizSuggestion = async () => {
             time_limit: 60
         });
         quizSuggestion.value = null;
-        showToast('퀴즈가 학생들에게 전달되었습니다!', 'success');
+        
+        // 퀴즈 시작(승인) 시 마이크 및 STT/DSCNN 자동 중지
+        stopSTT();
+        stopDSCNNOnly();
     } catch (e) { showToast('퀴즈 발동 실패: ' + (e.response?.data?.error || '', 'error')); }
 };
 
@@ -1041,6 +1025,10 @@ const dismissQuizSuggestion = async () => {
         } catch {}
     }
     quizSuggestion.value = null;
+    
+    // 퀴즈 무시(닫기) 시 마이크 및 STT/DSCNN 자동 중지
+    stopSTT();
+    stopDSCNNOnly();
 };
 
 // ── Quiz Control State ──
@@ -1049,15 +1037,6 @@ const quizGenerating = ref(false);
 const showManualQuizForm = ref(false);
 const manualQuiz = ref({ question: '', options: ['', '', '', ''], correctIndex: '', explanation: '' });
 const lastActiveQuizId = ref(null);
-const showStudentResponses = ref(false);
-
-// 보기별 선택 비율 계산 (computed-like helper)
-const getOptionPercent = (opt) => {
-    const r = activeQuizResult.value;
-    if (!r || !r.total_responses) return 0;
-    return Math.round(((r.option_distribution?.[opt] || 0) / r.total_responses) * 100);
-};
-const getOptionCount = (opt) => activeQuizResult.value?.option_distribution?.[opt] || 0;
 
 const generateAIQuiz = async () => {
     if (!liveSession.value) return;
@@ -1099,7 +1078,6 @@ const levelDonutData = computed(() => {
 
 const donutOptions = {
     responsive: true,
-    maintainAspectRatio: false,
     plugins: {
         legend: { position: 'bottom', labels: { font: { size: 12 }, padding: 16 } },
     },
@@ -1168,11 +1146,7 @@ const copyLiveCode = async () => {
     try { await navigator.clipboard.writeText(liveSession.value.session_code); showToast('코드 복사 완료!', 'success'); } catch {}
 };
 
-// QR코드에 인코딩될 URL (학습자 프론트 + 세션코드)
-const qrJoinUrl = computed(() => {
-    const code = liveSession.value?.session_code || '';
-    return `${window.location.origin}/learning?live=${code}`;
-});
+
 
 // 펄스 50% 미만 경고
 const pulseWarning = computed(() => {
@@ -1314,8 +1288,9 @@ const uploadFile = async (file) => {
 const viewSummary = async (sessionId) => {
     try {
         const res = await api.get(`/learning/sessions/${sessionId}/`);
-        if (res.data.latest_summary) {
-            selectedSummary.value = res.data.latest_summary;
+        const summaries = res.data.summaries || [];
+        if (summaries.length > 0) {
+            selectedSummary.value = summaries[0].content_text;
         } else {
             selectedSummary.value = '(요약본이 아직 생성되지 않았습니다)';
         }
@@ -1512,14 +1487,11 @@ onMounted(fetchDashboard);
                         </div>
                         <div class="objective-list">
                             <div v-for="obj in week.objectives" :key="obj.id" class="obj-item">
-                                <span class="obj-bullet">-</span>
-                                <textarea :value="obj.content" 
+                                <span>-</span>
+                                <input :value="obj.content" 
                                     @blur="e => updateObjective(obj, e.target.value)" 
-                                    @keyup.enter.exact="e => e.target.blur()"
-                                    @input="autoResizeTextarea"
-                                    @focus="initTextareaHeight"
-                                    rows="1"
-                                    class="obj-textarea" />
+                                    @keyup.enter="e => e.target.blur()"
+                                    style="background:transparent; border:none; border-bottom:1px dashed rgba(0,0,0,0.15); flex:1; font-size:14px; color:#333; padding:2px 4px; outline:none;" />
                                 <span class="delete-x" @click="deleteObjective(obj.id)">×</span>
                             </div>
                         </div>
@@ -1922,17 +1894,11 @@ onMounted(fetchDashboard);
                     </span>
                 </div>
 
-                <!-- 대형 코드 + QR 디스플레이 -->
-                <div class="code-qr-row">
-                    <div class="code-display" @click="copyLiveCode">
-                        <span class="code-label">입장 코드</span>
-                        <span class="code-value">{{ liveSession.session_code }}</span>
-                        <span class="code-hint">클릭하여 복사</span>
-                    </div>
-                    <div class="qr-display">
-                        <QrcodeVue :value="qrJoinUrl" :size="160" level="M" />
-                        <span class="qr-hint">QR 스캔으로 입장</span>
-                    </div>
+                <!-- 대형 코드 디스플레이 -->
+                <div class="code-display" @click="copyLiveCode">
+                    <span class="code-label">입장 코드</span>
+                    <span class="code-value">{{ liveSession.session_code }}</span>
+                    <span class="code-hint">클릭하여 복사</span>
                 </div>
 
                 <!-- 🔌 수업 시작 전 라즈베리파이 설정 -->
@@ -2046,51 +2012,13 @@ onMounted(fetchDashboard);
                     <div v-if="activeQuizResult" class="quiz-result-card">
                         <div class="quiz-result-header">
                             <span class="quiz-tag">{{ activeQuizResult.is_ai_generated ? '🤖 AI' : '✏️ 수동' }}</span>
-                            <span class="quiz-accuracy" :class="{ 'accuracy-high': activeQuizResult.accuracy >= 70, 'accuracy-low': activeQuizResult.accuracy < 40 }">정답률 {{ activeQuizResult.accuracy }}%</span>
+                            <span class="quiz-accuracy">정답률 {{ activeQuizResult.accuracy }}%</span>
                         </div>
                         <p class="quiz-q">{{ activeQuizResult.question_text }}</p>
-
-                        <!-- 응답 진행 바 -->
-                        <div class="quiz-response-progress">
-                            <div class="quiz-result-bar">
-                                <div class="result-fill" :style="{ width: activeQuizResult.response_rate + '%' }"></div>
-                            </div>
-                            <p class="quiz-meta">📋 {{ activeQuizResult.total_responses }}/{{ activeQuizResult.total_participants }}명 응답 ({{ activeQuizResult.response_rate }}%)</p>
+                        <div class="quiz-result-bar">
+                            <div class="result-fill" :style="{ width: activeQuizResult.response_rate + '%' }"></div>
                         </div>
-
-                        <!-- 보기별 선택 분포 -->
-                        <div v-if="activeQuizResult.options?.length" class="quiz-option-dist">
-                            <div class="dist-title">📊 보기별 분포</div>
-                            <div v-for="(opt, idx) in activeQuizResult.options" :key="idx" class="dist-row">
-                                <div class="dist-label" :class="{ 'dist-correct': opt === activeQuizResult.correct_answer }">
-                                    <span class="dist-marker">{{ String.fromCharCode(65 + idx) }}</span>
-                                    <span class="dist-text">{{ opt }}</span>
-                                    <span v-if="opt === activeQuizResult.correct_answer" class="dist-badge">✓ 정답</span>
-                                </div>
-                                <div class="dist-bar-wrap">
-                                    <div class="dist-bar-fill" :class="{ 'fill-correct': opt === activeQuizResult.correct_answer, 'fill-wrong': opt !== activeQuizResult.correct_answer && getOptionCount(opt) > 0 }" :style="{ width: getOptionPercent(opt) + '%' }"></div>
-                                    <span class="dist-count">{{ getOptionCount(opt) }}명 ({{ getOptionPercent(opt) }}%)</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 학생별 정오답 토글 -->
-                        <button class="btn-toggle-responses" @click="showStudentResponses = !showStudentResponses">
-                            {{ showStudentResponses ? '▲ 학생 목록 접기' : '▼ 학생별 정오답 보기' }}
-                            <span class="resp-badge-correct">✓{{ activeQuizResult.correct_count }}</span>
-                            <span class="resp-badge-wrong">✗{{ activeQuizResult.total_responses - activeQuizResult.correct_count }}</span>
-                        </button>
-
-                        <div v-if="showStudentResponses && activeQuizResult.responses?.length" class="student-responses-list">
-                            <div v-for="(resp, ri) in activeQuizResult.responses" :key="ri" class="resp-row" :class="{ 'resp-correct': resp.is_correct, 'resp-wrong': !resp.is_correct }">
-                                <span class="resp-icon">{{ resp.is_correct ? '✅' : '❌' }}</span>
-                                <span class="resp-name">{{ resp.username }}</span>
-                                <span class="resp-answer">{{ resp.answer }}</span>
-                                <span class="resp-time">{{ resp.responded_at ? new Date(resp.responded_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '' }}</span>
-                            </div>
-                        </div>
-                        <p v-else-if="showStudentResponses && !activeQuizResult.responses?.length" class="quiz-meta" style="text-align:center; margin:8px 0;">아직 응답이 없습니다.</p>
-
+                        <p class="quiz-meta">{{ activeQuizResult.total_responses }}/{{ activeQuizResult.total_participants }}명 응답</p>
                         <button class="btn-projector" @click="projectQuizResult" title="전체화면으로 공유">📺 프로젝터 공유</button>
                     </div>
 
@@ -2777,20 +2705,8 @@ tr:hover td { background: #fafbfc; }
 .week-header h3 { margin: 0; font-size: 16px; color: #333; }
 .btn-micro { padding: 4px 8px; font-size: 12px; cursor: pointer; border: 1px solid #ccc; background: white; border-radius: 4px; }
 .objective-list { padding-left: 20px; }
-.obj-item { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 8px; font-size: 14px; position: relative; }
-.obj-bullet { margin-top: 6px; color: #666; flex-shrink: 0; }
-.obj-textarea {
-    background: transparent; border: none; border-bottom: 1px dashed rgba(0,0,0,0.15);
-    flex: 1; min-width: 0; font-size: 14px; color: #333; padding: 4px 6px; outline: none;
-    font-family: inherit; line-height: 1.5; resize: none; overflow: hidden;
-    width: 100%; min-height: 28px;
-    transition: border-color 0.2s;
-}
-.obj-textarea:focus {
-    border-bottom-color: #4facfe;
-    background: rgba(79, 172, 254, 0.03);
-}
-.delete-x { color: #aaa; cursor: pointer; margin-left: 10px; font-weight: bold; display: none; margin-top: 4px; flex-shrink: 0; }
+.obj-item { margin-bottom: 5px; font-size: 14px; position: relative; }
+.delete-x { color: #aaa; cursor: pointer; margin-left: 10px; font-weight: bold; display: none; }
 .obj-item:hover .delete-x { display: inline; color: red; }
 .add-week-form { margin-top: 24px; background: #f0f8ff; padding: 20px; border-radius: 10px; display: flex; gap: 10px; align-items: center; }
 .add-week-form input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
@@ -2897,7 +2813,7 @@ tr:hover td { background: #fafbfc; }
 .btn-live-create:hover { background: #16a34a; }
 .btn-live-create:disabled { opacity: 0.6; cursor: not-allowed; }
 
-.live-active-section { display: block; }
+.live-active-section { }
 .live-status-bar {
     display: flex; align-items: center; gap: 16px;
     padding: 12px 16px; background: #f9f9f9; border-radius: 8px; margin-bottom: 20px;
@@ -2922,14 +2838,7 @@ tr:hover td { background: #fafbfc; }
 .code-value { font-size: 56px; font-weight: 800; color: #166534; letter-spacing: 12px; font-family: monospace; }
 .code-hint { font-size: 11px; color: #aaa; margin-top: 8px; }
 
-.code-qr-row { display: flex; gap: 24px; align-items: center; margin-bottom: 20px; }
-.code-qr-row .code-display { flex: 1; margin-bottom: 0; }
-.qr-display {
-    display: flex; flex-direction: column; align-items: center; gap: 8px;
-    padding: 16px; background: white; border-radius: 12px;
-    border: 1px solid #e5e7eb;
-}
-.qr-hint { font-size: 11px; color: #636b72; }
+
 
 .live-controls { display: flex; gap: 12px; margin-bottom: 24px; }
 .btn-live-start {
@@ -3192,7 +3101,7 @@ tr:hover td { background: #fafbfc; }
 }
 .ac-card-approve-btn:hover { background: #059669; transform: translateY(-1px); }
 .ac-card-arrow { font-size: 20px; color: #ccc; font-weight: 300; flex-shrink: 0; }
-.ac-card-draft { display: block; }
+.ac-card-draft { }
 .ac-card-approved { background: #f0fdf4; }
 .ac-card-rejected { opacity: 0.5; }
 
@@ -3230,62 +3139,16 @@ tr:hover td { background: #fafbfc; }
 .quiz-control-section h3 { font-size: 14px; margin: 0 0 12px; }
 
 .quiz-result-card {
-    padding: 14px; background: white; border-radius: 10px; border: 1px solid #e5e7eb;
-    margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    padding: 12px; background: white; border-radius: 8px; border: 1px solid #e5e7eb;
+    margin-bottom: 12px;
 }
 .quiz-result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .quiz-tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #dbeafe; color: #1e40af; }
-.quiz-accuracy { font-size: 15px; font-weight: 700; color: #166534; transition: color 0.3s; }
-.accuracy-high { color: #166534; }
-.accuracy-low { color: #dc2626; }
-.quiz-q { font-size: 13px; margin: 0 0 10px; color: #333; line-height: 1.5; }
-.quiz-response-progress { margin-bottom: 12px; }
+.quiz-accuracy { font-size: 14px; font-weight: 700; color: #166534; }
+.quiz-q { font-size: 13px; margin: 0 0 8px; color: #333; }
 .quiz-result-bar { height: 8px; border-radius: 4px; background: #e5e7eb; }
 .result-fill { height: 100%; border-radius: 4px; background: #3b82f6; transition: width 0.5s; }
 .quiz-meta { font-size: 11px; color: #636b72; margin: 4px 0 0; }
-
-/* 보기별 분포 */
-.quiz-option-dist { margin: 10px 0; padding: 10px; background: #f9fafb; border-radius: 8px; }
-.dist-title { font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 8px; }
-.dist-row { margin-bottom: 6px; }
-.dist-label { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
-.dist-marker { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: #e5e7eb; font-size: 11px; font-weight: 700; color: #374151; flex-shrink: 0; }
-.dist-correct .dist-marker { background: #dcfce7; color: #166534; }
-.dist-text { font-size: 12px; color: #374151; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dist-badge { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: #dcfce7; color: #166534; font-weight: 600; flex-shrink: 0; }
-.dist-bar-wrap { display: flex; align-items: center; gap: 8px; height: 16px; }
-.dist-bar-fill { height: 10px; border-radius: 5px; background: #d1d5db; transition: width 0.6s ease; min-width: 2px; }
-.fill-correct { background: #22c55e; }
-.fill-wrong { background: #f87171; }
-.dist-count { font-size: 11px; color: #6b7280; white-space: nowrap; }
-
-/* 학생별 정오답 토글 */
-.btn-toggle-responses {
-    width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
-    padding: 8px; border: 1px dashed #d1d5db; border-radius: 6px; background: transparent;
-    font-size: 12px; color: #374151; cursor: pointer; margin: 8px 0; transition: all 0.2s;
-}
-.btn-toggle-responses:hover { background: #f3f4f6; border-color: #9ca3af; }
-.resp-badge-correct { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: #dcfce7; color: #166534; font-weight: 600; }
-.resp-badge-wrong { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: #fee2e2; color: #991b1b; font-weight: 600; }
-
-/* 학생 응답 목록 */
-.student-responses-list {
-    max-height: 200px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 6px;
-    margin-bottom: 8px;
-}
-.resp-row {
-    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-    font-size: 12px; border-bottom: 1px solid #f3f4f6; transition: background 0.15s;
-}
-.resp-row:last-child { border-bottom: none; }
-.resp-row:hover { background: #f9fafb; }
-.resp-correct { background: #f0fdf4; }
-.resp-wrong { background: #fef2f2; }
-.resp-icon { font-size: 14px; flex-shrink: 0; }
-.resp-name { font-weight: 600; color: #111827; min-width: 60px; }
-.resp-answer { flex: 1; color: #4b5563; }
-.resp-time { font-size: 10px; color: #9ca3af; flex-shrink: 0; }
 
 .quiz-action-row { display: flex; gap: 8px; margin-bottom: 12px; }
 .btn-quiz-ai, .btn-quiz-manual {
@@ -3359,12 +3222,11 @@ tr:hover td { background: #fafbfc; }
 .level-dist-row { display: flex; gap: 32px; align-items: center; }
 .donut-wrapper { position: relative; width: 220px; height: 220px; flex-shrink: 0; }
 .donut-center {
-    position: absolute; top: calc(50% - 45px); left: 50%; transform: translate(-50%, -50%);
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
     text-align: center; pointer-events: none;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
-.center-num { display: block; font-size: 28px; font-weight: 800; color: #333; line-height: 1; }
-.center-lbl { font-size: 12px; color: #555; margin-top: 4px; }
+.center-num { display: block; font-size: 28px; font-weight: 800; color: #333; }
+.center-lbl { font-size: 11px; color: #aaa; }
 
 .level-cards { display: flex; flex-direction: column; gap: 10px; flex: 1; }
 .level-card {

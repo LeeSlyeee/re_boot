@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../api/axios';
 import { useToast } from '../composables/useToast';
 const { showToast } = useToast();
-import QrcodeVue from 'qrcode.vue';
+
 import { Bar, Doughnut } from 'vue-chartjs';
 import { Chart as ChartJS, Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement } from 'chart.js';
 
@@ -1146,11 +1146,7 @@ const copyLiveCode = async () => {
     try { await navigator.clipboard.writeText(liveSession.value.session_code); showToast('코드 복사 완료!', 'success'); } catch {}
 };
 
-// QR코드에 인코딩될 URL (학습자 프론트 + 세션코드)
-const qrJoinUrl = computed(() => {
-    const code = liveSession.value?.session_code || '';
-    return `${window.location.origin}/learning?live=${code}`;
-});
+
 
 // 펄스 50% 미만 경고
 const pulseWarning = computed(() => {
@@ -1898,17 +1894,11 @@ onMounted(fetchDashboard);
                     </span>
                 </div>
 
-                <!-- 대형 코드 + QR 디스플레이 -->
-                <div class="code-qr-row">
-                    <div class="code-display" @click="copyLiveCode">
-                        <span class="code-label">입장 코드</span>
-                        <span class="code-value">{{ liveSession.session_code }}</span>
-                        <span class="code-hint">클릭하여 복사</span>
-                    </div>
-                    <div class="qr-display">
-                        <QrcodeVue :value="qrJoinUrl" :size="160" level="M" />
-                        <span class="qr-hint">QR 스캔으로 입장</span>
-                    </div>
+                <!-- 대형 코드 디스플레이 -->
+                <div class="code-display" @click="copyLiveCode">
+                    <span class="code-label">입장 코드</span>
+                    <span class="code-value">{{ liveSession.session_code }}</span>
+                    <span class="code-hint">클릭하여 복사</span>
                 </div>
 
                 <!-- 🔌 수업 시작 전 라즈베리파이 설정 -->
@@ -2848,14 +2838,7 @@ tr:hover td { background: #fafbfc; }
 .code-value { font-size: 56px; font-weight: 800; color: #166534; letter-spacing: 12px; font-family: monospace; }
 .code-hint { font-size: 11px; color: #aaa; margin-top: 8px; }
 
-.code-qr-row { display: flex; gap: 24px; align-items: center; margin-bottom: 20px; }
-.code-qr-row .code-display { flex: 1; margin-bottom: 0; }
-.qr-display {
-    display: flex; flex-direction: column; align-items: center; gap: 8px;
-    padding: 16px; background: white; border-radius: 12px;
-    border: 1px solid #e5e7eb;
-}
-.qr-hint { font-size: 11px; color: #636b72; }
+
 
 .live-controls { display: flex; gap: 12px; margin-bottom: 24px; }
 .btn-live-start {

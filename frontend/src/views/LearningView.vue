@@ -114,73 +114,8 @@ const leaveLiveSession = () => {
   mode.value = null;
 };
 
-// C3: QR 스캔 입장
-const qrScanning = ref(false);
-const qrVideo = ref(null);
-let qrStream = null;
-let qrAnimFrame = null;
 
-const startQRScan = async () => {
-  if (!("BarcodeDetector" in window)) {
-    // Fallback: BarcodeDetector 미지원 브라우저
-    const code = prompt(
-      "이 브라우저는 QR 스캔을 지원하지 않습니다.\n6자리 코드를 직접 입력하세요:",
-    );
-    if (code && code.length === 6) {
-      liveSessionCode.value = code.toUpperCase();
-    }
-    return;
-  }
-  try {
-    qrScanning.value = true;
-    qrStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment" },
-    });
-    await nextTick();
-    if (qrVideo.value) {
-      qrVideo.value.srcObject = qrStream;
-      const detector = new BarcodeDetector({ formats: ["qr_code"] });
-      const scanFrame = async () => {
-        if (!qrScanning.value) return;
-        try {
-          const barcodes = await detector.detect(qrVideo.value);
-          if (barcodes.length > 0) {
-            const raw = barcodes[0].rawValue;
-            // QR에서 ?live=XXXXXX 또는 6자리 코드 자체 추출
-            let code = "";
-            if (raw.includes("live="))
-              code = raw.split("live=")[1].substring(0, 6);
-            else if (raw.length === 6) code = raw;
-            if (code) {
-              liveSessionCode.value = code.toUpperCase();
-              stopQRScan();
-              const ok = await joinLiveSession();
-              if (ok) mode.value = "live";
-              return;
-            }
-          }
-        } catch {}
-        qrAnimFrame = requestAnimationFrame(scanFrame);
-      };
-      scanFrame();
-    }
-  } catch (e) {
-    showToast("카메라 접근이 거부되었습니다.", "error");
-    qrScanning.value = false;
-  }
-};
 
-const stopQRScan = () => {
-  qrScanning.value = false;
-  if (qrStream) {
-    qrStream.getTracks().forEach((t) => t.stop());
-    qrStream = null;
-  }
-  if (qrAnimFrame) {
-    cancelAnimationFrame(qrAnimFrame);
-    qrAnimFrame = null;
-  }
-};
 
 // B2: 학생 개인 세션 요약
 const mySessionSummary = ref(null);
@@ -1648,7 +1583,7 @@ const openSessionReview = (id) => {
             <div class="back-link" @click="mode = null">← 뒤로가기</div>
             <h2 class="text-headline">라이브 세션 입장</h2>
             <p style="text-align: center; color: #aaa; margin-bottom: 20px">
-              교수자가 알려준 6자리 코드를 입력하거나 QR을 스쮨하세요.
+              교수자가 알려준 6자리 코드를 입력하세요.
             </p>
             <div class="input-group">
               <input
@@ -1677,31 +1612,8 @@ const openSessionReview = (id) => {
                 입장하기
               </button>
             </div>
-            <!-- C3: QR 스캔 버튼 -->
-            <div style="text-align: center; margin-top: 16px">
-              <button
-                class="btn btn-secondary"
-                @click="startQRScan"
-                style="font-size: 14px"
-              >
-                📷 QR 코드 스캔
-              </button>
-              <div v-if="qrScanning" class="qr-scanner-box">
-                <video
-                  ref="qrVideo"
-                  autoplay
-                  playsinline
-                  style="width: 100%; max-width: 300px; border-radius: 12px"
-                ></video>
-                <button
-                  class="btn btn-secondary"
-                  @click="stopQRScan"
-                  style="margin-top: 8px"
-                >
-                  取소
-                </button>
-              </div>
-            </div>
+
+
           </div>
 
           <!-- Step 2: Input URL -->
@@ -5092,13 +5004,8 @@ const openSessionReview = (id) => {
   font-size: 11px;
 }
 
-/* C3: QR 스캐너 */
-.qr-scanner-box {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
+
+
 
 /* ── Live Note ── */
 .note-loading {
