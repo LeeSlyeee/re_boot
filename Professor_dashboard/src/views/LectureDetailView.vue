@@ -856,6 +856,9 @@ const sttLastText = ref('');
 let sttLastProcessedIndex = 0;  // 마지막으로 처리(전송)한 result 인덱스
 let sttPendingInterim = '';     // 아직 isFinal이 안 된 interim 텍스트
 
+let sttConsecutiveFailures = 0;  // 연속 재시작 실패 카운터
+const STT_MAX_RETRIES = 5;       // 최대 연속 실패 허용 횟수
+
 const flushPendingSTT = async () => {
     // 세션 재시작/종료 시 아직 전송되지 않은 interim 텍스트를 강제 전송
     if (sttPendingInterim && liveSession.value) {
@@ -884,6 +887,9 @@ const startSTT = () => {
         }));
         console.log('[KWS Agent] START 명령 전송 (STT+DSCNN)');
     }
+
+    sttConsecutiveFailures = 0;  // 수동 시작이므로 카운터 리셋
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.lang = 'ko-KR';
@@ -891,11 +897,15 @@ const startSTT = () => {
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
+    // 복구 가능한 에러 목록 (onend에서 자동 재시작)
+    const RECOVERABLE_ERRORS = ['no-speech', 'aborted', 'network', 'audio-capture'];
+
     recognition.onstart = () => {
         console.log('🎙️ STT 시작됨');
         sttLastText.value = '🎙️ 마이크 대기 중... 말씀해주세요';
         sttLastProcessedIndex = 0;
         sttPendingInterim = '';
+        sttConsecutiveFailures = 0;  // 성공적으로 시작 → 카운터 리셋
     };
 
     recognition.onresult = async (event) => {
@@ -927,29 +937,68 @@ const startSTT = () => {
 
     recognition.onerror = (e) => {
         console.error('❌ STT Error:', e.error, e.message);
-        sttLastText.value = `❌ 에러: ${e.error}`;
-        // no-speech는 자동 재시작되므로 무시
-        if (e.error !== 'no-speech' && e.error !== 'aborted') {
+        if (RECOVERABLE_ERRORS.includes(e.error)) {
+            // 복구 가능한 에러 → sttActive 유지, onend에서 자동 재시작
+            console.log(`🔄 STT 복구 가능 에러 (${e.error}) → 자동 재시작 예정`);
+            if (e.error !== 'no-speech') {
+                sttLastText.value = `🔄 일시 중단 (${e.error}), 재연결 중...`;
+            }
+        } else {
+            // 복구 불가능한 에러 (not-allowed 등) → STT 완전 중단
+            console.error(`🛑 STT 복구 불가능 에러 (${e.error}) → STT 중단`);
+            sttLastText.value = `❌ 에러: ${e.error}`;
             sttActive.value = false;
         }
     };
 
     recognition.onend = async () => {
         console.log('🔄 STT 세션 종료');
-        // [핵심 수정] 세션 종료 전 미전송 interim 텍스트 강제 전송
-        await flushPendingSTT();
+
+        // [안전] flush는 실패해도 재시작에 영향 없도록 try-catch 분리
+        try {
+            await flushPendingSTT();
+        } catch (flushErr) {
+            console.error('❌ Flush 실패 (재시작에는 영향 없음):', flushErr);
+        }
 
         if (sttActive.value && liveSession.value?.status === 'LIVE') {
-            // 짧은 딜레이 후 재시작 (브라우저 안정성)
+            sttConsecutiveFailures++;
+
+            if (sttConsecutiveFailures > STT_MAX_RETRIES) {
+                // 연속 실패 한도 초과 → 사용자에게 알림 후 중단
+                console.error(`🛑 STT 연속 ${STT_MAX_RETRIES}회 재시작 실패 → 자동 재시작 중단`);
+                sttActive.value = false;
+                sttLastText.value = '⚠️ 음성 인식이 반복 중단됨 — STT 버튼을 다시 눌러주세요';
+                showToast('⚠️ STT가 반복적으로 끊겼습니다. 버튼을 다시 눌러 재시작해주세요.', 'warning');
+                return;
+            }
+
+            // 딜레이: 기본 300ms, 연속 실패 시 점진적 증가 (최대 2초)
+            const delay = Math.min(300 * sttConsecutiveFailures, 2000);
+            console.log(`🔄 STT 재시작 예정 (${delay}ms 후, 시도 ${sttConsecutiveFailures}/${STT_MAX_RETRIES})`);
+
             setTimeout(() => {
+                if (!sttActive.value || liveSession.value?.status !== 'LIVE') return;
                 try {
                     sttLastProcessedIndex = 0;
                     recognition.start();
                 } catch (e) {
-                    console.error('STT 재시작 실패:', e);
-                    sttActive.value = false;
+                    console.error('STT 재시작 실패 (1차):', e);
+                    // 1차 실패 시 500ms 후 최종 1회 재시도
+                    setTimeout(() => {
+                        if (!sttActive.value || liveSession.value?.status !== 'LIVE') return;
+                        try {
+                            recognition.start();
+                            console.log('🔄 STT 재시작 성공 (2차 시도)');
+                        } catch (e2) {
+                            console.error('🛑 STT 재시작 최종 실패:', e2);
+                            sttActive.value = false;
+                            sttLastText.value = '⚠️ 음성 인식 재시작 실패 — 버튼을 다시 눌러주세요';
+                            showToast('⚠️ STT 재시작 실패. 버튼을 다시 눌러주세요.', 'warning');
+                        }
+                    }, 500);
                 }
-            }, 100);
+            }, delay);
         }
     };
 
