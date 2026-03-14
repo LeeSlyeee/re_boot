@@ -752,6 +752,14 @@ const startLivePolling = () => {
             const { data } = await api.get(`/learning/live/${liveSession.value.id}/status/`);
             liveSession.value = { ...liveSession.value, ...data };
             liveParticipants.value = data.participants || [];
+            // 세션이 종료/일시정지 상태로 변경된 경우 → 잔여 퀴즈 제안 즉시 클리어
+            if (data.status && data.status !== 'LIVE') {
+                if (quizSuggestion.value) {
+                    console.log('[Polling] 세션이 LIVE가 아님 → 퀴즈 제안 클리어');
+                    quizSuggestion.value = null;
+                }
+                return; // ENDED 세션에서 더 이상 폴링 불필요
+            }
             // 펄스 통계 동시 조회
             try {
                 const pulse = await api.get(`/learning/live/${liveSession.value.id}/pulse-stats/`);
@@ -842,6 +850,7 @@ const connectRpi = async () => {
 // ── STT (Web Speech API) ──
 const sttActive = ref(false);
 const dscnnOnlyActive = ref(false);  // DSCNN Only 모드 활성화 여부
+
 const sttRecognition = ref(null);
 const sttLastText = ref('');
 let sttLastProcessedIndex = 0;  // 마지막으로 처리(전송)한 result 인덱스
@@ -1007,15 +1016,14 @@ const fetchQuizSuggestion = async () => {
 const approveQuizSuggestion = async () => {
     if (!quizSuggestion.value) return;
     try {
-        await api.post(`/learning/live/${liveSession.value.id}/quiz/${quizSuggestion.value.id}/approve/`, {
+        const { data } = await api.post(`/learning/live/${liveSession.value.id}/quiz/${quizSuggestion.value.id}/approve/`, {
             time_limit: 60
         });
+        lastActiveQuizId.value = data?.id || null;
         quizSuggestion.value = null;
-        
-        // 퀴즈 시작(승인) 시 마이크 및 STT/DSCNN 자동 중지
-        stopSTT();
-        stopDSCNNOnly();
-    } catch (e) { showToast('퀴즈 발동 실패: ' + (e.response?.data?.error || '', 'error')); }
+        showToast('✅ 퀴즈 발동!', 'success');
+        // STT/DSCNN은 중단하지 않고 계속 유지
+    } catch (e) { showToast('퀴즈 발동 실패: ' + (e.response?.data?.error || ''), 'error'); }
 };
 
 const dismissQuizSuggestion = async () => {
@@ -1025,10 +1033,7 @@ const dismissQuizSuggestion = async () => {
         } catch {}
     }
     quizSuggestion.value = null;
-    
-    // 퀴즈 무시(닫기) 시 마이크 및 STT/DSCNN 자동 중지
-    stopSTT();
-    stopDSCNNOnly();
+    // 퀴즈 제안 무시 시에는 STT/KWS를 중단하지 않음 (교수자는 계속 강의 중)
 };
 
 // ── Quiz Control State ──
@@ -1044,9 +1049,10 @@ const generateAIQuiz = async () => {
     try {
         const { data } = await api.post(`/learning/live/${liveSession.value.id}/quiz/generate/`);
         lastActiveQuizId.value = data.id;
-        showToast(`AI 퀴즈 발동! (문제: ${data.question_text.substring(0, 40, 'success')}...)`);
+        showToast(`AI 퀴즈 발동! (문제: ${data.question_text.substring(0, 40)}...)`, 'success');
+        // STT/DSCNN은 중단하지 않고 계속 유지
     } catch (e) {
-        showToast('AI 퀴즈 생성 실패: ' + (e.response?.data?.error || '', 'error'));
+        showToast('AI 퀴즈 생성 실패: ' + (e.response?.data?.error || ''), 'error');
     } finally { quizGenerating.value = false; }
 };
 
@@ -1107,7 +1113,9 @@ const submitManualQuiz = async () => {
         lastActiveQuizId.value = data.id;
         showManualQuizForm.value = false;
         manualQuiz.value = { question: '', options: ['', '', '', ''], correctIndex: '', explanation: '' };
-    } catch (e) { showToast('퀴즈 생성 실패: ' + (e.response?.data?.error || '', 'error')); }
+        showToast('✅ 퀴즈 발동!', 'success');
+        // STT/DSCNN은 중단하지 않고 계속 유지
+    } catch (e) { showToast('퀴즈 생성 실패: ' + (e.response?.data?.error || ''), 'error'); }
 };
 
 const fetchQuizResult = async () => {

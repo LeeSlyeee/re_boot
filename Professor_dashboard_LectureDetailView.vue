@@ -385,6 +385,9 @@ const endLiveSession = async () => {
     try {
         await api.post(`/learning/live/${liveSession.value.id}/end/`);
         stopLivePolling();
+        // 퀴즈 자동 재개 타이머 정리
+        if (quizResumeTimer) { clearTimeout(quizResumeTimer); quizResumeTimer = null; }
+        quizPauseActive.value = false;
         stopSTT();
 
         // 로컬 WebSocket Agent에 마이크 클라이언트 종료 요청
@@ -842,6 +845,11 @@ const connectRpi = async () => {
 // ── STT (Web Speech API) ──
 const sttActive = ref(false);
 const dscnnOnlyActive = ref(false);  // DSCNN Only 모드 활성화 여부
+// 퀴즈 활성화 시 STT/DSCNN 일시 중지 → 종료 후 자동 재개 상태
+let quizResumeTimer = null;
+const quizPauseActive = ref(false);
+const preQuizSttWasActive = ref(false);
+const preQuizDscnnWasActive = ref(false);
 const sttRecognition = ref(null);
 const sttLastText = ref('');
 let sttLastProcessedIndex = 0;  // 마지막으로 처리(전송)한 result 인덱스
@@ -949,7 +957,7 @@ const startSTT = () => {
     sttActive.value = true;
 };
 
-const stopSTT = () => {
+const stopSTT = (isQuizPause = false) => {
     if (sttRecognition.value) {
         flushPendingSTT();
         sttRecognition.value.stop();
@@ -960,6 +968,13 @@ const stopSTT = () => {
     if (!dscnnOnlyActive.value && kwsAgentWs?.readyState === WebSocket.OPEN) {
         kwsAgentWs.send(JSON.stringify({ action: 'stop' }));
         console.log('[KWS Agent] STOP 명령 전송');
+    }
+    // 수동 중지 시 퀴즈 자동 재개 취소
+    if (!isQuizPause && quizPauseActive.value) {
+        quizPauseActive.value = false;
+        if (quizResumeTimer) { clearTimeout(quizResumeTimer); quizResumeTimer = null; }
+        preQuizSttWasActive.value = false;
+        preQuizDscnnWasActive.value = false;
     }
 };
 
@@ -978,7 +993,7 @@ const startDSCNNOnly = () => {
     }
     showToast('🧠 DSCNN Only 모드 시작 — KWS 키워드 감지 대기 중', 'success');
 };
-const stopDSCNNOnly = () => {
+const stopDSCNNOnly = (isQuizPause = false) => {
     dscnnOnlyActive.value = false;
     sttLastText.value = '';
     // STT가 비활성화일 때만 STOP
@@ -986,7 +1001,50 @@ const stopDSCNNOnly = () => {
         kwsAgentWs.send(JSON.stringify({ action: 'stop' }));
         console.log('[KWS Agent] STOP 명령 전송');
     }
-    showToast('DSCNN Only 모드 종료', 'info');
+    if (!isQuizPause) {
+        showToast('DSCNN Only 모드 종료', 'info');
+        // 수동 중지 시 퀴즈 자동 재개 취소
+        if (quizPauseActive.value) {
+            quizPauseActive.value = false;
+            if (quizResumeTimer) { clearTimeout(quizResumeTimer); quizResumeTimer = null; }
+            preQuizSttWasActive.value = false;
+            preQuizDscnnWasActive.value = false;
+        }
+    }
+};
+
+// ── 퀴즈 활성화 시 STT/DSCNN 자동 일시 중지 및 재개 ──
+const pauseForQuiz = (timeLimitSeconds = 60) => {
+    preQuizSttWasActive.value = sttActive.value;
+    preQuizDscnnWasActive.value = dscnnOnlyActive.value;
+    if (sttActive.value) stopSTT(true);
+    if (dscnnOnlyActive.value) stopDSCNNOnly(true);
+
+    if (quizResumeTimer) { clearTimeout(quizResumeTimer); quizResumeTimer = null; }
+    quizPauseActive.value = true;
+    // 퀴즈 제한 시간 + 여유 시간(5초) 후 자동 재개
+    const resumeDelay = (timeLimitSeconds + 5) * 1000;
+    quizResumeTimer = setTimeout(() => { resumeAfterQuiz(); }, resumeDelay);
+    console.log(`⏸️ 퀴즈 시작 → STT/DSCNN 일시 중지 (${timeLimitSeconds}초 + 5초 후 자동 재개 예정)`);
+};
+
+const resumeAfterQuiz = () => {
+    if (quizResumeTimer) { clearTimeout(quizResumeTimer); quizResumeTimer = null; }
+    if (!quizPauseActive.value) return;
+    quizPauseActive.value = false;
+    // 세션이 아직 LIVE 상태인지 확인
+    if (!liveSession.value || liveSession.value.status !== 'LIVE') return;
+
+    if (preQuizSttWasActive.value) {
+        startSTT();
+        showToast('🎙️ 퀴즈 종료 — STT 자동 재개', 'info');
+    } else if (preQuizDscnnWasActive.value) {
+        startDSCNNOnly();
+        showToast('🧠 퀴즈 종료 — DSCNN 감지 자동 재개', 'info');
+    }
+    preQuizSttWasActive.value = false;
+    preQuizDscnnWasActive.value = false;
+    console.log('▶️ 퀴즈 종료 → STT/DSCNN 자동 재개 완료');
 };
 
 // ── 퀴즈 제안 (AI 자동 생성 → 교수자 승인) ──
@@ -1007,15 +1065,15 @@ const fetchQuizSuggestion = async () => {
 const approveQuizSuggestion = async () => {
     if (!quizSuggestion.value) return;
     try {
-        await api.post(`/learning/live/${liveSession.value.id}/quiz/${quizSuggestion.value.id}/approve/`, {
+        const { data } = await api.post(`/learning/live/${liveSession.value.id}/quiz/${quizSuggestion.value.id}/approve/`, {
             time_limit: 60
         });
+        const timeLimit = data?.time_limit || 60;
+        lastActiveQuizId.value = data?.id || null;
         quizSuggestion.value = null;
-        
-        // 퀴즈 시작(승인) 시 마이크 및 STT/DSCNN 자동 중지
-        stopSTT();
-        stopDSCNNOnly();
-    } catch (e) { showToast('퀴즈 발동 실패: ' + (e.response?.data?.error || '', 'error')); }
+        // 퀴즈 시작: STT/DSCNN 일시 중지 → 퀴즈 종료 후 자동 재개
+        pauseForQuiz(timeLimit);
+    } catch (e) { showToast('퀴즈 발동 실패: ' + (e.response?.data?.error || ''), 'error'); }
 };
 
 const dismissQuizSuggestion = async () => {
@@ -1025,10 +1083,7 @@ const dismissQuizSuggestion = async () => {
         } catch {}
     }
     quizSuggestion.value = null;
-    
-    // 퀴즈 무시(닫기) 시 마이크 및 STT/DSCNN 자동 중지
-    stopSTT();
-    stopDSCNNOnly();
+    // 퀴즈 제안 무시 시에는 STT/KWS를 중단하지 않음 (교수자는 계속 강의 중)
 };
 
 // ── Quiz Control State ──
@@ -1044,9 +1099,13 @@ const generateAIQuiz = async () => {
     try {
         const { data } = await api.post(`/learning/live/${liveSession.value.id}/quiz/generate/`);
         lastActiveQuizId.value = data.id;
-        showToast(`AI 퀴즈 발동! (문제: ${data.question_text.substring(0, 40, 'success')}...)`);
+        showToast(`AI 퀴즈 발동! (문제: ${data.question_text.substring(0, 40)}...)`, 'success');
+        // 퀴즈 활성화 → STT/DSCNN 일시 중지 후 자동 재개
+        if (sttActive.value || dscnnOnlyActive.value) {
+            pauseForQuiz(data.time_limit || 60);
+        }
     } catch (e) {
-        showToast('AI 퀴즈 생성 실패: ' + (e.response?.data?.error || '', 'error'));
+        showToast('AI 퀴즈 생성 실패: ' + (e.response?.data?.error || ''), 'error');
     } finally { quizGenerating.value = false; }
 };
 
@@ -1107,7 +1166,11 @@ const submitManualQuiz = async () => {
         lastActiveQuizId.value = data.id;
         showManualQuizForm.value = false;
         manualQuiz.value = { question: '', options: ['', '', '', ''], correctIndex: '', explanation: '' };
-    } catch (e) { showToast('퀴즈 생성 실패: ' + (e.response?.data?.error || '', 'error')); }
+        // 퀴즈 활성화 → STT/DSCNN 일시 중지 후 자동 재개
+        if (sttActive.value || dscnnOnlyActive.value) {
+            pauseForQuiz(data.time_limit || 60);
+        }
+    } catch (e) { showToast('퀴즈 생성 실패: ' + (e.response?.data?.error || ''), 'error'); }
 };
 
 const fetchQuizResult = async () => {
