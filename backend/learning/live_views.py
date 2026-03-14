@@ -1734,10 +1734,16 @@ def _generate_live_note(session_id, note_id):
                 max_tokens=2000,
             )
             note.instructor_insight = insight_resp.choices[0].message.content
-            note.save()
             print(f"✅ [Insight] 교수자 인사이트 리포트 생성 완료")
         except Exception as ie:
             print(f"⚠️ [Insight] 인사이트 생성 실패 (노트는 정상): {ie}")
+
+        # ── 자동 승인: 노트 생성 완료 시 즉시 학생에게 공개 ──
+        note.is_approved = True
+        note.approved_at = timezone.now()
+        note.is_public = True
+        note.save()
+        print(f"✅ [AutoApprove] 세션 #{session_id} 노트 자동 승인 → 학생 공개")
 
         # ── 8. Phase 2-3: 복습 루트 + 간격 반복 자동 생성 ──
         try:
