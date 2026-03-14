@@ -407,6 +407,7 @@ const endLiveSession = async () => {
 // ── 인사이트 리포트 폴링 ──
 const insightData = ref(null);
 const insightPolling = ref(null);
+const insightTimeout = ref(null);
 
 const fetchInsight = async () => {
     if (!liveSession.value) return;
@@ -415,13 +416,29 @@ const fetchInsight = async () => {
         if (data.status === 'DONE') {
             insightData.value = data;
             if (insightPolling.value) { clearInterval(insightPolling.value); insightPolling.value = null; }
+            if (insightTimeout.value) { clearTimeout(insightTimeout.value); insightTimeout.value = null; }
         }
     } catch {}
 };
 
 const startInsightPolling = () => {
+    insightData.value = null;  // 초기화
     fetchInsight();
     insightPolling.value = setInterval(fetchInsight, 3000);
+    // 3분 타임아웃: DONE이 안 오면 강제 중지 + 오류 표시
+    insightTimeout.value = setTimeout(() => {
+        if (insightPolling.value) {
+            clearInterval(insightPolling.value);
+            insightPolling.value = null;
+            if (!insightData.value) {
+                insightData.value = {
+                    status: 'TIMEOUT',
+                    stats: {},
+                    instructor_insight: '# ⚠️ 인사이트 생성 시간 초과\n\n서버에서 응답이 없습니다. 페이지를 새로고침해 주세요.'
+                };
+            }
+        }
+    }, 180000);
 };
 
 const renderInsightMarkdown = (text) => {

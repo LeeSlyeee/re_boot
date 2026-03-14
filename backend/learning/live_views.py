@@ -1679,7 +1679,7 @@ def _generate_live_note(session_id, note_id):
                 max_tokens=4000,
             )
             note.content = response.choices[0].message.content
-            note.status = 'DONE'
+            # status는 인사이트까지 완료된 후 변경 (폴링 조기 중지 방지)
 
         except Exception as e:
             # Fallback: 원문 기반 간이 노트
@@ -1693,10 +1693,10 @@ def _generate_live_note(session_id, note_id):
                 f"## ✅ 퀴즈 ({len(quiz_summary)}건)\n{quiz_text}\n\n"
                 f"## ❓ 질의응답 ({len(qa_summary)}건)\n{qa_text}\n"
             )
-            note.status = 'DONE'  # Fallback이라도 DONE 처리
+            # status는 인사이트까지 완료된 후 변경 (폴링 조기 중지 방지)
             print(f"⚠️ [LiveNote] GPT 실패, Fallback 사용: {e}")
 
-        note.save()
+        note.save()  # 콘텐츠만 먼저 저장 (status는 아직 PENDING)
 
         # ── 7. 교수자 인사이트 리포트 생성 ──
         try:
@@ -1737,6 +1737,18 @@ def _generate_live_note(session_id, note_id):
             print(f"✅ [Insight] 교수자 인사이트 리포트 생성 완료")
         except Exception as ie:
             print(f"⚠️ [Insight] 인사이트 생성 실패 (노트는 정상): {ie}")
+            # Fallback: 실패 안내 메시지 설정 (프론트엔드 무한 대기 방지)
+            note.instructor_insight = (
+                "# 📊 인사이트 리포트\n\n"
+                "> ⚠️ AI 인사이트 생성에 실패했습니다.\n\n"
+                f"**오류 내용**: {str(ie)[:200]}\n\n"
+                "세션 데이터는 정상 저장되었으며, 통합 노트는 정상 제공됩니다.\n"
+                "페이지를 새로고침하면 재시도됩니다."
+            )
+
+        # 모든 처리(콘텐츠 + 인사이트) 완료 후 최종 DONE 상태로 변경
+        note.status = 'DONE'
+        note.save()
 
         # ── 자동 승인: 노트 생성 완료 시 즉시 학생에게 공개 ──
         note.is_approved = True
