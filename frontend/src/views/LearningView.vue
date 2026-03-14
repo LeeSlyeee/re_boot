@@ -4707,14 +4707,16 @@ const openSessionReview = (id) => {
 }
 .session-ended-notice {
   margin-top: 16px;
-  padding: 16px;
-  background: #f0fdf4;
-  border-radius: 8px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
   text-align: center;
 }
 .session-ended-notice p {
   margin: 0 0 12px;
   font-size: 14px;
+  color: #d1d5db;
 }
 
 .pulse-floating {
@@ -5010,59 +5012,124 @@ const openSessionReview = (id) => {
 /* ── Live Note ── */
 .note-loading {
   text-align: center;
-  padding: 20px;
+  padding: 24px;
 }
 .note-loading p {
-  color: #6b7280;
+  color: #9ca3af;
   animation: pulse-live 2s infinite;
 }
 .note-content h3 {
-  margin: 0 0 12px;
+  margin: 0 0 14px;
   font-size: 18px;
+  color: #e5e7eb;
 }
 .note-stats {
   display: flex;
-  gap: 16px;
+  gap: 10px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 .note-stats span {
-  padding: 4px 12px;
+  padding: 5px 14px;
   border-radius: 20px;
   font-size: 12px;
   font-weight: 600;
-  background: #f0f9ff;
-  color: #0369a1;
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.25);
 }
 .note-body {
-  padding: 16px;
-  background: white;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.04);
   border-radius: 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 14px;
-  line-height: 1.8;
+  line-height: 1.85;
   max-height: 600px;
   overflow-y: auto;
+  color: #d1d5db;
+}
+.note-body::-webkit-scrollbar {
+  width: 6px;
+}
+.note-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.note-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+.note-body h1 {
+  font-size: 20px;
+  margin: 20px 0 10px;
+  color: #f9fafb;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 8px;
 }
 .note-body h2 {
-  font-size: 18px;
-  margin: 16px 0 8px;
-  color: #1e293b;
+  font-size: 17px;
+  margin: 18px 0 8px;
+  color: #e5e7eb;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 6px;
 }
 .note-body h3 {
   font-size: 15px;
-  margin: 12px 0 6px;
-  color: #334155;
+  margin: 14px 0 6px;
+  color: #d1d5db;
 }
 .note-body h4 {
   font-size: 14px;
   margin: 10px 0 4px;
-  color: #475569;
+  color: #9ca3af;
 }
 .note-body li {
   margin-left: 16px;
+  margin-bottom: 4px;
+  color: #d1d5db;
 }
 .note-body strong {
-  color: #1e40af;
+  color: #93c5fd;
+  font-weight: 600;
+}
+.note-body em {
+  color: #a5b4fc;
+}
+.note-body code {
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.note-body pre {
+  background: rgba(0, 0, 0, 0.3) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 14px !important;
+  overflow-x: auto;
+  color: #e5e7eb !important;
+  font-size: 13px !important;
+}
+.note-body blockquote {
+  border-left: 3px solid rgba(59, 130, 246, 0.5) !important;
+  color: #9ca3af !important;
+  padding-left: 12px;
+  margin: 10px 0;
+}
+.note-body hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  margin: 16px 0;
+}
+.note-body table,
+.note-body tr,
+.note-body td {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+.note-body td {
+  padding: 8px 12px !important;
+  color: #d1d5db;
 }
 
 /* ── Q&A Panel (학습자) ── */
