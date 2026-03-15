@@ -790,9 +790,15 @@ const resumeSession = async (isAutoRestore = false) => {
       activeTab.value = "stt";
     }
 
+    // [FIX] 라이브 세션 연결 감지 → 오프라인(리뷰) 모드로 설정
+    if (sessionRes.data.is_live_session) {
+      console.log("🔴 라이브 세션 복원 감지:", sessionRes.data.live_session_title);
+      mode.value = "offline";
+      isUrlSubmitted.value = false;
+    }
     // [FIX] 우선순위 로직 수정
     // 1. Lecture(수업) 정보가 있으면 -> 무조건 Offline/Hybrid 모드
-    if (sessionRes.data.lecture) {
+    else if (sessionRes.data.lecture) {
       mode.value = "offline";
       // (선택) Lecture Title 복구 로직이 필요하다면 여기서 API 호출 추가 가능
       // 현재는 간단히 오프라인 모드로 고정

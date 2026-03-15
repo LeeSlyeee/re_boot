@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404
 from django.conf import settings
 
 from .models import LearningSession, STTLog, SessionSummary, Lecture, DailyQuiz
+from .models.live import LiveParticipant, LiveSTTLog, LiveSessionNote
 from .serializers import LearningSessionSerializer, STTLogSerializer, SessionSummarySerializer
 
 import openai
@@ -58,6 +59,46 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
             ).distinct()
             
         return LearningSession.objects.filter(student=user)
+
+    def _get_linked_live_session(self, learning_session):
+        """
+        LearningSession에 연결된 LiveSession을 찾는다.
+        LiveParticipant.learning_session FK 역참조 사용.
+        """
+        participant = LiveParticipant.objects.filter(
+            learning_session=learning_session
+        ).select_related('live_session').first()
+        if participant:
+            return participant.live_session
+        return None
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        [Override] 세션 상세 조회 시 연결된 라이브 세션 데이터를 자동 감지하여 포함
+        """
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        data = serializer.data
+
+        # 라이브 세션 연결 감지
+        live_session = self._get_linked_live_session(instance)
+        if live_session:
+            data['is_live_session'] = True
+            data['live_session_id'] = live_session.id
+            data['live_session_code'] = live_session.session_code
+            data['live_session_title'] = live_session.title
+
+            # 라이브 요약 노트 (LiveSessionNote)
+            try:
+                note = live_session.note  # OneToOneField reverse
+                if note and note.status == 'DONE' and note.content:
+                    data['latest_summary'] = note.content
+            except LiveSessionNote.DoesNotExist:
+                pass
+        else:
+            data['is_live_session'] = False
+
+        return Response(data)
 
     def perform_create(self, serializer):
         # Strictly associate with the authenticated user
@@ -724,10 +765,37 @@ class LearningSessionViewSet(viewsets.ModelViewSet):
     def get_logs(self, request, pk=None):
         """
         세션의 모든 STT 로그 조회
+        [FIX] 라이브 세션 연결 시 LiveSTTLog도 함께 반환
         """
         session = self.get_object()
-        logs = STTLog.objects.filter(session=session).order_by('sequence_order')
-        serializer = STTLogSerializer(logs, many=True)
+
+        # 1. 개인 STT 로그 (일반 세션)
+        personal_logs = STTLog.objects.filter(session=session).order_by('sequence_order')
+
+        # 2. 라이브 세션 연결 감지 → LiveSTTLog 병합
+        live_session = self._get_linked_live_session(session)
+        if live_session and not personal_logs.exists():
+            # 개인 로그가 비어있고 라이브 세션이 연결되어 있으면 → LiveSTTLog 반환
+            live_logs = LiveSTTLog.objects.filter(
+                live_session=live_session
+            ).order_by('sequence_order')
+
+            # STTLogSerializer 포맷에 맞게 변환
+            live_data = []
+            for log in live_logs:
+                live_data.append({
+                    'id': log.id,
+                    'session': session.id,
+                    'sequence_order': log.sequence_order,
+                    'text_chunk': log.text_chunk,
+                    'speaker': 'INSTRUCTOR',  # 라이브 STT는 교수자 마이크
+                    'video_offset': None,
+                    'created_at': log.created_at.isoformat(),
+                })
+            return Response(live_data, status=status.HTTP_200_OK)
+
+        # 개인 로그가 있으면 그대로 반환
+        serializer = STTLogSerializer(personal_logs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='debug-sessions')
