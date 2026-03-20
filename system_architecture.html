@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Re:Boot 시스템 아키텍처</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+    </script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        h1 {
+            color: #2c3e50;
+        }
+        .description {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .diagram-container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🚀 Re:Boot 시스템 아키텍처 한눈에 보기</h1>
+        <p>비전공자도 쉽게 이해할 수 있는 Re:Boot의 전체 구조</p>
+    </div>
+
+    <div class="description">
+        <h3>💡 시스템 구조 요약</h3>
+        <p>Re:Boot 시스템은 크게 3가지 계층(Layer)으로 나뉘어져 있습니다.</p>
+        <ul>
+            <li><strong>프론트엔드 (사용자 화면)</strong>: 학생과 교수님이 직접 보고 클릭하는 화면입니다. (학생용 웹앱, 교수자용 대시보드)</li>
+            <li><strong>백엔드 (서버 & 비즈니스 로직)</strong>: 사용자의 요청을 받아 다양한 기록을 관리하고 AI와 소통하는 두뇌 역할입니다. (Django 서버)</li>
+            <li><strong>인프라 & 외부 연동 (외부 시스템)</strong>: 데이터를 저장하는 창고(DB)와 똑똑한 AI 기능을 제공하는 외부 서비스(OpenAI API 등)입니다.</li>
+        </ul>
+        <p>아래 다이어그램을 통해 시스템이 어떻게 서로 정보를 주고받는지 시각적으로 확인해보세요!</p>
+    </div>
+
+    <div class="diagram-container">
+        <div class="mermaid">
+            flowchart TB
+                %% 1. 사용자/클라이언트 레이어 (Frontend)
+                subgraph Client ["🖥️ 프론트엔드 (사용자 화면)"]
+                    direction LR
+                    StudentUI["👩‍🎓 학생용 화면\n(Vue.js / Tailwind)"]
+                    ProfUI["👨‍🏫 교수자용 대시보드\n(Vue.js / Chart.js)"]
+                end
+
+                %% 2. 백엔드 레이어
+                subgraph Backend ["⚙️ 백엔드 서버 (Django REST Framework)"]
+                    direction TB
+                    API_Gateway{"API 게이트웨이\n(요청 분배기)"}
+                    
+                    subgraph Core_Services ["세부 기능 모듈"]
+                        Auth["🔒 인증/로그인"]
+                        Learning["📚 학습 및 온보딩"]
+                        LiveSession["📡 라이브 세션 & 퀴즈"]
+                        Analytics["📊 데이터 분석 및 모니터링"]
+                    end
+                end
+
+                %% 3. 외부 및 인프라 레이어
+                subgraph Infra ["📦 데이터베이스 및 지능형 AI 연동"]
+                    direction LR
+                    DB[("🗄️ 백엔드 전용 DB\n(PostgreSQL)")]
+                    OpenAI_API{{"🧠 생성형 AI 엔진\n(OpenAI GPT-4o)"}}
+                    STT_Engine{{"🎙️ 실시간 음성 인식\n(KWS & STT Engine)"}}
+                end
+
+                %% 연결 및 흐름 설정
+                StudentUI <-->|API 요청 및 응답 데이터| API_Gateway
+                ProfUI <-->|통계 조회 및 설정 변경| API_Gateway
+
+                API_Gateway --> Auth
+                API_Gateway --> Learning
+                API_Gateway --> LiveSession
+                API_Gateway --> Analytics
+
+                Core_Services <-->|학습 진도/기록 저장| DB
+                Learning <-->|개인화 복구 플랜/퀴즈 추천| OpenAI_API
+                Analytics <-->|AI 기반 통계 분석| OpenAI_API
+                LiveSession <-->|강의 중 교수자 음성 전달| STT_Engine
+
+                %% 테마 및 디자인 설정 (알기 쉬운 색상 매핑)
+                classDef ui fill:#e0f7fa,stroke:#1976d2,stroke-width:2px,color:#000
+                classDef backend fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+                classDef database fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+                classDef ai fill:#fff8e1,stroke:#fbc02d,stroke-width:2px,color:#000
+                classDef gateway fill:#e8f5e9,stroke:#00796b,stroke-width:2px,color:#000
+
+                class StudentUI,ProfUI ui
+                class Auth,Learning,LiveSession,Analytics backend
+                class API_Gateway gateway
+                class DB database
+                class OpenAI_API,STT_Engine ai
+        </div>
+    </div>
+
+    <div class="description" style="margin-top: 30px;">
+        <h3>🔑 각 연결 흐름의 주요 역할</h3>
+        <ol>
+            <li><strong>학생/교수님 ↔ 백엔드</strong>: 사용자가 브라우저에서 버튼을 클릭하거나 페이지를 이동하면 모든 요청이 서버의 <strong>'요청 분배기(API)'</strong>로 전달됩니다.</li>
+            <li><strong>백엔드 ↔ 데이터베이스 (PostgreSQL)</strong>: 진도율, 로그인 정보, 설정 등 사라지면 안 되는 핵심 정보들은 모두 데이터베이스(창고)에 영구적으로 안전하게 보관됩니다.</li>
+            <li><strong>백엔드 ↔ AI 엔진 (OpenAI)</strong>: "학습 복구 플랜", "퀴즈 자동 생성", "AI 요약본" 같은 고도화된 기능은 백엔드가 서버에 연동된 똑똑한 <strong>GPT-4o 모델</strong>에 질문을 던져 답변을 받아 화면에 뿌려줍니다.</li>
+            <li><strong>백엔드 ↔ STT 엔진</strong>: 교실에 있는 음성 인식 장치(라스베리파이 등)가 실시간으로 교수님의 목소리를 글자(자막)로 변환해 라이브 세션 모듈로 전송합니다.</li>
+        </ol>
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,134 @@
+1. 개요
+to 부정사(to 不定詞, to infinitive 혹은 full infinitive)는 시제나 수, 법 등에 따라 형태가 정해지지 않는 동사, 즉 동사원형과 같은 뜻으로 원형부정사와 to 부정사가 있다. to 부정사는 to+동사원형의 형태를 가진다. 일반적으로 동사는 시제나 수 혹은 법에 따라 형태가 정해지는데, 예를 들면 시제나 수에 따라 play라는 동사는 play, played, plays 등 그 형태가 정해져 있다. 그러나 부정사의 경우 그 형태가 시제나 수에 따라 정해진 특별한 형태가 있는 것이 아니고 언제나 play라는 동사의 원형을 사용하게 되는데 이를 정해지지 않았다는 의미에서 (in + finitive;정사가 아니다) infinitive 라는 명칭을 가지게 되었다.[1]
+
+to 부정사의 부정은 부정문의 부정(否定)과는 완전히 다르다. 영어로도 부정문은 negation, 부정사는 infinitive로 구분된다.
+
+보통 중2 영문법에 주로 등장하지만, 일부 교과서들은 1학년 2학기 때 나오기도 한다.
+(6학년도 배울수 있다.)
+2. 용법에 따른 분류
+to 부정사는 70~80%가 하기 위해, 즉 부사적용법으로 사용된다. to 자체가 어딘가로 향하는, 방향성을 띠고 있기 때문이다. 따라서 to 부정사가 부사절, 형용사절, 명사절로 쓰여도 결국 모두 'to 이하의 동사하려는' 또는 'to 이하로 가려는' 뉘앙스로 귀결된다. 왜냐하면 본래 부정사가 형태가 정해지지 않아 동사적 특성을 띤 명사이기 때문이다. to 이하 문장구조와 내용에 따라 그 뜻은 천차만별이다.
+
+to 부정사에서 출현하는 위치에 따라 용법이 달라지는 편이다.
+2.1. 명사적 용법
+'~하는 것', '~하기' 의 의미로 볼 수 있다.
+1) 주어[2]
+예문 ㅡ To raise children is hard.
+이 문장에서는 to raise children이 주어의 역할을 하고 있다. 이렇게 to 부정사가 주어로써 사용된 문장은 <<It is 보어 to 부정사~.>>의 형태로 변환이 가능하다. 현대 영어에서는 대부분 가주어 it을 사용해 표현하며, 굳이 to 부정사를 주어로 쓰는 경우는 격언이나 불변의 진리 등을 표현하고자 할 때, 혹은 위 문장처럼 (특히 문어체에서) hard 등의 서술어를 문장 뒤편으로 빼서 강조하고자 할 때 등이다.
+예문 ㅡ It is hard to raise children.
+
+2) 목적어
+예문 ㅡ He found to play computer games fun.
+이 문장에서는 to play computer games가 목적어의 역할을 하고 있다. 주어로 쓰인 to 부정사와 마찬가지로 목적어로 쓰인 to 부정사의 경우에도 문장 변환이 가능한데, 이때는 문장의 구조가 <<주어 동사 it 보어 to 부정사~.>>로 바뀐다.
+
+3) 2형식 문장의 주격보어
+예문 ㅡ His dream is to make the earth peaceful.
+이 문장에서는 to make the earth peaceful이 His dream의 보어 역할을 하고 있다. 형용사적 용법의 be to 용법과 혼동될 수 있으니 조심.
+
+4) 의문사 + to 부정사
+예문 ㅡ I don't know what to do. (= I don't know what I should do.)
+형태는 <<의문사 + to 부정사>>로, 의미는 "~를 ㅡ할지"이다. 그러니까 의문사에 what이 온다면 무엇을 ~할지, where가 온다면 어디서 ~할지의 의미로 해석하면 된다. who는 누구를(누가) ~할지, when은 언제 ~할지, how 어떻게 ~할지 라는 뜻이다. 예외적으로 why to ~는 존재하지 않는다. 그리고 이렇게 의문사 + to 부정사의 꼴은 의문사 + 주어 + should 동사 꼴로 바꿀 수 있다.
+
+단, 전치사 뒤에는 to 부정사를 쓸 수 없다. 당연한 것이 to도 본래 전치사이기 때문에 그렇게 쓰면 전치사가 2개 연달아 오는 꼴이 되기 때문이다. 그렇기에 to 부정사로 전달하고자 하는 의미를 전달하려면 동명사를 써야 한다.
+예문 ㅡ I'm looking foward to meeting you.
+- foward to meet you 라고 하면 안 된다! to가 보인다고 바로 to 부정사를 발사하면 안 된다. 이 경우 to는 look foward to ~ (~를 기대하다) 라는 구동사의 일부이다. 그래서 to to meet이라 하면 부자연스러운 것이다.
+2.2. to 부정사 만을 목적어로 받는 동사
+동사 중 동명사만을 목적어로 받는 동사와 to 부정사 만을 목적어로 받는 동사가 있다. 다음은 to 부정사만을 목적어로 받는 동사의 예시이다. 외우자. 잘 보면 위에 동명사와 to 부정사 차이를 나타낸다. to 부정사는 to (~으로) 라는 말이 있듯 미래의 일에 대한 느낌이 많다. to 부정사가 ~'할 것을' 이라는 뜻으로 쓰인다. (예: ~ 할 것을 원하다, ~ 할 것을 거부하다) 계획, 약속, 제안에 관한 동사들이 많다.
+want (원하다)
+expect (기대하다, 예상하다)
+hope (바라다, 기원하다)
+wish (바라다, 기원하다)
+plan (계획하다)
+choose(선택하다)
+promise (약속하다)
+agree (동의하다)
+decide (결심하다)
+refuse (거절, 거부하다)
+manage (겨우 ~하다)
+happen (우연히 ~하다)
+propose (제안하다)
+tell (말하다)
+
+위에 나온 단어들을 포함한 나머지 거의 대부분의 타동사들은 to 부정사 (미래 의미)를 목적어로 취한다. 동명사가 목적어 자리에 들어가면 의미상 어색해지거나, (현재 하지 않는) 과거의 일을 나타내는 경우가 많다.
+2.3. 형용사적 용법
+1) 앞 명사의 수식: ~할, ~하는 정도의 의미로 해석해 주면 된다. 본래 to 부정사의 동사가 선행사를 꾸며주기 위해 전치사를 수반할 땐 전치사를 써주어야 한다. -thing, -one, -body 등은[3] 일반적인 형용사도 후치 수식을 하기 때문에 명사+형용사+to 부정사 꼴로 쓴다.
+예문1 ㅡ He has enough erasers to use.
+to use가 enough eraser을 수식해주는 형태.
+예문2 ㅡ Emma needs any paper to write on.
+to write 뒤에 on이 붙은 이유는 write any paper가 아닌 write on any paper로 write에 on이란 전치사가 필요하기 때문
+예문3 ㅡ We drank something cold to drink.
+something, cold, to drink 순서
+2.3.1. be to 용법
+be to 용법은 간혹 to 부정사의 명사적 용법과 헷갈린다. 그 이유는 to 부정사의 명사적 용법과 형태상 차이점이 없기 때문이다. 문맥과 해석을 통해 둘을 구분하는 방법밖에 없다.
+
+이 용법의 의미는 5가지로 나눌 수 있다. (예정, 의무, 의도, 가능, 운명)
+예정 ㅡ He is to visit his aunt's house next Friday. We are to meet[4] at five
+의무 ㅡ He is to finish his homework by 10. You are to start[5] right now.
+의도 ㅡ Mama is not to bother you.
+가능 ㅡ Nothing was to be moved.
+운명 ㅡ All man is to die.
+
+입시학원 등에서는 괄호 안의 첫 글자를 따서 "예의의 가운", 즉 예의상으로 가운을 입으라는 식으로 외우게 하기도 한다.
+be동사 + to부정사 용법에는 세 가지 밖에 읎다. 예정! 의무! 가능! 그라니까네 예의가 be to Root(삐뚜루뚜)다 이말이야. 느그들맨치로 싸가지 없는 아새끼들 보고 머라카노? 예의가 삐뚜룸~하다 안 카나? 함 따라 해봐라. 예의가 삐뚜루! (예의가 삐뚜루!)
+영화 말죽거리 잔혹사에서는 예정, 의무, 가능 3가지만 등장하였는데, 예의가 삐뚜루(be to Root)하다고 설명하였다.[6]
+2.4. 부사적 용법
+1) 목적: '~하기 위해서'로 해석한다.[7]
+예문 - He went to Busan to visit his grandfather.
+= He went to Busan in order to visit his grandfather.[8]
+= He went to Busan so as to his grandfather.[9]
+2) 감정의 표현(감정의 원인): '~해서'로 해석한다.
+예문 - Nice to meet you.
+
+3) 판단의 근거: must be, can't be ~ to V '~하다니'로 해석한다.
+예문 - You must be crazy to say so.
+
+4) 결과: grow up to be(자라서 ~가 되었다), lived to be(~살까지 살았다) / (그 결과 안좋은 쪽으로)~하게 되었다 [10]
+예문 - She grew up to be speed skater. /I studied a lot only to fail the test.
+
+5) 조건: ~ 한다면, ~라면 [11]
+예문 - To hear her speak, you'll think she is not a foreigner.
+
+6) 형용사 수식: ~하기에
+예문 - The article was hard to read.
+3. to 부정사 의미상 주어
+to 부정사는 to + 동사 원형 꼴이기에 주어를 밝힐 수 없다는 특징이 있다. 그래서 주어를 필수적으로 서술해야 하는 경우 의미상 주어를 쓴다. 의미상 주어는 너무 뻔하거나[12] (people), 누군지 짐작할 수 있을 때는 쓰지 않는다.
+
+의미상 주어는 for 의미상 주어, 또는 of 의미상 주어 꼴로 간다. 일반적으로는 for을 쓰지만, 주어의 행동에 대한 비난이나 칭찬 같은 사람의 성질을 이야기할 때는 of를 쓴다. 의미상 주어는 목적격 대명사로 써야한다. (me, you, him, her, it, us, them...)
+
+for 목적격 + to 부정사로 쓰면 (목적격)이 ~ 하는 같이 쓰이고, of 목적격 + to 부정사는 to 부정사 하다니 목적격은 ~했다 라는 뜻으로 쓰이곤 한다.
+
+명사적 용법 말고도 형용사적 용법, 부사적 용법에도 의미상 주어를 넣을 수 있다. 위에 나온 in order to, so as to 의 구문에서도 의미상 주어는 to 바로 앞에 온다. in order for A to, so as for A to 꼴이 된다.
+예문1 - It's hard for him to get a job.[13]
+예문2 - It is careless of her not to check the gas.[14]
+예문3 - The question was difficult for us to understand.[15]
+4. 부정사 분할
+Split infinitive
+to 부정사의 'to'와 동사 사이에 그 동사를 수식하는 부사(구)를 넣어 to 와 동사를 분리하는 표현 혹은 용법이다.
+You should care / to not split / infinitives.[16]
+I want them / to completely fail. /[17]
+부정사 분할은 현대 영어에서 의미의 구체적 표현을 위해 불가피한 용법으로 그 사용을 인정받고 있다. 그러나 수식어구 때문에 문장 내에서 to 다음의 동사의 거리가 너무 멀어져 문장 전체의 맥락이 모호해지는 등의 이유로 사용을 지양하는 것이 옳다고 보는 의견도 있다.
+5. to 부정사의 근대 형태
+사실 to 부정사는 to 뒤에 동사원형이 조동사의 의미가 함축되어 있는 문장성분이다. 과거에는 굴절어미-enne이 있었으나 그것이 현대영어가 되고 부터는 to + 부정사의 형태로 변형되었다. 조동사 + 동사원형이 to+동사원형+-enne로 변했다가 굴절어미가 생략되면서 to+동사원형으로 변형되었다.
+6. 여담
+to 부정사와 마침표가 잘못 찍혀 뜻이 엄청나게 달라지는 바람에 '경기병 여단 돌격'이라는 참사가 일어난 발라클라바 전투의 사례가 있다.
+래글런 남작이 원래 전하려 했던 내용
+Cavalry to advance and take advantage of any opportunity to recover the Heights. They will be supported by infantry, which has been ordered to advance on two fronts.
+기병대는 (코즈웨이) 고지로 진격하여 탈환하라. 두 개의 전선을 형성하라는 명령을 받은 보병대가 지원할 것이다.
+잘못 전달된 내용
+Cavalry to advance and take advantage of any opportunity to recover the Heights. They will be supported by infantry, which has been ordered. Advance on two fronts.
+기병대는 (코즈웨이) 고지로 진격하여 탈환하라. 보병대가 명령 받은대로 지원할 것이다. 두 개의 전선으로 진격하라.
+
+원문을 읽어보면 알겠지만 to 부정사 하나와 점 하나 잘못 찍어 이 사태가 터졌다. 두 개의 전선을 형성한 보병의 지원을 받으며 진격하라는 것이 두 개의 전선을 형성해 진격하라, 보병이 지원할 것이다로 전달된 것.[18]
+
+stop은 동명사와 to 부정사가 모두 뒤에 올 수 있는 동사다. 다만 stop의 목적어로는 to 부정사가 아닌 동명사만 사용된다. 여기서 한 문장을 던지면...
+
+He stopped smoking.과 He stopped to smoke.는 확실한 차이가 있다. 첫 번째 문장은 "그는 담배 피우는 것을 멈췄다."로 해석되지만, 두 번째 문장은 "그는 담배 피우기 위해 멈췄다."라는 문장이 만들어진다.(..) 쉽게 말하면 동명사 Smoking을 사용하면 금연하다라는 뜻이 되고, to 부정사인 to smoke를 사용하면 길빵한다(...)는 뜻이 된다. He stopped to smoke의 to smoke는 to 부정사의 부사적 용법으로 사용되었기 때문이다.
+
+I remember playing the violin. 과 I remember to play the violin 같은 경우 뜻의 차이가 있는데 첫 번째 문장은 "나는 바이올린을 켰던 것을 기억한다." 이고, 두 번째 문장은 "나는 바이올린을 켤 것을 기억한다."이다. remember이라는 동사에서 to 부정사는 미래의 뜻을, 동명사는 과거의 뜻을 나타낸다. remember 뿐만 아니라, to 부정사를 사용하는 것 자체가 약간 미래의 뜻을 나타낸다. 쉽게 말하면 to 부정사는 아직은 일어나지 않은 일을 가리킨다. 반면, 동명사는 이미 한 일을 가리킨다. forget도 똑같이, forget to V는 ~할 것을 까먹다 이고, forget V-ing은 ~했던 것을 까먹다 로 해석한다. 비슷한 맥락에서, try fixing it은 '조금 고쳐보려다가 말았음'을 암시하며, try to fix it은 '어느 정도 제대로 처음부터 끝까지 고쳐보려고 했음'을 암시한다.
+
+동사 start는 대개 to 부정사와 동명사를 둘 다 취할 수 있으며 뜻도 거의 같으나, 항상 그렇지는 않다. 예컨대, I started to feel sorry라는 문장은 문법적으로 문제가 없으나, I started feeling sorry는 어색하게 느껴진다. start와 동명사를 함께 쓰면 '길게 이어지거나 습관적인 행동이 시작된다'는 느낌을 주는데, 해당 문장에서는 동사 feel이 일회적인 감정(미안함)을 느낀다는 맥락으로 쓰였기 때문이다. 반면 to 부정사는 주어의 기분에 따라 얼마든지 상황이 바뀔 수 있음을 암시한다. 예컨대, 영어권 화자 중에서도 어감에 민감한 사람은 It started to rain과 It started raining을 서로 미묘하게 다른 의미로 받아들인다. 전자는 '비가 조금씩 내리기 시작했다(언제 그칠지 모르며, 본격적으로 내리지는 않았다)'라는 느낌을 주지만, 후자는 '비가 본격적으로 쏟아지기 시작했음'을 암시한다.
+
+'반복되는 표현을 가급적 피한다'는 영어의 특성상, 현재진행형 뒤에는 동명사보다 to 부정사가 이어지는 경우가 많다. He is beginning to see reality는 괜찮지만, He is beginning seeing reality는 어색한 표현으로 인식된다.
+
+Going, Trying 등의 동명사와 결합하면 to가 /na/로 발음되는 경우가 많다.[19]
+
+교과과정에서 not을 to 부정사 앞에 표기하도록 가르치지만, 사실 to not 동사도 어법상으로는 맞는다. 잘 쓰이지 않지만.[20]

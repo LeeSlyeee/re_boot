@@ -1,0 +1,5811 @@
+<script setup>
+import { ref, nextTick, computed, watch, onMounted } from "vue";
+import { useRouter, useRoute } from "vue-router"; // useRoute added
+
+// Debug Refs
+const debugLastChunkSize = ref(0);
+const debugLastStatus = ref("Init");
+const debugLastResponse = ref("-");
+import {
+  Mic,
+  Square,
+  Pause,
+  FileText,
+  MonitorPlay,
+  Users,
+  Youtube,
+  ArrowLeft,
+  Bot,
+  Play,
+  List,
+  Lock,
+  Download,
+  PenLine,
+} from "lucide-vue-next";
+import { AudioRecorder } from "../api/audioRecorder";
+import api from "../api/axios";
+import ChecklistPanel from "../components/ChecklistPanel.vue";
+import { useLiveSession } from "../composables/useLiveSession";
+import { useToast } from "../composables/useToast";
+
+const { showToast } = useToast();
+
+const router = useRouter();
+const route = useRoute(); // Route access
+
+// --- State Variables ---
+const mode = ref(null);
+const youtubeUrl = ref("");
+const watchHistory = ref([]);
+const isLoadingSession = ref(true);
+const isUrlSubmitted = ref(false);
+const pendingSessionId = ref(null);
+const isCompletedSession = ref(false);
+
+// --- State Management ---
+const isRecording = ref(false);
+const sttLogs = ref([]);
+const recorder = ref(null);
+const logsContainer = ref(null);
+const sessionId = ref(null);
+const nextSequenceOrder = ref(1);
+
+// --- YouTube Player API ---
+const ytPlayer = ref(null);
+const ytPlayerReady = ref(false);
+const videoStartTime = ref(null); // 녹음 시작 시 영상 재생 시간(초)
+
+// --- Live Session (Composable) ---
+const {
+  liveSessionData,
+  liveSessionCode,
+  liveNoteTab,
+  myPulse,
+  livePulseStats,
+  pendingQuiz,
+  quizResult,
+  quizAnswering,
+  liveNote,
+  quizTimer,
+  quizTimeLimit,
+  weakZoneAlerts,
+  showWeakZonePopup,
+  currentWeakZone,
+  liveQuestions,
+  newQuestionText,
+  qaOpen,
+  myReviewRoutes,
+  srDueItems,
+  formativeData,
+  formativeAnswers,
+  formativeResult,
+  formativeSubmitting,
+  myAdaptiveContent,
+  myStudentLevel,
+  timerPercent,
+  joinLiveSession,
+  sendPulse,
+  answerLiveQuiz,
+  dismissQuizResult,
+  fetchLiveQuestions,
+  askQuestion,
+  upvoteQuestion,
+  startLiveStatusPolling,
+  stopLiveStatusPolling,
+  fetchLiveNote,
+  startNotePolling,
+  fetchWeakZoneAlerts,
+  resolveWeakZone,
+  leaveLiveSession: _leaveLiveSession,
+  fetchMyReviewRoutes,
+  completeReviewItem,
+  fetchSRDue,
+  completeSR,
+  fetchFormative,
+  submitFormative,
+  fetchMyContent,
+  myQuizHistory,
+  fetchMyQuizHistory,
+} = useLiveSession(sttLogs);
+
+// Wrap leaveLiveSession to also reset mode
+const leaveLiveSession = () => {
+  _leaveLiveSession();
+  mode.value = null;
+};
+
+
+
+
+// B2: 학생 개인 세션 요약
+const mySessionSummary = ref(null);
+
+const fetchMySessionSummary = async () => {
+  if (!liveSessionData.value || liveSessionData.value.status !== "ENDED")
+    return;
+  try {
+    const { data } = await api.get(
+      `/learning/live/${liveSessionData.value.id}/my-summary/`,
+    );
+    mySessionSummary.value = data;
+  } catch {}
+};
+
+const renderMarkdown = (text) => {
+  if (!text) return "";
+  return text
+    .replace(/^### (.+)$/gm, "<h4>$1</h4>")
+    .replace(/^## (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^# (.+)$/gm, "<h2>$1</h2>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/^- (.+)$/gm, "<li>$1</li>")
+    .replace(/\n/g, "<br/>");
+};
+
+const isOptionCorrect = (opt, correctAns) => {
+  if (!opt || !correctAns) return false;
+  
+  const optStr = String(opt).trim();
+  const ansStr = String(correctAns).trim();
+  
+  if (/^\d+$/.test(optStr) && /^\d+$/.test(ansStr)) {
+    return parseInt(optStr, 10) === parseInt(ansStr, 10);
+  }
+  
+  if (optStr === ansStr) return true;
+  
+  const prefixes = [':', '. ', ' ', ')', ']'];
+  if (prefixes.some(p => optStr.startsWith(ansStr + p))) return true;
+  
+  const optNoSpace = optStr.replace(/[\s\n\t]/g, '');
+  const prefixesNoSpace = [':', '.', ')', ']'];
+  if (prefixesNoSpace.some(p => optNoSpace.startsWith(ansStr + p))) return true;
+  
+  if (ansStr.length === 1 && /^[a-zA-Z]$/.test(ansStr)) {
+      if (optStr.startsWith(ansStr) && optStr.length > 1) {
+          const nextChar = optStr[1];
+          if (!/^[a-zA-Z0-9]$/.test(nextChar)) return true;
+      }
+  }
+  
+  return false;
+};
+
+// --- Lecture Mode State ---
+const currentLectureId = ref(null);
+const sessions = ref([]); // Renamed from lectureSessions
+const missedSessions = ref([]); // [New] Missed classes by others
+const showLectureSidebar = ref(false); // This might become obsolete with the new UI, but keeping for now
+
+const fetchLectureSessions = async (lectureId) => {
+  try {
+    const res = await api.get(`/learning/sessions/lectures/${lectureId}/`);
+    sessions.value = res.data;
+
+    // [New] Dynamic Re-routing Analysis
+    analyzeChecklist(lectureId);
+  } catch (e) {
+    if (e.response?.status === 401) {
+      showToast("로그인이 필요합니다.", "error");
+      router.push("/login");
+      // Stop further execution to prevent cascading errors
+      throw e;
+    }
+    console.error("Failed to load sessions", e);
+  }
+};
+
+// [New] Dynamic Re-routing State
+const recoveryStatus = ref(null);
+const recoveryRecommendation = ref(null);
+const showRecoveryModal = ref(false);
+const isGeneratingRecovery = ref(false);
+const recoveryPlanContent = ref("");
+
+const analyzeChecklist = async (lectureId) => {
+  try {
+    console.log(`🔍 Analyzing Checklist for Lecture: ${lectureId}`);
+    const res = await api.get(
+      `/learning/checklist/analyze/?lecture_id=${lectureId}`,
+    );
+
+    recoveryStatus.value = res.data.status;
+    recoveryRecommendation.value = res.data.recommendation;
+
+    if (
+      recoveryStatus.value === "critical" ||
+      recoveryStatus.value === "warning"
+    ) {
+      console.log("🚨 Re-routing Suggested:", recoveryRecommendation.value);
+    }
+  } catch (e) {
+    console.error("Analysis Failed", e);
+  }
+};
+
+const executeRecoveryPlan = async () => {
+  // Phase 2: Open Compressed Course
+  if (!currentLectureId.value) return;
+
+  isGeneratingRecovery.value = true;
+  showRecoveryModal.value = true; // Open modal first (showing loading state)
+
+  try {
+    const res = await api.post(`/learning/checklist/recovery_plan/`, {
+      lecture_id: currentLectureId.value,
+    });
+    recoveryPlanContent.value = res.data.recovery_plan;
+  } catch (e) {
+    showToast("복구 플랜 생성에 실패했습니다.", "error");
+    showRecoveryModal.value = false;
+  } finally {
+    isGeneratingRecovery.value = false;
+  }
+};
+
+const fetchMissedSessions = async (lectureId) => {
+  try {
+    const res = await api.get(
+      `/learning/sessions/lectures/${lectureId}/missed/`,
+    );
+    missedSessions.value = res.data;
+  } catch (e) {
+    console.error("Failed to fetch missed sessions", e);
+  }
+};
+
+// [Phase 2] 공유 노트 조회
+const sharedNotes = ref([]);
+const fetchSharedNotes = async (lectureId) => {
+  try {
+    const res = await api.get(
+      `/learning/sessions/lectures/${lectureId}/shared-notes/`,
+    );
+    sharedNotes.value = res.data.notes || res.data || [];
+  } catch (e) {
+    sharedNotes.value = [];
+  }
+};
+
+// [Phase 2] 결석 셀프 테스트
+const selfTestData = ref(null);
+const selfTestAnswers = ref({});
+const selfTestResult = ref(null);
+const selfTestLoading = ref(false);
+
+const startSelfTest = async (noteId) => {
+  selfTestLoading.value = true;
+  try {
+    const { data } = await api.get(
+      `/learning/absent-notes/${noteId}/self-test/`,
+    );
+    selfTestData.value = data;
+    selfTestAnswers.value = {};
+    selfTestResult.value = null;
+  } catch (e) {
+    showToast("셀프 테스트 로드 실패", "error");
+  }
+  selfTestLoading.value = false;
+};
+
+const closeSelfTest = () => {
+  selfTestData.value = null;
+  selfTestAnswers.value = {};
+  selfTestResult.value = null;
+};
+
+const openSharedSession = async (missed) => {
+  if (!missed.representative_session_id) return;
+
+  // Load shared session details
+  // We can reuse fetchSessionDetails but need to handle "Shared" state
+  try {
+    isLoadingSession.value = true;
+    const res = await api.get(
+      `/learning/sessions/${missed.representative_session_id}/`,
+    );
+    const sessionData = res.data;
+
+    // Set Shared View State
+    sessionId.value = sessionData.id; // For RAG to work
+
+    // Fetch logs separately
+    try {
+      const logRes = await api.get(
+        `/learning/sessions/${sessionId.value}/logs/`,
+      );
+      sttLogs.value = logRes.data || [];
+    } catch (logErr) {
+      console.error("Failed to fetch logs for shared session", logErr);
+      sttLogs.value = [];
+    }
+
+    sessionSummary.value =
+      sessionData.latest_summary ||
+      "# [공유된 학습 노트]\n\n아직 요약이 생성되지 않았습니다.";
+    youtubeUrl.value = sessionData.youtube_url || "";
+
+    isSharedView.value = true;
+    isCompletedSession.value = true; // [FIX] Treat as completed/read-only
+    currentClassTitle.value = `[보충] ${new Date(missed.date).toLocaleDateString()} 수업 (공유됨)`;
+
+    // Switch to appropriate Mode
+    if (sessionData.youtube_url) {
+      mode.value = "youtube";
+      isUrlSubmitted.value = true; // [FIX] Prevent URL input overlay
+    } else {
+      mode.value = "offline";
+      isUrlSubmitted.value = true; // Treat as submitted for consistency
+    }
+  } catch (e) {
+    showToast("공유 데이터를 불러오는데 실패했습니다.", "error");
+  } finally {
+    isLoadingSession.value = false;
+  }
+};
+
+const loadSessionFromSidebar = (session) => {
+  // 세션 로드
+  resumeSessionById(session.id);
+};
+
+const startNewClassSession = () => {
+  // 수업 모드에서 '새 수업 시작' -> 오프라인(마이크/시스템) 모드로 전환
+  // currentLectureId는 유지되므로 startRecording 시 자동으로 연동됨
+  selectMode("offline");
+};
+
+// State Management refs (isRecording, sttLogs, recorder, logsContainer, sessionId, nextSequenceOrder)
+// are declared at the top of the file.
+
+// Quiz State
+const quizData = ref(null);
+const showQuiz = ref(false);
+const quizAnswers = ref({});
+// quizResult는 line 35에서 이미 선언됨
+const isGeneratingQuiz = ref(false);
+const isSubmittingQuiz = ref(false);
+
+// --- RAG Chat State ---
+const isChatOpen = ref(false);
+const chatMessages = ref([
+  {
+    role: "ai",
+    text: "안녕하세요! 수업 중 궁금한 점이 있으면 언제든 물어보세요. 😊",
+  },
+]);
+const chatInput = ref("");
+const isChatLoading = ref(false);
+const chatScrollRef = ref(null);
+
+const toggleChat = () => {
+  isChatOpen.value = !isChatOpen.value;
+  if (isChatOpen.value) scrollToChatBottom();
+};
+
+const scrollToChatBottom = async () => {
+  await nextTick();
+  if (chatScrollRef.value) {
+    chatScrollRef.value.scrollTop = chatScrollRef.value.scrollHeight;
+  }
+};
+
+const sendChatMessage = async () => {
+  if (!chatInput.value.trim() || isChatLoading.value) return;
+
+  const userText = chatInput.value;
+  chatMessages.value.push({ role: "user", text: userText });
+  chatInput.value = "";
+  scrollToChatBottom();
+
+  isChatLoading.value = true;
+  try {
+    const res = await api.post("/learning/rag/ask/", {
+      q: userText,
+      session_id: sessionId.value,
+      lecture_id: currentLectureId.value,
+      // 라이브 세션 중이면 자동으로 교수자에게 익명 전달
+      live_session_id: liveSessionData.value?.session_id || null,
+    });
+
+    chatMessages.value.push({ role: "ai", text: res.data.answer });
+  } catch (e) {
+    console.error("Chat Error:", e);
+    chatMessages.value.push({
+      role: "ai",
+      text: " 죄송합니다. 답변을 가져오는 중 오류가 발생했습니다.",
+    });
+  } finally {
+    isChatLoading.value = false;
+    scrollToChatBottom();
+  }
+};
+
+// --- Join Class Logic ---
+const showJoinModal = ref(false);
+const joinCode = ref("");
+const availableLectures = ref([]);
+const selectedLectureId = ref(null);
+const currentClassTitle = ref(null);
+const isSharedView = ref(false); // [New] Is viewing shared content?
+
+const myLectures = ref([]); // [New] My Enrolled Lectures
+
+const fetchMyLectures = async () => {
+  try {
+    const res = await api.get("/learning/lectures/my/");
+    myLectures.value = res.data;
+  } catch (e) {
+    console.error("Failed to fetch my lectures", e);
+  }
+};
+
+const fetchAvailableLectures = async () => {
+  // Legacy: Unused now
+  try {
+    const res = await api.get("/learning/lectures/public/");
+    availableLectures.value = res.data;
+  } catch (e) {
+    console.error("Failed to fetch public lectures", e);
+  }
+};
+
+const openJoinModal = () => {
+  showJoinModal.value = true;
+  joinCode.value = "";
+  selectedLectureId.value = null;
+  fetchMyLectures(); // [FIX] Show my enrolled lectures
+};
+const closeJoinModal = () => {
+  showJoinModal.value = false;
+};
+
+const selectLecture = async (lecture) => {
+  // [Security Fix] Prevent accessing unenrolled lectures
+  if (!lecture.is_enrolled) {
+    showToast("이 클래스를 수강하려면 입장 코드를 입력해야 합니다.", "warning");
+    selectedLectureId.value = lecture.id;
+    // Optionally pre-fill or focus join input
+    return;
+  }
+
+  // [UX Improvement] Remove native confirm() to prevent flaky behavior.
+  // Directly proceed with selection.
+
+  try {
+    currentClassTitle.value = lecture.title;
+    currentLectureId.value = lecture.id;
+
+    // Fetch sessions first
+    await fetchLectureSessions(lecture.id);
+
+    // [New] Fetch missed sessions
+    await fetchMissedSessions(lecture.id);
+
+    // [Phase 2] Fetch shared notes
+    await fetchSharedNotes(lecture.id);
+
+    // Only close modal and switch mode upon success
+    showJoinModal.value = false;
+    mode.value = "lecture";
+  } catch (e) {
+    console.error("Lecture Selection Failed:", e);
+    if (e.response && e.response.status === 401) {
+      showToast("로그인이 필요한 기능입니다.", "error");
+      router.push("/login");
+    } else {
+      showToast("수업을 불러오는데 실패했습니다. (서버 오류)", "error");
+    }
+  }
+};
+
+const joinClass = async () => {
+  if (!joinCode.value || joinCode.value.length < 6) return;
+
+  try {
+    const res = await api.post("/learning/enroll/", {
+      access_code: joinCode.value.toUpperCase(),
+    });
+
+    // 1. 성공 알림 및 모달 닫기
+    showToast(`'${res.data.title}' 클래스 입장 완료!`, "success");
+    closeJoinModal();
+
+    // 2. 해당 강의의 수업 목록을 로드하고 lecture 모드로 진입
+    const lectureId = res.data.lecture_id;
+    if (lectureId) {
+      currentClassTitle.value = res.data.title;
+      currentLectureId.value = lectureId;
+      await fetchLectureSessions(lectureId);
+      await fetchMissedSessions(lectureId);
+      await fetchSharedNotes(lectureId);
+      mode.value = "lecture";
+    } else {
+      // lecture_id가 없는 경우 → 대시보드로 이동 (수강목록 확인 유도)
+      router.push("/dashboard");
+    }
+  } catch (e) {
+    console.error(e);
+    const msg =
+      e.response?.data?.error ||
+      e.response?.data?.message ||
+      "코드가 올바르지 않거나 이미 가입된 클래스입니다.";
+    showToast(msg, "error");
+  }
+};
+
+// --- 1. 진입 로직 ---
+onMounted(async () => {
+  try {
+    console.log("🚀 LearningView Mounted.");
+
+    // [QR/URL 자동 입장] ?live=XXXXXX 파라미터 감지
+    const liveCode = route.query.live;
+    if (liveCode && liveCode.length === 6) {
+      console.log(`📱 QR/URL 자동 입장 감지: ${liveCode}`);
+      liveSessionCode.value = liveCode;
+      const joined = await joinLiveSession();
+      if (joined) mode.value = "live";
+    }
+
+    // [DEMO] ?mode=join → 클래스 참여 모달 자동 열기
+    const queryMode = route.query.mode;
+    if (queryMode === "join") {
+      console.log("📚 데모 모드: 클래스 참여 자동 진입");
+      // 모드 선택 화면을 먼저 보여주고, 클래스 참여 모달을 자동으로 열기
+      mode.value = null;
+      isLoadingSession.value = false;
+      // DOM 렌더링 후 모달 열기
+      nextTick(() => {
+        openJoinModal();
+      });
+      return; // 나머지 세션 복원 로직 스킵
+    }
+
+    // [NEW] Check for Lecture Mode (from Dashboard)
+    const queryLectureId = route.query.lectureId;
+    const querySessionId = route.query.sessionId;
+    const savedSessionId = localStorage.getItem("currentSessionId");
+
+    if (queryLectureId) {
+      console.log(`ℹ️ Opening Lecture Mode: ${queryLectureId}`);
+      currentLectureId.value = queryLectureId;
+      await fetchLectureSessions(queryLectureId);
+      await fetchMissedSessions(queryLectureId); // Fetch missed sessions when entering lecture mode
+
+      // [FIX] Ensure analysis runs on entry
+      analyzeChecklist(queryLectureId);
+
+      mode.value = "lecture";
+      // Don't auto-resume session unless user picks one
+    } else if (querySessionId) {
+      console.log(`ℹ️ Resuming Session from Query: ${querySessionId}`);
+      await resumeSessionById(querySessionId);
+      // [TODO] If resuming session, we might want to analyze its parent lecture too
+      // But for now, analysis is main feature of Lecture List View
+    } else if (savedSessionId) {
+      // [UX 개선] 미완료 세션이 있어도 자동 복원하지 않음
+      // → 모드 선택 화면에서 "이전 학습 이어하기" 카드를 보여주고
+      //   사용자가 직접 선택하거나, 새로운 학습을 시작할 수 있도록 함
+      pendingSessionId.value = savedSessionId;
+      mode.value = null; // 모드 선택 화면 표시
+    } else {
+      // [FIX] 저장된 세션이 없으면 전체 상태 클린 리셋
+      // → 이전 학습 완료 후 재진입 시 모드 선택 화면이 뜨도록 보장
+      mode.value = null;
+      sessionId.value = null;
+      pendingSessionId.value = null;
+      isUrlSubmitted.value = false;
+      isCompletedSession.value = false;
+      sttLogs.value = [];
+      youtubeUrl.value = "";
+    }
+
+    // Load History
+    const history = localStorage.getItem("watchHistory");
+    if (history) watchHistory.value = JSON.parse(history);
+  } finally {
+    isLoadingSession.value = false;
+  }
+});
+
+// --- Helper Functions ---
+// --- State Management (Additions) ---
+const sessionSummary = ref("");
+const activeTab = ref("stt");
+const isGeneratingSummary = ref(false);
+
+// --- 세션 상세 화면용 퀴즈 이력 (강의 기반) ---
+const lectureQuizHistory = ref(null);
+const fetchLectureQuizHistory = async () => {
+  if (!currentLectureId.value) return;
+  try {
+    const { data } = await api.get(`/learning/lectures/${currentLectureId.value}/quiz-history/`);
+    lectureQuizHistory.value = data;
+  } catch (e) { /* silent */ }
+};
+
+// [FIX] 학습노트에서 메모 섹션을 분리하여 표시 (DB에 합쳐진 경우 대응)
+const displaySummary = computed(() => {
+  const raw = sessionSummary.value || "";
+  // "## ✏️ 나의 메모" 또는 "## 나의 메모" 이하를 제거
+  const memoPatterns = ["## ✏️ 나의 메모", "## 나의 메모", "---\n## ✏️"];
+  for (const pattern of memoPatterns) {
+    const idx = raw.indexOf(pattern);
+    if (idx > 0) {
+      return raw.substring(0, idx).trimEnd();
+    }
+  }
+  return raw;
+});
+
+// ── Note Feature (메모는 학습노트와 별도 관리) ──
+const showNoteEditor = ref(false);
+const noteContent = ref("");
+const isSavingNote = ref(false);
+
+const toggleNoteEditor = async () => {
+  showNoteEditor.value = !showNoteEditor.value;
+  if (showNoteEditor.value && sessionId.value) {
+    // 기존 노트 로드
+    try {
+      const res = await api.get(`/learning/sessions/${sessionId.value}/note/`);
+      noteContent.value = res.data.note || "";
+    } catch (e) {
+      console.error("노트 로드 실패", e);
+    }
+  }
+};
+
+const saveNote = async () => {
+  if (!sessionId.value || !noteContent.value.trim()) return;
+  isSavingNote.value = true;
+  try {
+    await api.post(`/learning/sessions/${sessionId.value}/note/`, {
+      note: noteContent.value,
+    });
+    // [FIX] 메모를 학습노트(sessionSummary)에 합치지 않음 — 별도 저장만
+    showToast("메모가 저장되었습니다.", "success");
+  } catch (e) {
+    console.error("노트 저장 실패", e);
+    showToast("메모 저장에 실패했습니다.", "error");
+  } finally {
+    isSavingNote.value = false;
+  }
+};
+
+// ── PDF Export ──
+const exportPdf = () => {
+  if (!sessionId.value) return;
+  // HTML을 가져온 후 새 창에서 브라우저 인쇄(PDF) 기능 활용
+  api
+    .get(`/learning/sessions/${sessionId.value}/export-pdf/`, {
+      responseType: "blob",
+    })
+    .then((res) => {
+      const blob = new Blob([res.data], { type: "text/html" });
+      const blobUrl = window.URL.createObjectURL(blob);
+      const printWindow = window.open(blobUrl, "_blank");
+      if (printWindow) {
+        printWindow.onload = () => {
+          printWindow.print();
+        };
+      } else {
+        // 팝업 차단 시 직접 다운로드
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = `ReBootNote_${sessionId.value}.pdf`;
+        a.click();
+        window.URL.revokeObjectURL(blobUrl);
+      }
+    })
+    .catch((e) => {
+      console.error("PDF 내보내기 실패", e);
+      showToast("내보내기에 실패했습니다.", "error");
+    });
+};
+
+const generateSummary = async () => {
+  if (!sessionId.value) {
+    showToast("세션이 없습니다. 먼저 녹음을 시작해주세요.", "warning");
+    return;
+  }
+
+  isGeneratingSummary.value = true;
+  try {
+    // Force regeneration
+    const res = await api.post(
+      `/learning/sessions/${sessionId.value}/summarize/`,
+    );
+    console.log("Summary Response:", res);
+
+    if (res.data && res.data.content_text) {
+      console.log(
+        "✅ Summary Generated:",
+        res.data.content_text.length,
+        "chars",
+      );
+      sessionSummary.value = res.data.content_text;
+      activeTab.value = "summary"; // Switch to summary tab
+      // Alert removed
+    } else {
+      console.warn("⚠️ Summary response empty or invalid:", res.data);
+      showToast("서버에서 요약 내용을 받지 못했습니다.", "error");
+    }
+  } catch (e) {
+    console.error("Summary Generation Failed:", e);
+    if (e.response && e.response.status === 400) {
+      showToast("요약할 자막 내용이 없습니다.", "warning");
+    } else {
+      showToast("요약 생성에 실패했습니다.", "error");
+    }
+  } finally {
+    isGeneratingSummary.value = false;
+  }
+};
+
+const resumeSession = async (isAutoRestore = false) => {
+  // pendingSessionId가 없으면 로컬 스토리지에서 가져오기 (Auto Restore 시)
+  const targetSessionId =
+    pendingSessionId.value || localStorage.getItem("currentSessionId");
+  if (!targetSessionId) return;
+
+  isLoadingSession.value = true;
+  try {
+    const savedUrl = localStorage.getItem("currentYoutubeUrl");
+
+    // 1. DB 확인
+    const sessionRes = await api.get(`/learning/sessions/${targetSessionId}/`);
+
+    // [FIX] 자동 복구(Auto Restore)인데 이미 완료된 수업이다? -> 복구 안 함 (새판 짜기)
+    if (isAutoRestore && sessionRes.data.is_completed) {
+      console.log("ℹ️ Auto-restore skipped: Session is already completed.");
+      // 로컬 스토리지 청소 -> 사용자에게 '새로운 학습 선택' 기회 제공
+      localStorage.removeItem("currentSessionId");
+      localStorage.removeItem("currentYoutubeUrl");
+      pendingSessionId.value = null;
+      sessionId.value = null; // Ensure clean state
+      return;
+    }
+
+    // 수동 복구이거나, 아직 완료 안 된 세션이면 -> 진행
+    sessionId.value = targetSessionId;
+
+    // 저장된 요약본이 있으면 로드
+    if (sessionRes.data.latest_summary) {
+      sessionSummary.value = sessionRes.data.latest_summary;
+    }
+
+    if (sessionRes.data.is_completed) {
+      console.log("ℹ️ This session is completed. Entering Review Mode.");
+      isCompletedSession.value = true;
+      // [FIX] 요약본이 있을 때만 요약 탭을 기본으로 보여줌, 없으면 자막(STT) 탭
+      if (sessionSummary.value && sessionSummary.value.trim().length > 0) {
+        activeTab.value = "summary";
+      } else {
+        activeTab.value = "stt";
+      }
+    } else {
+      isCompletedSession.value = false;
+      activeTab.value = "stt";
+    }
+
+    // [FIX] 라이브 세션 연결 감지 → 오프라인(리뷰) 모드로 설정
+    if (sessionRes.data.is_live_session) {
+      console.log("🔴 라이브 세션 복원 감지:", sessionRes.data.live_session_title);
+      mode.value = "offline";
+      isUrlSubmitted.value = false;
+    }
+    // [FIX] 우선순위 로직 수정
+    // 1. Lecture(수업) 정보가 있으면 -> 무조건 Offline/Hybrid 모드
+    else if (sessionRes.data.lecture) {
+      mode.value = "offline";
+      // (선택) Lecture Title 복구 로직이 필요하다면 여기서 API 호출 추가 가능
+      // 현재는 간단히 오프라인 모드로 고정
+      if (sessionRes.data.youtube_url) {
+        youtubeUrl.value = sessionRes.data.youtube_url;
+        localStorage.setItem("currentYoutubeUrl", youtubeUrl.value);
+      }
+      isUrlSubmitted.value = !!sessionRes.data.youtube_url;
+    }
+    // 2. 유튜브 URL만 있으면 -> Youtube 모드
+    else if (sessionRes.data.youtube_url) {
+      youtubeUrl.value = sessionRes.data.youtube_url;
+      mode.value = "youtube";
+      isUrlSubmitted.value = true;
+      localStorage.setItem("currentYoutubeUrl", youtubeUrl.value);
+    }
+    // 3. 그 외 (localStorage fallback)
+    else {
+      if (savedUrl) {
+        youtubeUrl.value = savedUrl;
+        mode.value = "youtube";
+        isUrlSubmitted.value = true;
+      } else {
+        const restoredMode = localStorage.getItem("restoredMode");
+        mode.value = restoredMode || "universal";
+      }
+    }
+
+    // 2. 로그 복구
+    const logRes = await api.get(`/learning/sessions/${targetSessionId}/logs/`);
+    if (logRes.data && Array.isArray(logRes.data)) {
+      sttLogs.value = logRes.data;
+    }
+
+    // 2.5 [FIX] 메모 자동 로드
+    try {
+      const noteRes = await api.get(
+        `/learning/sessions/${targetSessionId}/note/`,
+      );
+      noteContent.value = noteRes.data.note || "";
+    } catch (e) {
+      /* silent */
+    }
+
+    // 3. [FIX] 유튜브 모드 복원 시 플레이어 초기화 (DOM 렌더링 후)
+    if (mode.value === "youtube" && youtubeVideoId.value) {
+      await nextTick();
+      // DOM이 완전히 렌더링될 시간을 줌
+      setTimeout(() => {
+        if (youtubeVideoId.value) {
+          console.log(
+            "🎬 세션 복원: 유튜브 플레이어 초기화",
+            youtubeVideoId.value,
+          );
+          initYouTubePlayer(youtubeVideoId.value);
+        }
+      }, 300);
+    }
+  } catch (e) {
+    console.error("Resume Failed", e);
+
+    // [FIX] 보안 강화: 내 세션이 아니거나(403), 없는 세션(404)이면 즉시 격리
+    if (
+      e.response &&
+      (e.response.status === 403 || e.response.status === 404)
+    ) {
+      console.warn(
+        "⚠️ Unauthorized or Invalid Session detected. Clearing storage.",
+      );
+      localStorage.removeItem("currentSessionId");
+      localStorage.removeItem("currentYoutubeUrl");
+      localStorage.removeItem("restoredMode");
+      mode.value = null;
+      sessionId.value = null;
+      pendingSessionId.value = null;
+    } else {
+      // 그 외 오류(네트워크 등)는 조용히 실패 처리
+      localStorage.removeItem("currentSessionId");
+      pendingSessionId.value = null;
+    }
+  } finally {
+    isLoadingSession.value = false;
+  }
+};
+
+const resumeSessionById = async (id) => {
+  console.log(`Open Session: ${id}`);
+  pendingSessionId.value = id;
+  localStorage.setItem("currentSessionId", id);
+  await resumeSession(false);
+};
+
+const addToHistory = (url) => {
+  const existingIdx = watchHistory.value.indexOf(url);
+  if (existingIdx > -1) watchHistory.value.splice(existingIdx, 1);
+  watchHistory.value.unshift(url);
+  if (watchHistory.value.length > 5) watchHistory.value.pop();
+  localStorage.setItem("watchHistory", JSON.stringify(watchHistory.value));
+};
+
+const youtubeEmbedUrl = computed(() => {
+  if (!youtubeUrl.value) return "";
+  let url = youtubeUrl.value;
+  let videoId = "";
+
+  if (url.includes("v=")) {
+    videoId = url.split("v=")[1].split("&")[0];
+  } else if (url.includes("youtu.be/")) {
+    videoId = url.split("youtu.be/")[1].split("?")[0];
+  } else if (url.includes("embed/")) {
+    videoId = url.split("embed/")[1].split("?")[0];
+  } else if (url.includes("shorts/")) {
+    videoId = url.split("shorts/")[1].split("?")[0];
+  }
+
+  return videoId ? `https://www.youtube.com/embed/${videoId}` : "";
+});
+
+// YouTube 비디오 ID 추출
+const youtubeVideoId = computed(() => {
+  const url = youtubeUrl.value;
+  if (!url) return "";
+  if (url.includes("v=")) return url.split("v=")[1].split("&")[0];
+  if (url.includes("youtu.be/")) return url.split("youtu.be/")[1].split("?")[0];
+  if (url.includes("embed/")) return url.split("embed/")[1].split("?")[0];
+  if (url.includes("shorts/")) return url.split("shorts/")[1].split("?")[0];
+  return "";
+});
+
+// YouTube IFrame Player API 로드
+const loadYTAPI = () => {
+  if (window.YT && window.YT.Player) return Promise.resolve();
+  return new Promise((resolve) => {
+    if (document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+      const check = setInterval(() => {
+        if (window.YT && window.YT.Player) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 100);
+      return;
+    }
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
+    window.onYouTubeIframeAPIReady = () => resolve();
+  });
+};
+
+// YouTube Player 초기화
+const initYouTubePlayer = async (videoId) => {
+  if (!videoId) return;
+  await loadYTAPI();
+  // 기존 플레이어 제거
+  if (ytPlayer.value) {
+    try {
+      ytPlayer.value.destroy();
+    } catch (e) {}
+  }
+  ytPlayerReady.value = false;
+
+  await nextTick();
+  const container = document.getElementById("yt-player-container");
+  if (!container) return;
+
+  ytPlayer.value = new window.YT.Player("yt-player-container", {
+    videoId,
+    width: "100%",
+    height: "100%",
+    playerVars: { autoplay: 0, rel: 0, modestbranding: 1 },
+    events: {
+      onReady: () => {
+        ytPlayerReady.value = true;
+      },
+      onStateChange: (event) => {
+        // [AUTO] 유튜브 영상 종료 시 → 자동 학습 완료 처리
+        if (event.data === window.YT.PlayerState.ENDED && isRecording.value) {
+          console.log("🎬 유튜브 영상 종료 감지 → 자동 학습 완료 처리");
+          showToast(
+            "영상이 종료되었습니다. AI 학습노트를 생성합니다...",
+            "info",
+            3000,
+          );
+          // 팝업 없이 자동으로 학습 완료 (퀴즈 없이)
+          autoCompleteYoutubeSession();
+        }
+      },
+    },
+  });
+};
+
+// 타임스탬프 클릭 → 영상 이동
+const seekToTime = (offset) => {
+  if (offset == null) return;
+  if (ytPlayer.value && ytPlayerReady.value) {
+    ytPlayer.value.seekTo(offset, true);
+  }
+};
+
+// 초 → MM:SS 포맷
+const formatOffset = (seconds) => {
+  if (seconds == null) return "";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+};
+
+// youtubeVideoId 변경 시 Player 재생성
+watch(youtubeVideoId, (newId) => {
+  if (newId && mode.value === "youtube") {
+    initYouTubePlayer(newId);
+  }
+});
+
+const selectMode = (selectedMode) => {
+  // [CHANGE] 새 모드 선택 시 기존 대기 세션 정보 파기 (Confirm 제거)
+  if (pendingSessionId.value) {
+    // User explicitly chose a new mode, so we discard the pending/restorable session.
+    localStorage.removeItem("currentSessionId");
+    localStorage.removeItem("currentYoutubeUrl");
+    localStorage.removeItem("restoredMode");
+    pendingSessionId.value = null;
+  }
+  mode.value = selectedMode;
+};
+
+// [FIX] URL 제출 로직 개선
+const submitYoutube = () => {
+  if (!youtubeEmbedUrl.value) {
+    showToast("올바른 유튜브 링크를 입력해주세요.", "warning");
+    return;
+  }
+
+  // 1. 여기서 확실하게 플래그를 올려서 오버레이를 닫음
+  isUrlSubmitted.value = true;
+
+  // Save Local
+  localStorage.setItem("currentYoutubeUrl", youtubeUrl.value);
+  addToHistory(youtubeUrl.value);
+
+  // Update Backend
+  if (sessionId.value) {
+    let urlToSave = youtubeUrl.value.trim();
+    if (!urlToSave.startsWith("http")) urlToSave = "https://" + urlToSave;
+
+    api
+      .post(`/learning/sessions/${sessionId.value}/update-url/`, {
+        youtube_url: urlToSave,
+      })
+      .then(() => {
+        console.log("✅ URL Saved to Backend");
+      })
+      .catch((err) => {
+        console.error("URL Save Failed:", err);
+        showToast("저장 실패 (서버 오류)", "error");
+        isUrlSubmitted.value = false; // 실패 시 다시 열어줌
+      });
+  }
+
+  // YouTube Player API 초기화 (seekTo 지원)
+  nextTick(() => {
+    if (youtubeVideoId.value) {
+      initYouTubePlayer(youtubeVideoId.value);
+    }
+  });
+};
+
+// --- Recording Logic ---
+watch(
+  sttLogs,
+  async () => {
+    await nextTick();
+    scrollToBottom();
+  },
+  { deep: true },
+);
+
+const startRecording = async () => {
+  // [FIX] 완료된 세션(복습 모드)에서는 녹음 불가
+  if (isCompletedSession.value) {
+    showToast("이 수업은 이미 완료되어 복습 모드입니다.", "info");
+    return;
+  }
+
+  if (!sessionId.value) {
+    try {
+      console.log(
+        "DEBUG: Creating Session. Lecture ID:",
+        currentLectureId.value,
+      );
+      const response = await api.post("/learning/sessions/", {
+        section: null,
+        session_order: 1,
+        lecture: currentLectureId.value || null, // Link to current lecture if valid
+        youtube_url:
+          youtubeUrl.value && !youtubeUrl.value.startsWith("http")
+            ? "https://" + youtubeUrl.value
+            : youtubeUrl.value || null,
+      });
+      sessionId.value = response.data.id;
+      localStorage.setItem("currentSessionId", sessionId.value);
+      console.log("🆕 Session Created:", sessionId.value);
+    } catch (e) {
+      console.error("Session Create Error:", e);
+      if (e.response && e.response.status === 401) {
+        showToast("세션을 시작하려면 로그인이 필요합니다.", "error");
+        router.push("/login");
+      } else {
+        showToast("세션 생성 실패. 다시 시도해주세요.", "error");
+      }
+      return;
+    }
+  }
+
+  isRecording.value = true;
+  nextSequenceOrder.value = sttLogs.value.length + 1; // Sync with current logs
+  recorder.value = new AudioRecorder(handleAudioData, (msg) =>
+    showToast(msg, "error", 5000),
+  );
+
+  try {
+    // [FIX] 영상 강의(하이브리드) 모드면 무조건 시스템 오디오(탭 오디오) 녹음
+    if (mode.value === "offline" && !youtubeEmbedUrl.value) {
+      await recorder.value.startMic(3000);
+    } else {
+      // 그 외 (유튜브 모드, 유니버설 모드, 오프라인+영상 모드) -> 시스템 오디오 사용
+      await recorder.value.startSystemAudio(3000);
+    }
+    // [AUTO] 유튜브 모드에서 학습 시작 시 영상 자동 재생
+    if (mode.value === "youtube" && ytPlayer.value && ytPlayerReady.value) {
+      try {
+        ytPlayer.value.playVideo();
+      } catch (e) {}
+    }
+  } catch (err) {
+    console.error("Rec Error:", err);
+    isRecording.value = false;
+    // [1-7] 녹음 실패 시 구체적 에러 메시지 표시
+    if (err.name === "NotAllowedError") {
+      showToast(
+        "마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크를 허용해주세요.",
+        "error",
+        5000,
+      );
+    } else if (err.name === "NotFoundError") {
+      showToast(
+        "마이크 장치를 찾을 수 없습니다. 마이크가 연결되어 있는지 확인하세요.",
+        "error",
+        5000,
+      );
+    } else if (err.message?.includes("No audio track")) {
+      showToast(
+        '오디오 트랙이 감지되지 않았습니다. 화면 공유 시 "오디오 공유"를 켜주세요.',
+        "error",
+        5000,
+      );
+    } else {
+      showToast(
+        "녹음 시작에 실패했습니다: " + (err.message || "알 수 없는 오류"),
+        "error",
+        5000,
+      );
+    }
+  }
+};
+
+const stopRecording = async () => {
+  isRecording.value = false;
+  if (recorder.value) {
+    recorder.value.stop();
+    recorder.value = null;
+  }
+  // [NEW] 미완성 문장 버퍼 강제 저장
+  if (sessionId.value) {
+    try {
+      const { data } = await api.post(
+        `/learning/sessions/${sessionId.value}/flush-buffer/`,
+      );
+      if (data.text) {
+        sttLogs.value.push({
+          id: data.id || Date.now(),
+          sequence_order: sttLogs.value.length + 1,
+          text_chunk: data.text,
+          speaker: "UNKNOWN",
+          timestamp: new Date().toLocaleTimeString(),
+        });
+        scrollToBottom();
+      }
+    } catch (e) {
+      /* silent */
+    }
+  }
+};
+
+const processingCount = ref(0);
+const isProcessingAudio = computed(() => processingCount.value > 0);
+
+const handleAudioData = async (audioBlob) => {
+  // 8KB 미만은 침묵/노이즈일 가능성 높음 → Whisper 환각 방지
+  if (audioBlob.size < 8000) {
+    console.log(`⏭️ Skipped: audio too small (${audioBlob.size} bytes)`);
+    return;
+  }
+
+  // [FIX] Detect correct file extension relative to MimeType
+  let ext = "webm";
+  if (audioBlob.type.includes("mp4")) ext = "mp4";
+  else if (audioBlob.type.includes("ogg")) ext = "ogg";
+  else if (audioBlob.type.includes("wav")) ext = "wav";
+
+  // Capture and Increment Sequence
+  const currentSeq = nextSequenceOrder.value;
+  nextSequenceOrder.value++;
+
+  // Debug Update
+  debugLastChunkSize.value = audioBlob.size;
+  debugLastStatus.value = `Sending #${currentSeq}...`;
+
+  console.log(
+    `🎤 Uploading chunk #${currentSeq}: ${audioBlob.size} bytes, type: ${audioBlob.type}`,
+  );
+  processingCount.value++;
+  scrollToBottom();
+
+  const formData = new FormData();
+  formData.append("audio_file", audioBlob, `chunk.${ext}`);
+  formData.append("sequence_order", currentSeq);
+
+  // 영상 상대 시간 전송 (YouTube Player가 있을 때)
+  let currentVideoOffset = null;
+  if (ytPlayer.value && ytPlayerReady.value) {
+    try {
+      currentVideoOffset = ytPlayer.value.getCurrentTime();
+    } catch (e) {}
+  }
+  if (currentVideoOffset !== null) {
+    formData.append("video_offset", currentVideoOffset.toFixed(1));
+  }
+
+  try {
+    const { data } = await api.post(
+      `/learning/sessions/${sessionId.value}/audio/`,
+      formData,
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+      },
+    );
+
+    console.log(`✅ Chunk #${currentSeq} Response:`, data);
+    debugLastStatus.value = `Success #${currentSeq}`;
+    debugLastResponse.value = data.text
+      ? data.text.substring(0, 10) + "..."
+      : "No Text";
+
+    if (data.text) {
+      const newLog = {
+        id: data.id || Date.now(),
+        sequence_order: currentSeq,
+        text_chunk: data.text,
+        speaker: data.speaker || "UNKNOWN",
+        video_offset: data.video_offset,
+        timestamp: new Date().toLocaleTimeString(),
+      };
+      sttLogs.value.push(newLog);
+      scrollToBottom();
+    } else if (data.status === "silence_skipped") {
+      console.log(
+        `Silence skipped for #${currentSeq} (Reason: ${data.reason})`,
+      );
+      debugLastResponse.value = `Skipped: ${data.reason}`;
+    }
+  } catch (e) {
+    console.error(`STT Error for #${currentSeq}:`, e);
+    debugLastStatus.value = `Error #${currentSeq}`;
+    debugLastResponse.value = e.message;
+  } finally {
+    processingCount.value--; // Decrement counter
+  }
+};
+
+const scrollToBottom = async () => {
+  await nextTick();
+  if (logsContainer.value) {
+    logsContainer.value.scrollTop = logsContainer.value.scrollHeight;
+  }
+};
+
+const startNewSession = () => {
+  // [UX Improvement] Remove confirm dialog.
+  // If user clicks "New Learning", they intend to reset.
+  if (isRecording.value) stopRecording();
+
+  // Reset State
+  mode.value = null;
+  sessionId.value = null;
+  pendingSessionId.value = null;
+  sttLogs.value = [];
+  youtubeUrl.value = "";
+  currentLectureId.value = null;
+  currentClassTitle.value = null;
+
+  isCompletedSession.value = false;
+  isUrlSubmitted.value = false;
+  sessionSummary.value = "";
+  isSharedView.value = false; // Reset shared view flag
+
+  // Clear Storage
+  localStorage.removeItem("currentSessionId");
+  localStorage.removeItem("currentYoutubeUrl");
+  localStorage.removeItem("restoredMode");
+};
+
+const loadQuiz = async () => {
+  isGeneratingQuiz.value = true;
+  try {
+    const { data } = await api.post(
+      "/learning/assessment/generate-daily-quiz/",
+      {
+        session_id: sessionId.value,
+      },
+    );
+    quizData.value = data;
+    showQuiz.value = true;
+  } catch (e) {
+    showToast(
+      "퀴즈 생성 실패: " + (e.response?.data?.error || "알 수 없는 오류"),
+      "error",
+    );
+  } finally {
+    isGeneratingQuiz.value = false;
+  }
+};
+
+// [1-5/1-10] 학습 완료/중단 팝업 분기
+const showEndSessionModal = ref(false);
+const endSessionType = ref("complete"); // 'complete' or 'interrupt'
+
+const requestEndSession = () => {
+  // 유튜브 모드에서 영상 시청 진도를 판별
+  let watchProgress = 100;
+  if (ytPlayer.value && ytPlayerReady.value) {
+    try {
+      const current = ytPlayer.value.getCurrentTime();
+      const duration = ytPlayer.value.getDuration();
+      if (duration > 0) {
+        watchProgress = Math.round((current / duration) * 100);
+      }
+    } catch (e) {}
+  }
+  endSessionType.value = watchProgress >= 80 ? "complete" : "interrupt";
+  showEndSessionModal.value = true;
+};
+
+const confirmEndSession = async (withQuiz = true) => {
+  showEndSessionModal.value = false;
+  stopRecording();
+  isGeneratingQuiz.value = true;
+
+  if (sessionId.value) {
+    // 1. AI 요약 생성 요청
+    try {
+      console.log("📝 Generating Summary...");
+      const summaryRes = await api.post(
+        `/learning/sessions/${sessionId.value}/summarize/`,
+      );
+      if (summaryRes.data?.content_text) {
+        sessionSummary.value = summaryRes.data.content_text;
+        activeTab.value = "summary";
+      }
+      console.log("✅ Summary Generated");
+    } catch (e) {
+      console.error("Summary Generation Failed:", e);
+    }
+
+    // 2. 화자 일괄 분류 (전체 맥락 기반)
+    try {
+      console.log("🎙️ Classifying speakers...");
+      const classifyRes = await api.post(
+        `/learning/sessions/${sessionId.value}/classify-speakers/`,
+      );
+      if (classifyRes.data?.logs) {
+        sttLogs.value = classifyRes.data.logs;
+        console.log(
+          `✅ Speakers classified: ${classifyRes.data.updated} logs updated`,
+        );
+      }
+    } catch (e) {
+      console.error("Speaker classification failed (non-critical):", e);
+    }
+
+    // 3. 세션 종료 처리
+    try {
+      await api.post(`/learning/sessions/${sessionId.value}/end/`);
+    } catch (e) {}
+
+    // [FIX] 세션 종료 시 로컬 스토리지 + Vue 상태 모두 정리
+    localStorage.removeItem("currentSessionId");
+    localStorage.removeItem("currentYoutubeUrl");
+    localStorage.removeItem("restoredMode");
+  }
+
+  // 4. 퀴즈 생성 (사용자가 선택한 경우에만)
+  if (withQuiz) {
+    await loadQuiz();
+  } else {
+    isGeneratingQuiz.value = false;
+    // 퀴즈 없이 대시보드로 이동
+    sessionId.value = null;
+    pendingSessionId.value = null;
+    router.push("/dashboard");
+  }
+};
+
+// [AUTO] 유튜브 영상 종료 시 자동 학습 완료 (팝업 없이)
+const autoCompleteYoutubeSession = async () => {
+  stopRecording();
+  isCompletedSession.value = true;
+
+  if (sessionId.value) {
+    // 1. AI 요약 생성
+    try {
+      console.log("📝 [AUTO] AI 학습노트 자동 생성 중...");
+      const summaryRes = await api.post(
+        `/learning/sessions/${sessionId.value}/summarize/`,
+      );
+      if (summaryRes.data?.content_text) {
+        sessionSummary.value = summaryRes.data.content_text;
+        activeTab.value = "summary";
+      }
+      console.log("✅ [AUTO] AI 학습노트 생성 완료");
+      showToast(
+        "✅ AI 학습노트가 생성되었습니다! 퀴즈는 선택적으로 풀 수 있습니다.",
+        "success",
+        4000,
+      );
+    } catch (e) {
+      console.error("Summary Generation Failed:", e);
+      showToast(
+        "학습노트 생성에 실패했습니다. 수동으로 생성해주세요.",
+        "warning",
+      );
+    }
+
+    // 2. 화자 분류
+    try {
+      const classifyRes = await api.post(
+        `/learning/sessions/${sessionId.value}/classify-speakers/`,
+      );
+      if (classifyRes.data?.logs) sttLogs.value = classifyRes.data.logs;
+    } catch (e) {}
+
+    // 3. 세션 종료
+    try {
+      await api.post(`/learning/sessions/${sessionId.value}/end/`);
+    } catch (e) {}
+    localStorage.removeItem("currentSessionId");
+    localStorage.removeItem("currentYoutubeUrl");
+    localStorage.removeItem("restoredMode");
+  }
+};
+
+// 기존 endSession은 requestEndSession으로 대체
+const endSession = () => requestEndSession();
+
+const startVideoLecture = async () => {
+  const url = prompt("학습할 유튜브 영상 URL을 입력하세요:");
+  if (!url) return;
+
+  // 1. Update State (Stay in Offline Mode)
+  youtubeUrl.value = url;
+  isUrlSubmitted.value = true;
+  localStorage.setItem("currentYoutubeUrl", url);
+
+  // 2. Update Backend (if session exists)
+  if (sessionId.value) {
+    try {
+      await api.post(`/learning/sessions/${sessionId.value}/update-url/`, {
+        youtube_url: url,
+      });
+      console.log("✅ Session converted to Video Mode (Hybrid)");
+    } catch (e) {
+      console.error("Failed to update session URL", e);
+    }
+  }
+};
+
+const submitQuiz = async () => {
+  if (!quizData.value || isSubmittingQuiz.value) return;
+  isSubmittingQuiz.value = true;
+  try {
+    const { data } = await api.post(
+      `/learning/assessment/${quizData.value.id}/submit/`,
+      {
+        answers: quizAnswers.value,
+      },
+    );
+    quizResult.value = data;
+  } catch (e) {
+    showToast(
+      "제출 실패: " + (e.response?.data?.error || "서버 오류"),
+      "error",
+    );
+  } finally {
+    isSubmittingQuiz.value = false;
+  }
+};
+
+const formatTime = (isoString) => {
+  const date = new Date(isoString);
+  return date.toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+};
+
+const openSessionReview = (id) => {
+  resumeSessionById(id);
+};
+</script>
+
+<template>
+  <div class="learning-view">
+    <!-- ✅ LOADING STATE -->
+    <div v-if="isLoadingSession" class="loading-overlay">
+      <div class="glass-panel" style="padding: 40px; text-align: center">
+        <div class="spinner"></div>
+        <p style="font-size: 16px; margin-top: 20px; color: #9ba1a6">
+          학습 기록을 확인 중입니다...
+        </p>
+      </div>
+    </div>
+
+    <!-- ✅ MAIN CONTENT -->
+    <template v-else>
+      <!-- [FIX] 1. Mode Selection Modal -->
+      <!-- youtubeEmbedUrl이 있어도 isUrlSubmitted가 false면 계속 떠 있음 (버튼 클릭 유도) -->
+      <div
+        v-if="
+          !mode ||
+          (mode === 'youtube' && !isUrlSubmitted) ||
+          (mode === 'live' && !liveSessionData)
+        "
+        class="mode-overlay"
+      >
+        <div class="glass-panel mode-card">
+          <!-- Select Button Group -->
+          <div v-if="!mode">
+            <h2 class="text-headline">오늘의 학습 방식은?</h2>
+
+            <!-- [NEW] Resume Option -->
+            <div
+              v-if="pendingSessionId"
+              class="resume-section"
+              @click="resumeSession"
+            >
+              <div class="resume-card glass-panel">
+                <div class="icon-box"><FileText size="24" /></div>
+                <div class="info">
+                  <h3>이전 학습 이어하기</h3>
+                  <p>저장된 세션이 있습니다. 클릭하여 계속하세요.</p>
+                </div>
+                <div class="arrow">→</div>
+              </div>
+            </div>
+
+            <div class="mode-grid">
+              <div class="mode-item special" @click="openJoinModal">
+                <Users size="36" class="icon" />
+                <h3>클래스 참여</h3>
+                <p class="desc">정규 수업 듣기</p>
+              </div>
+              <div class="mode-item" @click="selectMode('offline')">
+                <Mic size="36" class="icon" />
+                <h3>클래스 모드</h3>
+                <p class="desc">강의 녹음 학습</p>
+              </div>
+              <div class="mode-item" @click="selectMode('youtube')">
+                <Youtube size="36" class="icon" />
+                <h3>유튜브 학습</h3>
+                <p class="desc">영상 보며 학습</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: 라이브 세션 코드 입력 -->
+          <div v-else-if="mode === 'live' && !liveSessionData">
+            <div class="back-link" @click="mode = null">← 뒤로가기</div>
+            <h2 class="text-headline">라이브 세션 입장</h2>
+            <p style="text-align: center; color: #aaa; margin-bottom: 20px">
+              교수자가 알려준 6자리 코드를 입력하세요.
+            </p>
+            <div class="input-group">
+              <input
+                type="text"
+                v-model="liveSessionCode"
+                placeholder="코드 입력 (예: A3F2K9)"
+                maxlength="6"
+                style="
+                  text-align: center;
+                  font-size: 24px;
+                  letter-spacing: 8px;
+                  font-weight: 700;
+                  text-transform: uppercase;
+                "
+                @keyup.enter="joinLiveSession"
+              />
+              <button
+                class="btn btn-primary"
+                @click="
+                  async () => {
+                    const ok = await joinLiveSession();
+                    if (ok) mode = 'live';
+                  }
+                "
+              >
+                입장하기
+              </button>
+            </div>
+
+
+          </div>
+
+          <!-- Step 2: Input URL -->
+          <div v-else-if="mode === 'youtube'">
+            <div class="back-link" @click="mode = null">← 뒤로가기</div>
+            <h2 class="text-headline">유튜브 링크 입력</h2>
+            <div class="input-group">
+              <input
+                type="text"
+                v-model="youtubeUrl"
+                placeholder="https://youtube.com..."
+                @keyup.enter="submitYoutube"
+              />
+              <!-- '시작' 버튼을 눌러야만 submitYoutube -> isUrlSubmitted=true -> 오버레이 닫힘 -->
+              <button class="btn btn-primary" @click="submitYoutube">
+                시작
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ LIVE SESSION VIEW ═══ -->
+      <div v-if="mode === 'live' && liveSessionData" class="live-session-view">
+        <div class="live-session-grid">
+        <!-- 왼쪽: 메인 라이브 콘텐츠 -->
+        <div class="live-main-column">
+        <div class="glass-panel live-info-panel">
+          <div class="live-header">
+            <h2>🟢 {{ liveSessionData.title }}</h2>
+            <span class="live-badge" :class="liveSessionData.status">
+              {{
+                liveSessionData.status === "LIVE"
+                  ? "진행 중"
+                  : liveSessionData.status === "WAITING"
+                    ? "대기 중"
+                    : "종료됨"
+              }}
+            </span>
+          </div>
+          <p class="session-code-small">
+            세션 코드: <strong>{{ liveSessionData.session_code }}</strong>
+          </p>
+
+          <!-- 세션 종료 + 통합 노트 -->
+          <div
+            v-if="liveSessionData.status === 'ENDED'"
+            class="session-ended-notice"
+          >
+            <!-- B2: 개인 요약 카드 -->
+            <div v-if="mySessionSummary" class="personal-summary-card">
+              <h4>📊 내 수업 요약</h4>
+              <p class="summary-message">{{ mySessionSummary.message }}</p>
+              <div class="summary-stats">
+                <span v-if="mySessionSummary.quiz_accuracy !== null"
+                  >🎯 퀴즈 {{ mySessionSummary.quiz_accuracy }}%</span
+                >
+                <span v-if="mySessionSummary.pulse_confused_rate > 0"
+                  >😕 혼란 {{ mySessionSummary.pulse_confused_rate }}%</span
+                >
+              </div>
+              <div
+                v-if="mySessionSummary.wrong_concepts.length > 0"
+                class="wrong-concepts"
+              >
+                <p style="font-size: 12px; color: #ef4444; margin: 4px 0">
+                  ❌ 오답 개념:
+                </p>
+                <span
+                  v-for="(c, i) in mySessionSummary.wrong_concepts"
+                  :key="i"
+                  class="wrong-chip"
+                  >{{ c }}</span
+                >
+              </div>
+            </div>
+            <div v-else>
+              {{ fetchMySessionSummary() || "" }}
+            </div>
+
+            <p v-if="!liveNote">
+              📋 수업이 종료되었습니다. 통합 노트를 생성하고 있습니다...
+            </p>
+            <div v-else-if="liveNote.status === 'PENDING'" class="note-loading">
+              <p>
+                📝 AI가 통합 노트를 작성하고 있습니다... 잠시만 기다려주세요.
+              </p>
+            </div>
+            <div v-else-if="liveNote.status === 'DONE'">
+              <!-- 미승인 상태 -->
+              <div
+                v-if="liveNote.is_approved === false"
+                class="note-pending-approval"
+              >
+                <p>📋 통합 노트가 생성되었습니다.</p>
+                <p>
+                  교수자가 노트를 검토 중입니다. 승인 후 열람할 수 있습니다.
+                </p>
+              </div>
+              <!-- 승인된 노트 -->
+              <div v-else class="note-content">
+                <h3>📚 통합 노트</h3>
+                <div class="note-stats" v-if="liveNote.stats">
+                  <span>⏱ {{ liveNote.stats.duration_minutes }}분</span>
+                  <span>👥 {{ liveNote.stats.total_participants }}명</span>
+                  <span>📊 이해도 {{ liveNote.stats.understand_rate }}%</span>
+                </div>
+                <div
+                  class="note-body"
+                  v-html="renderMarkdown(liveNote.content)"
+                ></div>
+                <!-- 연결된 교안 -->
+                <div
+                  v-if="
+                    liveNote.linked_materials &&
+                    liveNote.linked_materials.length > 0
+                  "
+                  class="linked-materials"
+                >
+                  <h4>📎 관련 교안</h4>
+                  <div
+                    v-for="m in liveNote.linked_materials"
+                    :key="m.id"
+                    class="linked-material-item"
+                  >
+                    <span class="lm-type">{{ m.file_type }}</span>
+                    <a
+                      v-if="m.file_url"
+                      :href="m.file_url"
+                      target="_blank"
+                      class="lm-link"
+                      >{{ m.title }}</a
+                    >
+                    <span v-else>{{ m.title }}</span>
+                  </div>
+                </div>
+
+                <!-- Phase 2-2: 내 레벨 콘텐츠 -->
+                <div
+                  v-if="myAdaptiveContent.length > 0"
+                  class="adaptive-content-section"
+                >
+                  <h4>
+                    📖 내 수준별 학습 자료
+                    <span class="level-badge">Level {{ myStudentLevel }}</span>
+                  </h4>
+                  <div
+                    v-for="mc in myAdaptiveContent"
+                    :key="mc.material_id"
+                    class="ac-item"
+                  >
+                    <div class="ac-item-header" @click="mc._open = !mc._open">
+                      <span>{{ mc.material_title }}</span>
+                      <span v-if="mc.adaptive_content" class="ac-level-tag">{{
+                        mc.adaptive_content.level_label
+                      }}</span>
+                      <span v-else class="ac-na">원본만 제공</span>
+                    </div>
+                    <div
+                      v-if="mc._open && mc.adaptive_content"
+                      class="ac-content"
+                      v-html="renderMarkdown(mc.adaptive_content.content)"
+                    ></div>
+                  </div>
+                </div>
+
+                <!-- Phase 2-3: 복습 루트 -->
+                <div v-if="myReviewRoutes.length > 0" class="review-route-card">
+                  <h4>📚 오늘의 복습 루트</h4>
+                  <div
+                    v-for="route in myReviewRoutes.slice(0, 1)"
+                    :key="route.id"
+                  >
+                    <p class="rr-est">
+                      총 예상 시간: {{ route.total_est_minutes }}분 | 진행
+                      {{ route.progress }}%
+                    </p>
+                    <div class="rr-progress-bar">
+                      <div
+                        class="rr-progress-fill"
+                        :style="{ width: route.progress + '%' }"
+                      ></div>
+                    </div>
+                    <div class="rr-items">
+                      <div
+                        v-for="item in route.items"
+                        :key="item.order"
+                        class="rr-item"
+                        :class="{
+                          completed: (route.completed_items || []).includes(
+                            item.order,
+                          ),
+                        }"
+                      >
+                        <button
+                          class="rr-check"
+                          @click="completeReviewItem(route.id, item.order)"
+                          :disabled="
+                            (route.completed_items || []).includes(item.order)
+                          "
+                        >
+                          {{
+                            (route.completed_items || []).includes(item.order)
+                              ? "✅"
+                              : "⬜"
+                          }}
+                        </button>
+                        <div class="rr-item-info">
+                          <span class="rr-item-title">{{ item.title }}</span>
+                          <span class="rr-item-time"
+                            >{{ item.est_minutes }}분</span
+                          >
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Phase 2-4: 형성평가 -->
+              <div
+                v-if="formativeData && formativeData.available"
+                class="formative-card"
+              >
+                <h4>
+                  📝 사후 형성평가 ({{ formativeData.total_questions }}문항)
+                </h4>
+                <div
+                  v-for="q in formativeData.questions"
+                  :key="q.id"
+                  class="fa-question"
+                >
+                  <p class="fa-q-text">Q{{ q.id }}. {{ q.question }}</p>
+                  <div class="fa-options">
+                    <label
+                      v-for="(opt, idx) in q.options"
+                      :key="idx"
+                      class="fa-option"
+                      :class="{ selected: formativeAnswers[q.id] === opt }"
+                    >
+                      <input
+                        type="radio"
+                        :name="'fa-q-' + q.id"
+                        :value="opt"
+                        v-model="formativeAnswers[q.id]"
+                      />
+                      {{ opt }}
+                    </label>
+                  </div>
+                </div>
+                <button
+                  class="fa-submit-btn"
+                  @click="submitFormative"
+                  :disabled="formativeSubmitting"
+                >
+                  {{ formativeSubmitting ? "제출 중..." : "✅ 제출하기" }}
+                </button>
+              </div>
+
+              <!-- 형성평가 결과 -->
+              <div v-if="formativeResult" class="formative-result-card">
+                <h4>📊 형성평가 결과</h4>
+                <p class="fa-score">
+                  {{ formativeResult.score }} / {{ formativeResult.total }} 정답
+                </p>
+                <div
+                  v-if="formativeResult.sr_items_created > 0"
+                  class="fa-sr-notice"
+                >
+                  🔁 오답 {{ formativeResult.sr_items_created }}개 → 간격 반복
+                  자동 등록됨
+                </div>
+                <div v-if="formativeResult.results" class="fa-results-detail">
+                  <div
+                    v-for="r in formativeResult.results"
+                    :key="r.question_id"
+                    class="fa-result-item"
+                    :class="r.is_correct ? 'correct' : 'wrong'"
+                  >
+                    <span
+                      >Q{{ r.question_id }}:
+                      {{ r.is_correct ? "✅" : "❌" }}</span
+                    >
+                    <span v-if="!r.is_correct" class="fa-explanation"
+                      >정답: {{ r.correct_answer }} — {{ r.explanation }}</span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button
+              class="btn btn-secondary"
+              @click="leaveLiveSession"
+              style="margin-top: 16px"
+            >
+              나가기
+            </button>
+          </div>
+        </div>
+
+        <!-- 📝 실시간 자막 + AI 학습노트 통합 패널 -->
+        <div
+          v-if="
+            liveSessionData.status === 'LIVE' || sttLogs.length > 0 || liveNote
+          "
+          class="glass-panel live-note-panel"
+        >
+          <div class="live-note-tabs">
+            <button
+              :class="['ln-tab', { active: liveNoteTab === 'subtitle' }]"
+              @click="liveNoteTab = 'subtitle'"
+            >
+              📝 실시간 자막
+              <span v-if="sttLogs.length" class="ln-count">{{
+                sttLogs.length
+              }}</span>
+            </button>
+            <button
+              :class="['ln-tab', { active: liveNoteTab === 'note' }]"
+              @click="liveNoteTab = 'note'"
+            >
+              🤖 AI 학습노트
+            </button>
+            <button
+              :class="['ln-tab', { active: liveNoteTab === 'quiz-history' }]"
+              @click="liveNoteTab = 'quiz-history'; if (!myQuizHistory) fetchMyQuizHistory();"
+            >
+              📊 퀴즈 결과
+              <span v-if="myQuizHistory && myQuizHistory.total_quizzes > 0" class="ln-count">{{
+                myQuizHistory.total_quizzes
+              }}</span>
+            </button>
+          </div>
+
+          <!-- 자막 뷰 -->
+          <div
+            v-show="liveNoteTab === 'subtitle'"
+            class="subtitle-scroll"
+            ref="subtitleScroll"
+          >
+            <div v-if="sttLogs.length === 0" class="subtitle-empty">
+              <p>🎙️ 교수자가 강의를 시작하면 여기에 내용이 표시됩니다...</p>
+            </div>
+            <div
+              v-for="log in sttLogs"
+              :key="log.id || log.seq"
+              class="subtitle-bubble"
+            >
+              <span class="subtitle-time">{{ log.timestamp }}</span>
+              <p class="subtitle-text">{{ log.text_chunk }}</p>
+            </div>
+          </div>
+
+          <!-- AI 노트 뷰 -->
+          <div v-show="liveNoteTab === 'note'" class="live-ai-note-view">
+            <div v-if="!sessionSummary && !liveNote" class="subtitle-empty">
+              <p>🤖 수업 종료 후 AI가 학습 노트를 자동 생성합니다.</p>
+            </div>
+            <div
+              v-else-if="liveNote && liveNote.content"
+              class="note-body"
+              v-html="renderMarkdown(liveNote.content)"
+            ></div>
+            <div
+              v-else-if="sessionSummary"
+              class="note-body"
+              v-html="renderMarkdown(sessionSummary)"
+            ></div>
+          </div>
+
+          <!-- 📊 퀴즈 결과 뷰 -->
+          <div v-show="liveNoteTab === 'quiz-history'" class="quiz-history-view">
+            <div v-if="!myQuizHistory || myQuizHistory.total_quizzes === 0" class="subtitle-empty">
+              <p>📊 아직 출제된 퀴즈가 없습니다.</p>
+            </div>
+            <div v-else class="quiz-history-content">
+              <!-- 요약 카드 -->
+              <div class="qh-summary-card">
+                <div class="qh-stat">
+                  <span class="qh-stat-value">{{ myQuizHistory.total_quizzes }}</span>
+                  <span class="qh-stat-label">총 퀴즈</span>
+                </div>
+                <div class="qh-stat">
+                  <span class="qh-stat-value">{{ myQuizHistory.answered_count }}</span>
+                  <span class="qh-stat-label">응답</span>
+                </div>
+                <div class="qh-stat">
+                  <span class="qh-stat-value correct-text">{{ myQuizHistory.correct_count }}</span>
+                  <span class="qh-stat-label">정답</span>
+                </div>
+                <div class="qh-stat">
+                  <span class="qh-stat-value" :class="myQuizHistory.accuracy >= 70 ? 'correct-text' : 'wrong-text'">
+                    {{ myQuizHistory.accuracy }}%
+                  </span>
+                  <span class="qh-stat-label">정답률</span>
+                </div>
+              </div>
+
+              <!-- 개별 퀴즈 결과 리스트 -->
+              <div
+                v-for="(q, idx) in myQuizHistory.results"
+                :key="q.quiz_id"
+                class="qh-item"
+                :class="{
+                  'qh-correct': q.is_correct === true,
+                  'qh-wrong': q.is_correct === false,
+                  'qh-unanswered': !q.answered,
+                }"
+              >
+                <div class="qh-item-header">
+                  <span class="qh-num">Q{{ idx + 1 }}</span>
+                  <span v-if="q.is_correct === true" class="qh-badge correct">✅ 정답</span>
+                  <span v-else-if="q.is_correct === false" class="qh-badge wrong">❌ 오답</span>
+                  <span v-else class="qh-badge unanswered">⏭ 미응답</span>
+                  <span v-if="q.is_ai_generated" class="qh-ai-tag">🤖 AI</span>
+                </div>
+                <p class="qh-question">{{ q.question_text }}</p>
+                <div v-if="q.options && q.options.length > 0" class="qh-options">
+                  <div
+                    v-for="opt in q.options"
+                    :key="opt"
+                    class="qh-option"
+                    :class="{
+                      'is-correct-answer': opt === q.correct_answer,
+                      'is-my-answer': q.answered && opt === q.my_answer,
+                      'is-my-wrong': q.answered && opt === q.my_answer && !q.is_correct,
+                    }"
+                  >
+                    <span v-if="opt === q.correct_answer" class="opt-icon">✅</span>
+                    <span v-else-if="q.answered && opt === q.my_answer && !q.is_correct" class="opt-icon">❌</span>
+                    <span v-else class="opt-icon">○</span>
+                    {{ opt }}
+                  </div>
+                </div>
+                <div v-if="q.explanation && q.answered && !q.is_correct" class="qh-explanation">
+                  💡 {{ q.explanation }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 이해도 펄스 플로팅 버튼 (LIVE일 때만) -->
+        <div v-if="liveSessionData.status === 'LIVE'" class="pulse-floating">
+          <button
+            class="pulse-btn understand"
+            :class="{ active: myPulse === 'UNDERSTAND' }"
+            @click="sendPulse('UNDERSTAND')"
+          >
+            ✅ 이해했어요
+          </button>
+          <button
+            class="pulse-btn confused"
+            :class="{ active: myPulse === 'CONFUSED' }"
+            @click="sendPulse('CONFUSED')"
+          >
+            ❓ 잘 모르겠어요
+          </button>
+        </div>
+
+        <!-- 퀴즈 팝업 모달 -->
+        <div v-if="pendingQuiz" class="quiz-modal-overlay">
+          <div class="quiz-modal">
+            <div class="quiz-timer-bar">
+              <div
+                class="timer-fill"
+                :style="{ width: timerPercent + '%' }"
+                :class="{ urgent: quizTimer <= 10 }"
+              ></div>
+            </div>
+            <div class="quiz-header-row">
+              <h3>📝 체크포인트 퀴즈!</h3>
+              <span class="quiz-countdown" :class="{ urgent: quizTimer <= 10 }"
+                >⏱ {{ quizTimer }}초</span
+              >
+            </div>
+            <p class="quiz-question">{{ pendingQuiz.question_text }}</p>
+            <div class="quiz-options">
+              <button
+                v-for="(opt, idx) in pendingQuiz.options"
+                :key="idx"
+                class="quiz-option-btn"
+                :class="{
+                  correct: quizResult && (
+                    (quizResult.is_correct && quizResult.your_answer === opt) ||
+                    isOptionCorrect(opt, quizResult.correct_answer)
+                  ),
+                  wrong: quizResult && !quizResult.is_correct && quizResult.your_answer === opt
+                }"
+                :disabled="quizAnswering || quizResult"
+                @click="answerLiveQuiz(pendingQuiz.id, opt)"
+              >
+                {{ opt }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 퀴즈 결과 표시 -->
+        <div v-if="quizResult" class="quiz-modal-overlay">
+          <div class="quiz-modal result">
+            <h3>{{ quizResult.is_correct ? "🎉 정답!" : "😅 오답..." }}</h3>
+            <p><strong>내 답:</strong> {{ quizResult.your_answer }}</p>
+            <p><strong>정답:</strong> {{ quizResult.correct_answer }}</p>
+            <p v-if="quizResult.explanation" class="quiz-explanation">
+              💡 {{ quizResult.explanation }}
+            </p>
+            <!-- A3: 오답 시 보충 설명 -->
+            <div
+              v-if="!quizResult.is_correct && quizResult.supplement_content"
+              class="supplement-box"
+            >
+              <p class="supplement-title">📚 보충 설명</p>
+              <p class="supplement-text">{{ quizResult.supplement_content }}</p>
+            </div>
+            <div
+              v-if="!quizResult.is_correct && quizResult.related_materials"
+              class="supplement-materials"
+            >
+              <p class="supplement-title">📎 관련 교안</p>
+              <span
+                v-for="m in quizResult.related_materials"
+                :key="m.id"
+                class="material-chip"
+              >
+                {{ m.title }} ({{ m.file_type }})
+              </span>
+            </div>
+            <!-- 학습 재설계 반영 안내 -->
+            <div
+              v-if="!quizResult.is_correct && quizResult.learning_redesign_triggered"
+              class="redesign-notice"
+            >
+              <p class="redesign-title">🔄 학습 경로에 반영되었습니다</p>
+              <p class="redesign-desc">이 개념이 간격반복 학습에 자동 등록되었습니다. 복습 일정을 확인하세요.</p>
+            </div>
+            <button class="btn btn-primary" @click="dismissQuizResult">
+              확인
+            </button>
+          </div>
+        </div>
+
+        <!-- ═══ Q&A 패널 ═══ -->
+        <div v-if="liveSessionData.status === 'LIVE'" class="qa-panel">
+          <button
+            class="qa-toggle"
+            @click="
+              qaOpen = !qaOpen;
+              if (qaOpen) fetchLiveQuestions();
+            "
+          >
+            💬 Q&A ({{ liveQuestions.length }}) {{ qaOpen ? "▼" : "▲" }}
+          </button>
+
+          <div v-if="qaOpen" class="qa-body">
+            <!-- 질문 입력 -->
+            <div class="qa-input-row">
+              <input
+                v-model="newQuestionText"
+                placeholder="궁금한 점을 익명으로 질문하세요..."
+                @keyup.enter="askQuestion"
+                class="qa-input"
+              />
+              <button
+                class="qa-send-btn"
+                @click="askQuestion"
+                :disabled="!newQuestionText.trim()"
+              >
+                전송
+              </button>
+            </div>
+
+            <!-- 질문 목록 -->
+            <div v-if="liveQuestions.length > 0" class="qa-list">
+              <div
+                v-for="q in liveQuestions"
+                :key="q.id"
+                class="qa-item"
+                :class="{ answered: q.is_answered }"
+              >
+                <div class="qa-vote">
+                  <button class="vote-btn" @click="upvoteQuestion(q.id)">
+                    👍
+                  </button>
+                  <span class="vote-count">{{ q.upvotes }}</span>
+                </div>
+                <div class="qa-content">
+                  <p class="qa-question-text">{{ q.question_text }}</p>
+                  <div v-if="q.instructor_answer" class="qa-answer instructor">
+                    <span class="answer-badge">👨‍🏫 교수자</span>
+                    {{ q.instructor_answer }}
+                  </div>
+                  <div v-else-if="q.ai_answer" class="qa-answer ai">
+                    <span class="answer-badge">🤖 AI</span>
+                    {{ q.ai_answer }}
+                  </div>
+                  <span v-else class="qa-pending">답변 대기 중...</span>
+                </div>
+              </div>
+            </div>
+            <p v-else class="qa-empty">
+              아직 질문이 없습니다. 첫 질문을 남겨보세요!
+            </p>
+          </div>
+        </div>
+
+        <!-- Phase 2-1: Weak Zone 알림 팝업 -->
+        <transition name="slide-up">
+          <div
+            v-if="showWeakZonePopup && currentWeakZone"
+            class="weak-zone-popup"
+          >
+            <div class="wz-header">
+              <span class="wz-icon">📌</span>
+              <span class="wz-title">이 부분이 어려우신가요?</span>
+            </div>
+            <div class="wz-body">
+              <p class="wz-ai-text" v-if="currentWeakZone.ai_suggested_content">
+                {{ currentWeakZone.ai_suggested_content }}
+              </p>
+              <div
+                v-if="currentWeakZone.supplement_material"
+                class="wz-material"
+              >
+                <a
+                  :href="currentWeakZone.supplement_material.file_url"
+                  target="_blank"
+                  class="wz-material-link"
+                >
+                  📎 {{ currentWeakZone.supplement_material.title }}
+                </a>
+              </div>
+            </div>
+            <div class="wz-actions">
+              <button
+                class="wz-btn-ok"
+                @click="resolveWeakZone(currentWeakZone.id)"
+              >
+                괜찮아요 👍
+              </button>
+            </div>
+          </div>
+        </transition>
+
+        <button
+          v-if="liveSessionData.status !== 'ENDED'"
+          class="btn btn-secondary"
+          style="margin-top: 20px"
+          @click="leaveLiveSession"
+        >
+          ← 나가기
+        </button>
+        <!-- [1-9] 교수자 수업 종료 후 학습자 뒤로가기 -->
+        <button
+          v-if="liveSessionData.status === 'ENDED'"
+          class="btn btn-primary"
+          style="margin-top: 20px"
+          @click="leaveLiveSession"
+        >
+          ← 돌아가기 (수업 종료됨)
+        </button>
+        </div>
+        <!-- /live-main-column -->
+
+        <!-- 오른쪽: 체크리스트 사이드바 -->
+        <div v-if="liveSessionData.lecture_id" class="live-checklist-sidebar">
+          <ChecklistPanel :lectureId="liveSessionData.lecture_id" :compact="true" />
+        </div>
+        </div>
+        <!-- /live-session-grid -->
+      </div>
+
+      <!-- [NEW] Lecture List View -->
+      <div v-if="mode === 'lecture'" class="lecture-mode-grid">
+        <div class="glass-panel session-list-panel">
+          <div class="lecture-info-header">
+            <h2>🏫 {{ currentClassTitle || "수업 목록" }}</h2>
+            <div class="header-actions" style="display: flex; gap: 10px">
+              <button
+                class="btn small"
+                style="
+                  background: #22c55e;
+                  color: white;
+                  border: none;
+                  border-radius: 8px;
+                  cursor: pointer;
+                  font-weight: 600;
+                "
+                @click="selectMode('live')"
+              >
+                🟢 라이브 세션
+              </button>
+              <button
+                class="btn btn-control secondary small"
+                @click="router.push('/dashboard')"
+              >
+                나가기
+              </button>
+            </div>
+          </div>
+
+          <div class="session-list-wrapper">
+            <!-- [NEW] Dynamic Re-routing Alert -->
+            <div
+              v-if="
+                recoveryStatus === 'critical' || recoveryStatus === 'warning'
+              "
+              class="recovery-banner"
+              :class="recoveryStatus"
+            >
+              <div class="banner-content">
+                <h3>{{ recoveryRecommendation?.title }}</h3>
+                <p>{{ recoveryRecommendation?.message }}</p>
+              </div>
+              <button class="btn-recovery" @click="executeRecoveryPlan">
+                {{ recoveryRecommendation?.action }} →
+              </button>
+            </div>
+
+            <!-- Missed Sessions Section -->
+            <div v-if="missedSessions.length > 0" class="missed-section">
+              <h3 style="color: #ff9f0a; font-size: 16px; margin-bottom: 10px">
+                🚨 놓친 수업 (보충 학습)
+              </h3>
+              <div
+                v-for="missed in missedSessions"
+                :key="missed.date"
+                class="session-card-row glass-panel missed-card"
+                @click="openSharedSession(missed)"
+              >
+                <div class="card-left">
+                  <div class="status-badge missed">MISSING</div>
+                  <div class="card-text">
+                    <h3>{{ missed.title }}</h3>
+                    <span class="date"
+                      >{{ missed.peer_count }}명의 동료가 수강함</span
+                    >
+                  </div>
+                </div>
+                <div class="card-right">
+                  <span class="action-text">따라잡기 →</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Regular Sessions -->
+            <div
+              v-if="sessions.length === 0 && missedSessions.length === 0"
+              class="empty-state-large"
+            >
+              아직 수강한 기록이 없습니다.<br />
+              '새 수업 시작' 버튼을 눌러보세요!
+            </div>
+
+            <div
+              v-for="session in sessions"
+              :key="session.id"
+              class="session-card-row"
+              @click="openSessionReview(session.id)"
+            >
+              <div class="card-left">
+                <div
+                  class="status-badge"
+                  :class="{ done: session.is_completed }"
+                >
+                  {{ session.is_completed ? "COMPLETED" : "ONGOING" }}
+                </div>
+                <div class="card-text">
+                  <h3>{{ session.title }}</h3>
+                  <span class="date">{{ formatTime(session.created_at) }}</span>
+                </div>
+              </div>
+              <div class="card-right">
+                <span class="action-text">복습하기 →</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- End session-list-panel -->
+
+        <div class="checklist-column">
+          <ChecklistPanel :lectureId="currentLectureId" />
+        </div>
+      </div>
+      <!-- End lecture-mode-grid -->
+
+      <!-- 2. Actual Learning Interface -->
+      <div
+        v-if="mode && mode !== 'lecture'"
+        class="container"
+        :class="{
+          'layout-vertical': mode === 'youtube',
+          'layout-split': mode === 'offline' || mode === 'universal',
+        }"
+      >
+        <!-- [FIX] Review Header (Youtube Mode) - 상태별 분기 추가 -->
+        <header v-if="mode === 'youtube'" class="review-header glass-panel">
+          <div class="header-left">
+            <div
+              class="status-badge header-badge"
+              :class="{ done: isCompletedSession, active: isRecording }"
+            >
+              {{
+                isCompletedSession
+                  ? "✅ 학습 완료 (복습 모드)"
+                  : isRecording
+                    ? "🔴 AI 기록 중"
+                    : "Ready (학습 준비)"
+              }}
+            </div>
+            <span class="session-id-text"
+              >🔄 세션 연결됨 (ID: {{ sessionId }})</span
+            >
+          </div>
+
+          <div class="header-actions" style="display: flex; gap: 8px">
+            <!-- 1. 학습 진행 중 (녹음 제어) -->
+            <template v-if="!isCompletedSession">
+              <button
+                class="btn btn-control"
+                :class="{ 'btn-danger': isRecording }"
+                style="height: 36px; font-size: 13px"
+                @click="isRecording ? stopRecording() : startRecording()"
+              >
+                <component
+                  :is="isRecording ? Square : Mic"
+                  size="14"
+                  style="margin-right: 4px"
+                />
+                {{ isRecording ? "기록 중지" : "학습 시작" }}
+              </button>
+              <button
+                class="btn btn-control secondary"
+                style="height: 36px; font-size: 13px"
+                @click="endSession"
+              >
+                학습 완료
+              </button>
+            </template>
+
+            <!-- 2. 학습 완료 (복습/퀴즈) -->
+            <template v-else>
+              <button
+                class="btn btn-primary"
+                style="height: 36px; font-size: 13px"
+                @click="loadQuiz"
+              >
+                ✍️ 퀴즈 풀기
+              </button>
+              <button
+                class="btn btn-control secondary"
+                style="height: 36px; font-size: 13px"
+                @click="startNewSession"
+              >
+                <ArrowLeft size="14" style="margin-right: 4px" /> 새 학습
+              </button>
+            </template>
+
+            <button
+              class="btn btn-control secondary"
+              style="height: 36px; font-size: 13px"
+              @click="router.push('/dashboard')"
+            >
+              나가기
+            </button>
+          </div>
+        </header>
+
+        <!-- A. Youtube Player (New Vertical Layout) -->
+        <section v-if="mode === 'youtube'" class="video-section">
+          <div id="yt-player-container"></div>
+        </section>
+
+        <!-- B. Offline / Universal Header (Legacy) -->
+        <section
+          v-if="mode === 'offline' || mode === 'universal'"
+          class="offline-header glass-panel"
+        >
+          <div class="header-content">
+            <div class="status-indicator">
+              <div
+                class="pulse-dot"
+                :class="{ active: isRecording, completed: isCompletedSession }"
+              ></div>
+              <div>
+                <h2 v-if="isCompletedSession">✅ 학습 완료 (복습 모드)</h2>
+                <h2 v-else>
+                  <span
+                    v-if="currentClassTitle"
+                    style="
+                      display: block;
+                      font-size: 14px;
+                      color: var(--color-primary);
+                      margin-bottom: 4px;
+                    "
+                  >
+                    🏫 {{ currentClassTitle }}
+                  </span>
+                  {{ isRecording ? "녹음 중 - AI 기록 중" : "수업 준비 완료" }}
+                </h2>
+                <p
+                  v-if="sessionId"
+                  style="
+                    font-size: 12px;
+                    color: var(--color-accent);
+                    margin-top: 4px;
+                  "
+                >
+                  🔄 세션 연결됨 (ID: {{ sessionId }})
+                </p>
+              </div>
+            </div>
+            <div class="controls inline">
+              <template v-if="!isCompletedSession">
+                <button
+                  class="btn btn-control"
+                  @click="isRecording ? stopRecording() : startRecording()"
+                >
+                  <component :is="isRecording ? Square : Mic" />
+                  {{ isRecording ? "종료" : "시작" }}
+                </button>
+                <button class="btn btn-control" @click="startVideoLecture">
+                  <MonitorPlay size="18" /> 영상강의시작
+                </button>
+                <button class="btn btn-control secondary" @click="endSession">
+                  완료
+                </button>
+                <button
+                  class="btn btn-control secondary"
+                  @click="startNewSession"
+                  title="새로운 학습 시작"
+                >
+                  <ArrowLeft size="18" />
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  class="btn btn-primary"
+                  @click="loadQuiz"
+                  style="margin-right: 8px"
+                >
+                  ✍️ 퀴즈 풀기
+                </button>
+                <button
+                  class="btn btn-control secondary"
+                  @click="startNewSession"
+                  style="margin-right: 8px"
+                >
+                  <ArrowLeft size="18" style="margin-right: 4px" /> 새 학습
+                </button>
+                <button
+                  class="btn btn-control secondary"
+                  @click="router.push('/dashboard')"
+                >
+                  나가기
+                </button>
+              </template>
+            </div>
+          </div>
+        </section>
+
+        <!-- C. Hybrid Embedded Video (Offline Mode) -->
+        <section
+          v-if="(mode === 'offline' || mode === 'universal') && youtubeEmbedUrl"
+          class="embedded-video-area"
+        >
+          <div class="video-container" style="border-radius: 8px">
+            <iframe
+              :src="youtubeEmbedUrl"
+              frameborder="0"
+              allow="autoplay; encrypted-media; picture-in-picture"
+              allowfullscreen
+            ></iframe>
+          </div>
+        </section>
+
+        <!-- D. Common Note Area — 라이브 모드에서는 상단 통합 패널 사용 -->
+        <section
+          v-if="mode !== 'live'"
+          class="note-area glass-panel"
+          :class="{
+            'full-width': mode === 'youtube',
+            'full-height': mode !== 'youtube',
+          }"
+        >
+          <div class="tab-header">
+            <span
+              :class="{ active: activeTab === 'stt' }"
+              @click="activeTab = 'stt'"
+              >실시간 자막</span
+            >
+            <span
+              :class="{ active: activeTab === 'summary' }"
+              @click="activeTab = 'summary'"
+              >AI 학습노트</span
+            >
+            <span
+              :class="{ active: activeTab === 'quiz-history' }"
+              @click="activeTab = 'quiz-history'; if (!lectureQuizHistory) fetchLectureQuizHistory();"
+            >
+              📊 퀴즈 결과
+              <span v-if="lectureQuizHistory && lectureQuizHistory.total_quizzes > 0" style="background: #6366f1; color: #fff; font-size: 11px; padding: 1px 7px; border-radius: 10px; margin-left: 4px;">{{
+                lectureQuizHistory.total_quizzes
+              }}</span>
+            </span>
+          </div>
+
+          <!-- 1. STT View -->
+          <div
+            v-show="activeTab === 'stt'"
+            class="stt-container"
+            ref="logsContainer"
+          >
+            <div v-if="sttLogs.length === 0" class="empty-state">
+              <p>AI가 내용을 받아적습니다.</p>
+            </div>
+            <div
+              v-for="log in sttLogs"
+              :key="log.id"
+              class="stt-bubble"
+              :class="{
+                'speaker-instructor': log.speaker === 'INSTRUCTOR',
+                'speaker-student': log.speaker === 'STUDENT',
+              }"
+            >
+              <div class="stt-meta">
+                <span
+                  v-if="log.speaker && log.speaker !== 'UNKNOWN'"
+                  class="speaker-badge"
+                  :class="log.speaker.toLowerCase()"
+                >
+                  {{ log.speaker === "INSTRUCTOR" ? "👨‍🏫 교수자" : "🙋 학생" }}
+                </span>
+                <span
+                  class="time"
+                  :class="{ clickable: log.video_offset != null }"
+                  @click="seekToTime(log.video_offset)"
+                >
+                  <template v-if="log.video_offset != null"
+                    >⏱ {{ formatOffset(log.video_offset) }}</template
+                  >
+                  <template v-else>{{ log.timestamp }}</template>
+                </span>
+              </div>
+              <p>{{ log.text_chunk }}</p>
+            </div>
+            <!-- Processing Indicator -->
+            <div v-if="isProcessingAudio" class="stt-bubble processing">
+              <span class="typing-dots">AI가 내용을 듣고 있습니다...</span>
+            </div>
+          </div>
+
+          <!-- 2. AI Summary View -->
+          <div v-show="activeTab === 'summary'" class="summary-container">
+            <div v-if="!sessionSummary" class="empty-state-summary">
+              <Bot class="icon-bot" />
+              <p>아직 요약된 내용이 없거나,<br />생성되지 않았습니다.</p>
+              <button
+                class="btn btn-accent action-btn"
+                @click="generateSummary"
+                :disabled="isGeneratingSummary"
+              >
+                <RefreshCw v-if="isGeneratingSummary" class="spin-anim" />
+                <span v-else>AI 요약 생성하기</span>
+              </button>
+            </div>
+            <div v-else class="summary-content">
+              <div class="summary-actions-bar">
+                <button
+                  class="apple-pill-btn"
+                  @click="generateSummary"
+                  :disabled="isGeneratingSummary"
+                >
+                  <RefreshCw
+                    size="13"
+                    :class="{ 'spin-anim': isGeneratingSummary }"
+                  />
+                  <span>요약 다시 생성</span>
+                </button>
+                <button class="apple-pill-btn" @click="exportPdf">
+                  <Download size="13" />
+                  <span>PDF 내보내기</span>
+                </button>
+              </div>
+
+              <!-- AI 학습노트 (읽기 전용) -->
+              <div class="markdown-text">{{ displaySummary }}</div>
+
+              <!-- 나의 메모 (항상 표시) -->
+              <div
+                class="note-section"
+                style="
+                  margin-top: 20px;
+                  border-top: 1px solid rgba(255, 255, 255, 0.06);
+                  padding-top: 16px;
+                "
+              >
+                <div
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 10px;
+                  "
+                >
+                  <h4
+                    style="
+                      color: #4facfe;
+                      margin: 0;
+                      font-size: 14px;
+                      font-weight: 600;
+                    "
+                  >
+                    📝 나의 메모
+                  </h4>
+                  <button class="apple-pill-btn" @click="toggleNoteEditor">
+                    <PenLine size="13" />
+                    <span>{{
+                      showNoteEditor ? "닫기" : noteContent ? "편집" : "작성"
+                    }}</span>
+                  </button>
+                </div>
+
+                <!-- 저장된 메모 읽기 전용 표시 -->
+                <div
+                  v-if="noteContent && !showNoteEditor"
+                  class="saved-note"
+                  style="
+                    white-space: pre-wrap;
+                    font-size: 13px;
+                    color: #cbd5e1;
+                    line-height: 1.6;
+                    background: rgba(79, 172, 254, 0.05);
+                    border: 1px solid rgba(79, 172, 254, 0.08);
+                    border-radius: 12px;
+                    padding: 14px;
+                  "
+                >
+                  {{ noteContent }}
+                </div>
+                <div
+                  v-if="!noteContent && !showNoteEditor"
+                  style="font-size: 13px; color: #64748b"
+                >
+                  메모가 없습니다.
+                </div>
+
+                <!-- 편집 모드 -->
+                <div v-if="showNoteEditor">
+                  <textarea
+                    v-model="noteContent"
+                    placeholder="이 수업에 대한 메모를 남겨보세요..."
+                    rows="5"
+                    style="
+                      width: 100%;
+                      font-family: inherit;
+                      font-size: 13px;
+                      line-height: 1.6;
+                      background: rgba(0, 0, 0, 0.3);
+                      color: #e2e8f0;
+                      border: 1px solid rgba(79, 172, 254, 0.15);
+                      border-radius: 12px;
+                      padding: 14px;
+                      resize: vertical;
+                    "
+                  ></textarea>
+                  <div style="display: flex; gap: 8px; margin-top: 10px">
+                    <button
+                      class="apple-pill-btn accent"
+                      @click="saveNote"
+                      :disabled="isSavingNote || !noteContent.trim()"
+                    >
+                      <span>{{ isSavingNote ? "저장 중..." : "저장" }}</span>
+                    </button>
+                    <button class="apple-pill-btn" @click="toggleNoteEditor">
+                      <span>취소</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. 📊 퀴즈 결과 뷰 (강의 기반) -->
+          <div v-show="activeTab === 'quiz-history'" class="quiz-history-view">
+            <div v-if="!lectureQuizHistory || lectureQuizHistory.total_quizzes === 0" class="empty-state">
+              <p>📊 아직 출제된 퀴즈가 없습니다.</p>
+            </div>
+            <div v-else class="quiz-history-content">
+              <!-- 요약 카드 -->
+              <div class="qh-summary-card">
+                <div class="qh-stat">
+                  <span class="qh-stat-value">{{ lectureQuizHistory.total_quizzes }}</span>
+                  <span class="qh-stat-label">총 퀴즈</span>
+                </div>
+                <div class="qh-stat">
+                  <span class="qh-stat-value">{{ lectureQuizHistory.answered_count }}</span>
+                  <span class="qh-stat-label">응답</span>
+                </div>
+                <div class="qh-stat">
+                  <span class="qh-stat-value correct-text">{{ lectureQuizHistory.correct_count }}</span>
+                  <span class="qh-stat-label">정답</span>
+                </div>
+                <div class="qh-stat">
+                  <span class="qh-stat-value" :class="lectureQuizHistory.accuracy >= 70 ? 'correct-text' : 'wrong-text'">
+                    {{ lectureQuizHistory.accuracy }}%
+                  </span>
+                  <span class="qh-stat-label">정답률</span>
+                </div>
+              </div>
+
+              <!-- 개별 퀴즈 결과 리스트 -->
+              <div
+                v-for="(q, idx) in lectureQuizHistory.results"
+                :key="q.quiz_id"
+                class="qh-item"
+                :class="{
+                  'qh-correct': q.is_correct === true,
+                  'qh-wrong': q.is_correct === false,
+                  'qh-unanswered': !q.answered,
+                }"
+              >
+                <div class="qh-item-header">
+                  <span class="qh-num">Q{{ idx + 1 }}</span>
+                  <span v-if="q.is_correct === true" class="qh-badge correct">✅ 정답</span>
+                  <span v-else-if="q.is_correct === false" class="qh-badge wrong">❌ 오답</span>
+                  <span v-else class="qh-badge unanswered">⏭ 미응답</span>
+                  <span v-if="q.is_ai_generated" class="qh-ai-tag">🤖 AI</span>
+                </div>
+                <p class="qh-question">{{ q.question_text }}</p>
+                <div v-if="q.options && q.options.length > 0" class="qh-options">
+                  <div
+                    v-for="opt in q.options"
+                    :key="opt"
+                    class="qh-option"
+                    :class="{
+                      'is-correct-answer': opt === q.correct_answer,
+                      'is-my-answer': q.answered && opt === q.my_answer,
+                      'is-my-wrong': q.answered && opt === q.my_answer && !q.is_correct,
+                    }"
+                  >
+                    <span v-if="opt === q.correct_answer" class="opt-icon">✅</span>
+                    <span v-else-if="q.answered && opt === q.my_answer && !q.is_correct" class="opt-icon">❌</span>
+                    <span v-else class="opt-icon">○</span>
+                    {{ opt }}
+                  </div>
+                </div>
+                <div v-if="q.explanation && q.answered && !q.is_correct" class="qh-explanation">
+                  💡 {{ q.explanation }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- [1-5/1-10] 학습 완료/중단 확인 모달 -->
+      <div v-if="showEndSessionModal" class="quiz-overlay">
+        <div
+          class="glass-panel"
+          style="padding: 40px; text-align: center; max-width: 420px"
+        >
+          <template v-if="endSessionType === 'complete'">
+            <h2 style="color: #e2e8f0; font-size: 20px; margin-bottom: 12px">
+              ✅ 학습을 완료하시겠습니까?
+            </h2>
+            <p style="color: #94a3b8; font-size: 14px; margin-bottom: 24px">
+              AI 요약이 자동 생성되고, 퀴즈를 풀어볼 수 있습니다.
+            </p>
+            <div
+              style="
+                display: flex;
+                gap: 10px;
+                justify-content: center;
+                flex-wrap: wrap;
+              "
+            >
+              <button
+                class="btn btn-primary"
+                @click="confirmEndSession(true)"
+                style="padding: 12px 24px"
+              >
+                🧪 퀴즈 풀기
+              </button>
+              <button
+                class="btn btn-accent"
+                @click="confirmEndSession(false)"
+                style="padding: 12px 24px"
+              >
+                📊 바로 종료
+              </button>
+              <button
+                class="btn btn-muted"
+                @click="showEndSessionModal = false"
+                style="padding: 12px 24px"
+              >
+                ❌ 취소
+              </button>
+            </div>
+          </template>
+          <template v-else>
+            <h2 style="color: #fbbf24; font-size: 20px; margin-bottom: 12px">
+              ⏸️ 학습을 중단하시겠습니까?
+            </h2>
+            <p style="color: #94a3b8; font-size: 14px; margin-bottom: 24px">
+              본 데까지의 내용으로 퀴즈를 풀어보시겠습니까?
+            </p>
+            <div
+              style="
+                display: flex;
+                gap: 10px;
+                justify-content: center;
+                flex-wrap: wrap;
+              "
+            >
+              <button
+                class="btn btn-primary"
+                @click="confirmEndSession(true)"
+                style="padding: 12px 24px"
+              >
+                🧪 퀴즈 풀기
+              </button>
+              <button
+                class="btn btn-accent"
+                @click="confirmEndSession(false)"
+                style="padding: 12px 24px"
+              >
+                📊 바로 종료
+              </button>
+              <button
+                class="btn btn-muted"
+                @click="showEndSessionModal = false"
+                style="padding: 12px 24px"
+              >
+                ❌ 취소
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- 3. Quiz Overlays -->
+      <div v-if="isGeneratingQuiz" class="quiz-overlay">
+        <div class="glass-panel" style="padding: 40px; text-align: center">
+          <p>퀴즈 생성 중...</p>
+          <div class="spinner" style="margin: 20px auto"></div>
+        </div>
+      </div>
+
+      <div v-if="showQuiz" class="quiz-overlay">
+        <div class="glass-panel quiz-card">
+          <div v-if="quizResult" class="result-view">
+            <h2 class="text-headline">
+              {{ quizResult.score >= 80 ? "🎉 통과!" : "💪 재도전!" }}
+            </h2>
+            <div class="score-display">
+              <span class="score">{{ quizResult.score }}</span> / 100
+            </div>
+
+            <!-- [NEW] Review Note -->
+            <div v-if="quizResult.review_note" class="review-note-section">
+              <h3>💡 AI 맞춤 해설 (오답 노트)</h3>
+              <div class="markdown-text">{{ quizResult.review_note }}</div>
+            </div>
+
+            <button class="btn btn-primary" @click="router.push('/dashboard')">
+              나가기
+            </button>
+          </div>
+          <div v-else-if="quizData">
+            <div class="quiz-header"><h2>오늘의 퀴즈</h2></div>
+            <div class="questions-list">
+              <div
+                v-for="(q, idx) in quizData.questions"
+                :key="q.id"
+                class="question-item"
+              >
+                <p class="q-title">Q{{ idx + 1 }}. {{ q.question_text }}</p>
+                <div class="options-group">
+                  <label
+                    v-for="opt in q.options"
+                    :key="opt"
+                    class="option-label"
+                  >
+                    <input
+                      type="radio"
+                      :name="q.id"
+                      :value="opt"
+                      v-model="quizAnswers[q.id]"
+                    />
+                    {{ opt }}
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="quiz-footer">
+              <button
+                class="btn btn-primary btn-full"
+                @click="submitQuiz"
+                :disabled="isSubmittingQuiz"
+              >
+                <span v-if="isSubmittingQuiz" class="submit-spinner-wrap">
+                  <span class="spinner-small"></span>
+                  AI가 채점 중...
+                </span>
+                <span v-else>제출</span>
+              </button>
+              <button
+                class="btn btn-secondary btn-full"
+                style="margin-top: 10px"
+                @click="showQuiz = false"
+                :disabled="isSubmittingQuiz"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- [NEW] Recovery Plan Modal -->
+      <div
+        v-if="showRecoveryModal"
+        class="modal-overlay"
+        @click.self="showRecoveryModal = false"
+      >
+        <div class="modal-card wide-modal">
+          <h2>🚀 {{ recoveryRecommendation?.title || "압축 복구 플랜" }}</h2>
+
+          <div
+            class="modal-body-split"
+            style="text-align: left; display: block"
+          >
+            <div
+              v-if="isGeneratingRecovery"
+              class="loading-state"
+              style="padding: 40px"
+            >
+              <div class="spinner"></div>
+              <p style="margin-top: 20px; color: #aaa">
+                AI가 놓친 핵심 개념을 요약하고 있습니다...
+              </p>
+            </div>
+
+            <div
+              v-else
+              class="markdown-text"
+              style="max-height: 500px; overflow-y: auto; padding-right: 10px"
+            >
+              {{ recoveryPlanContent }}
+            </div>
+          </div>
+
+          <div
+            class="modal-footer"
+            style="
+              margin-top: 20px;
+              display: flex;
+              justify-content: flex-end;
+              gap: 10px;
+            "
+          >
+            <button class="btn btn-primary" @click="showRecoveryModal = false">
+              확인 (학습 완료)
+            </button>
+            <button class="btn btn-text" @click="showRecoveryModal = false">
+              닫기
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Join Class Modal (Copied from Dashboard) -->
+      <div
+        v-if="showJoinModal"
+        class="modal-overlay"
+        @click.self="closeJoinModal"
+      >
+        <div class="modal-card wide-modal">
+          <h2>클래스 참여</h2>
+
+          <div class="modal-body-split">
+            <!-- Left: Verification Code -->
+            <div class="input-section">
+              <p class="sub-text">
+                강사님에게 전달받은<br />6자리 코드를 입력해주세요.
+              </p>
+              <input
+                type="text"
+                v-model="joinCode"
+                maxlength="6"
+                class="code-input"
+                placeholder="CODE"
+                @keyup.enter="joinClass"
+              />
+              <button class="btn btn-primary full-width" @click="joinClass">
+                입장하기
+              </button>
+              <button
+                class="btn btn-text full-width"
+                @click="closeJoinModal"
+                style="margin-top: 10px"
+              >
+                취소
+              </button>
+            </div>
+
+            <!-- Right Separator -->
+            <div class="list-section">
+              <h3>내 수강 목록 (My Courses)</h3>
+              <div class="lecture-list">
+                <div
+                  v-for="lec in myLectures"
+                  :key="lec.id"
+                  class="lecture-item"
+                  :class="{ selected: selectedLectureId === lec.id }"
+                  @click="selectLecture(lec)"
+                >
+                  <div class="lec-info" style="cursor: pointer; flex: 1">
+                    <span class="lec-title">{{ lec.title }}</span>
+                    <span class="lec-instructor"
+                      >{{ lec.instructor_name }} 강사님</span
+                    >
+                  </div>
+                  <div class="badge-enrolled">학습 하기 →</div>
+                </div>
+                <div v-if="myLectures.length === 0" class="empty-list">
+                  아직 수강 중인 클래스가 없습니다.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- [NEW] RAG Chat Floating Button & Window -->
+      <div v-if="mode && mode !== 'lecture'" class="chat-wrapper">
+        <!-- Floating Button -->
+        <div class="chat-floating-btn" @click="toggleChat">
+          <Bot size="32" v-if="!isChatOpen" />
+          <span v-else style="font-size: 24px; font-weight: bold">×</span>
+        </div>
+
+        <!-- Chat Window -->
+        <div v-if="isChatOpen" class="chat-window glass-panel">
+          <div class="chat-header">
+            <h3><Bot size="18" /> AI 튜터</h3>
+            <span class="status-dot green"></span>
+          </div>
+
+          <div class="chat-body" ref="chatScrollRef">
+            <div
+              v-for="(msg, idx) in chatMessages"
+              :key="idx"
+              class="chat-bubble"
+              :class="msg.role"
+            >
+              {{ msg.text }}
+            </div>
+            <!-- Loading Indicator -->
+            <div v-if="isChatLoading" class="chat-bubble ai">
+              <span class="typing-dots">...생각 중...</span>
+            </div>
+          </div>
+
+          <div class="chat-footer">
+            <input
+              type="text"
+              v-model="chatInput"
+              placeholder="궁금한 내용을 물어보세요..."
+              @keyup.enter="sendChatMessage"
+              :disabled="isChatLoading"
+            />
+            <button
+              @click="sendChatMessage"
+              :disabled="isChatLoading || !chatInput.trim()"
+            >
+              전송
+            </button>
+          </div>
+        </div>
+      </div>
+    </template>
+    <!-- END MAIN CONTENT -->
+
+    <!-- [DEBUG PANEL] — 라이브 모드에서는 숨김 -->
+    <div
+      v-if="mode && mode !== 'live' && mode !== 'lecture'"
+      class="debug-panel"
+    >
+      <div><strong>STT Debugger</strong></div>
+      <div>Last Chunk: {{ debugLastChunkSize }} bytes</div>
+      <div>Last Status: {{ debugLastStatus }}</div>
+      <div>Last Response: {{ debugLastResponse }}</div>
+      <div>Recorder State: {{ isRecording ? "ON" : "OFF" }}</div>
+    </div>
+  </div>
+</template>
+
+<style scoped lang="scss">
+/* Existing clean styles preserved */
+.learning-view {
+  padding-top: calc(var(--header-height) + 10px);
+  min-height: 100vh;
+  height: auto;
+  overflow-y: auto; /* Allow full page scroll */
+  padding-left: 20px;
+  padding-right: 20px;
+  padding-bottom: 50px;
+}
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.9);
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #333;
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Reused Layouts */
+.layout-grid {
+  display: grid;
+  grid-template-columns: 75% 25%;
+  gap: 24px;
+  min-height: calc(100vh - 80px);
+  height: auto;
+  padding-bottom: 20px;
+}
+.layout-split {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-height: calc(100vh - 100px);
+  height: auto;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+.screen-area {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.video-container {
+  flex: 1;
+  background: black;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
+}
+.note-area {
+  background: rgba(28, 28, 30, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  min-height: 600px;
+  height: auto; /* Increased height > 500px */
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+.logs-container {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  background: #000;
+  border-radius: 8px;
+  scroll-behavior: smooth;
+  margin-bottom: 20px; /* 공간 확보 */
+  display: flex;
+  flex-direction: column;
+
+  /* 스크롤바 커스터마이징 */
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #444;
+    border-radius: 4px;
+  }
+  &::-webkit-scrollbar-track {
+    background: #222;
+  }
+}
+
+.stt-log {
+  margin-bottom: 12px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.9);
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  border-left: 3px solid var(--color-accent);
+  animation: fadeIn 0.3s ease-out;
+}
+.stt-log:last-child {
+  margin-bottom: 20px; /* 마지막 아이템 여백 */
+  border-color: #4caf50; /* 최신 로그 강조 */
+  background: rgba(76, 175, 80, 0.1);
+}
+
+.embedded-video-area {
+  flex: 0 0 400px; /* Fixed height for video */
+  background: black;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+}
+
+.offline-header {
+  padding: 24px;
+  flex: 0 0 auto;
+}
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.controls {
+  margin-top: 16px;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+.controls.inline {
+  margin-top: 0;
+}
+.btn-control {
+  background: white;
+  color: black;
+  height: 48px;
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 8px;
+  border: none;
+  cursor: pointer;
+  &.secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+  }
+  &:hover {
+    transform: scale(1.05);
+  }
+}
+
+/* Recording Indicator */
+.status-indicator {
+  display: flex;
+  align-items: center;
+}
+.pulse-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #9ba1a6;
+  margin-right: 12px;
+
+  &.active {
+    background: #ff3b30;
+    box-shadow: 0 0 10px rgba(255, 59, 48, 0.5);
+    animation: pulse 1.5s infinite;
+  }
+  &.completed {
+    background: #abffae;
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+    animation: none;
+  }
+}
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Mode Overlay — 네비바(48px) 아래부터 시작하여 헤더 클릭 가능 유지 */
+.mode-overlay {
+  position: fixed;
+  top: var(--header-height, 48px);
+  left: 0;
+  width: 100vw;
+  height: calc(100vh - var(--header-height, 48px));
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mode-card {
+  width: 620px;
+  padding: 40px;
+  text-align: center;
+}
+.mode-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-top: 32px;
+}
+.mode-item {
+  padding: 24px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+
+  .icon {
+    color: #ccc;
+    transition: color 0.2s;
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .desc {
+    font-size: 12px;
+    color: #9ba1a6;
+    margin: 0;
+  }
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: translateY(-3px);
+    .icon {
+      color: white;
+    }
+  }
+
+  &.special {
+    background: rgba(79, 172, 254, 0.1);
+    border: 1px solid rgba(79, 172, 254, 0.3);
+    .icon {
+      color: #4facfe;
+    }
+    &:hover {
+      background: rgba(79, 172, 254, 0.2);
+      border-color: #4facfe;
+    }
+  }
+}
+
+/* Resume Card Styles */
+.resume-section {
+  margin-top: 24px;
+  margin-bottom: 24px;
+  cursor: pointer;
+}
+.resume-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  background: rgba(79, 172, 254, 0.1);
+  border: 1px solid rgba(79, 172, 254, 0.3);
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(79, 172, 254, 0.2);
+    transform: scale(1.02);
+  }
+
+  .icon-box {
+    color: #4facfe;
+  }
+  .info {
+    flex: 1;
+    text-align: left;
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    p {
+      font-size: 13px;
+      color: #ccc;
+    }
+  }
+  .arrow {
+    color: #4facfe;
+    font-weight: bold;
+  }
+}
+.input-group {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  input {
+    flex: 1;
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    border-radius: 8px;
+  }
+}
+.back-link {
+  cursor: pointer;
+  color: #9ba1a6;
+  text-align: left;
+  margin-bottom: 10px;
+  &:hover {
+    color: white;
+  }
+}
+
+/* Quiz */
+.quiz-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.9);
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.quiz-card {
+  width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: rgba(28, 28, 30, 0.75);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 0;
+}
+.quiz-header {
+  text-align: center;
+  padding: 20px;
+}
+.questions-list {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+.question-item {
+  .q-title {
+    font-weight: bold;
+    margin-bottom: 10px;
+  }
+}
+.options-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.quiz-footer {
+  padding: 20px;
+}
+.quiz-footer button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.submit-spinner-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.spinner-small {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+/* Review Note */
+.review-note-section {
+  background: rgba(255, 149, 0, 0.1);
+  border: 1px solid rgba(255, 149, 0, 0.3);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+  text-align: left;
+}
+.review-note-section h3 {
+  margin-top: 0;
+  color: #ff9f0a;
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+.btn-full {
+  width: 100%;
+  height: 48px;
+}
+.result-view {
+  text-align: center;
+  padding: 40px;
+  .score-display {
+    font-size: 60px;
+    font-weight: bold;
+    margin: 20px 0;
+    color: var(--color-accent);
+  }
+}
+
+/* Join Class Link */
+.join-class-link {
+  margin-top: 30px;
+  color: #9ba1a6;
+  font-size: 14px;
+}
+.join-class-link span {
+  cursor: pointer;
+  text-decoration: underline;
+  transition: color 0.2s;
+}
+.join-class-link span:hover {
+  color: var(--color-accent);
+}
+
+/* Modal Styles */
+/* .modal-overlay is already defined for quiz, sharing same style */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 5000; /* Higher than mode-overlay(3000) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-card.wide-modal {
+  background: rgba(28, 28, 30, 0.75);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  padding: 32px;
+  border-radius: 24px;
+  width: 800px;
+  max-width: 95vw;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+  z-index: 5001; /* Ensure content is on top */
+}
+.modal-body-split {
+  display: flex;
+  gap: 30px;
+  margin-top: 30px;
+  text-align: left;
+}
+.input-section {
+  flex: 1;
+  padding-right: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.list-section {
+  flex: 1.2;
+  border-left: 1px solid #333;
+  padding-left: 30px;
+  max-height: 400px;
+  overflow-y: auto;
+  color: white;
+}
+
+.sub-text {
+  color: #9ba1a6;
+  margin-bottom: 24px;
+  font-size: 14px;
+  text-align: center;
+}
+.code-input {
+  width: 100%;
+  padding: 16px;
+  font-size: 24px;
+  letter-spacing: 4px;
+  text-align: center;
+  background: #000;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: var(--color-accent);
+  margin-bottom: 24px;
+  text-transform: uppercase;
+  &:focus {
+    border-color: var(--color-accent);
+    outline: none;
+  }
+}
+.full-width {
+  width: 100%;
+}
+
+/* Hybrid Tabs */
+.tab-header {
+  display: flex;
+  gap: 20px;
+  border-bottom: 1px solid #333;
+  padding: 0 20px;
+  margin-bottom: 10px;
+}
+.tab-header span {
+  padding: 15px 5px;
+  cursor: pointer;
+  color: #9ba1a6;
+  font-weight: 500;
+  font-size: 14px;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+.tab-header span:hover {
+  color: white;
+}
+.tab-header span.active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+/* Summary View */
+.summary-container {
+  padding: 20px;
+  min-height: 550px; /* Increased height */
+  color: #ddd;
+  line-height: 1.6;
+}
+.empty-state-summary {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #9ba1a6;
+  text-align: center;
+  gap: 16px;
+}
+.icon-bot {
+  color: #444;
+  width: 48px;
+  height: 48px;
+}
+
+.summary-actions-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+/* Apple SF-style Pill Buttons */
+.apple-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.apple-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-0.5px);
+}
+.apple-pill-btn:active {
+  transform: scale(0.97);
+  background: rgba(255, 255, 255, 0.08);
+}
+.apple-pill-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+.apple-pill-btn.accent {
+  background: linear-gradient(
+    135deg,
+    rgba(79, 172, 254, 0.25),
+    rgba(0, 242, 254, 0.15)
+  );
+  border-color: rgba(79, 172, 254, 0.3);
+  color: #4facfe;
+}
+.apple-pill-btn.accent:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(79, 172, 254, 0.35),
+    rgba(0, 242, 254, 0.25)
+  );
+  border-color: rgba(79, 172, 254, 0.5);
+  box-shadow: 0 0 12px rgba(79, 172, 254, 0.15);
+}
+
+.note-editor {
+  margin-top: 20px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+.note-editor h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: #ddd;
+}
+.note-editor textarea {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #e0e0e0;
+  padding: 12px;
+  font-size: 14px;
+  resize: vertical;
+  min-height: 100px;
+  outline: none;
+  font-family: inherit;
+}
+.note-editor textarea:focus {
+  border-color: #4facfe;
+}
+.note-editor .btn {
+  margin-top: 10px;
+}
+
+.markdown-text {
+  white-space: pre-wrap;
+  font-size: 15px;
+  color: #e0e0e0;
+}
+
+/* Animations */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin-anim {
+  animation: spin 1s linear infinite;
+}
+.btn-accent:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.lecture-item {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.2s;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  }
+  &.selected {
+    border-color: var(--color-accent);
+    background: rgba(79, 172, 254, 0.15);
+  }
+}
+.lec-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lec-title {
+  color: white;
+  font-weight: bold;
+  font-size: 15px;
+}
+.lec-instructor {
+  color: #9ba1a6;
+  font-size: 13px;
+}
+.action-arrow {
+  color: var(--color-accent);
+  font-size: 18px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.lecture-item:hover .action-arrow {
+  opacity: 1;
+}
+.empty-list {
+  color: #9ba1a6;
+  text-align: center;
+  padding: 20px;
+  font-size: 14px;
+}
+
+/* Enrolled Badge */
+.badge-enrolled {
+  font-size: 11px;
+  font-weight: bold;
+  color: #4facfe;
+  background: rgba(79, 172, 254, 0.15);
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(79, 172, 254, 0.3);
+}
+/* Lecture Mode Styles */
+.lecture-mode-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 24px;
+  max-width: 1200px;
+  margin: 40px auto;
+  padding: 0 30px;
+  align-items: start;
+}
+.session-list-panel {
+  padding: 30px;
+  min-height: 500px;
+  border-radius: 16px;
+}
+.checklist-column {
+  position: sticky;
+  top: 100px; /* Sticky sidebar */
+}
+
+@media (max-width: 900px) {
+  .lecture-mode-grid {
+    grid-template-columns: 1fr;
+  }
+  .checklist-column {
+    position: static;
+    order: -1;
+    margin-bottom: 20px;
+  }
+}
+
+/* Legacy container removed */
+.lecture-view-container-legacy {
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 30px;
+  min-height: 500px;
+}
+.lecture-info-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  border-bottom: 1px solid #333;
+  padding-bottom: 15px;
+  h2 {
+    font-size: 24px;
+    color: var(--color-primary);
+  }
+}
+/* Session Wrapper */
+.session-list-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+/* Dynamic Re-routing Banner */
+.recovery-banner {
+  padding: 20px;
+  border-radius: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  animation: slideDown 0.5s ease;
+}
+.recovery-banner.critical {
+  background: rgba(255, 59, 48, 0.15);
+  border: 1px solid rgba(255, 59, 48, 0.4);
+}
+.recovery-banner.warning {
+  background: rgba(255, 149, 0, 0.15);
+  border: 1px solid rgba(255, 149, 0, 0.4);
+}
+
+.banner-content h3 {
+  margin: 0 0 5px 0;
+  font-size: 16px;
+  font-weight: bold;
+}
+.banner-content p {
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.8;
+}
+.recovery-banner.critical h3 {
+  color: #ff3b30;
+}
+.recovery-banner.critical p {
+  color: #ffcccc;
+}
+.recovery-banner.warning h3 {
+  color: #ff9f0a;
+}
+.recovery-banner.warning p {
+  color: #ffe0b2;
+}
+
+.btn-recovery {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: bold;
+}
+.recovery-banner.critical .btn-recovery:hover {
+  background: #ff3b30;
+  border-color: #ff3b30;
+}
+.recovery-banner.warning .btn-recovery:hover {
+  background: #ff9f0a;
+  border-color: #ff9f0a;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.session-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 20px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateY(-2px);
+    border-color: var(--color-accent);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  }
+}
+.card-left {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+.status-badge {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  background: #444;
+  color: #aaa;
+  &.done {
+    background: rgba(79, 172, 254, 0.2);
+    color: var(--color-accent);
+    border: 1px solid var(--color-accent);
+  }
+  &.missed {
+    background: rgba(255, 159, 10, 0.2);
+    color: #ff9f0a;
+    border: 1px solid #ff9f0a;
+  }
+}
+.missed-card {
+  border: 1px dashed rgba(255, 159, 10, 0.5);
+  &:hover {
+    border-color: #ff9f0a;
+    background: rgba(255, 159, 10, 0.1);
+  }
+}
+.card-text h3 {
+  margin: 0;
+  font-size: 18px;
+  color: white;
+}
+.card-text .date {
+  font-size: 13px;
+  color: #9ba1a6;
+}
+.card-right .action-text {
+  color: var(--color-accent);
+  font-size: 14px;
+  font-weight: 500;
+}
+.empty-state-large {
+  text-align: center;
+  color: #9ba1a6;
+  font-size: 18px;
+  padding: 50px;
+}
+
+/* Layout Vertical (New Review Mode) */
+.layout-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: calc(100vh - 80px);
+  height: auto;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-bottom: 50px;
+}
+
+.review-header {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  background: rgba(28, 28, 30, 0.65);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.session-id-text {
+  color: var(--color-accent);
+  font-size: 13px;
+}
+
+.video-section {
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 55vh; /* Limit height to allow notes to be visible */
+  background: black;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.video-section iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.note-area.full-width {
+  flex: 1; /* Take remaining space */
+  width: 100%;
+}
+
+/* Override Status Badge for Header */
+.status-badge.header-badge {
+  font-size: 15px;
+  padding: 6px 12px;
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+
+  &.active {
+    background: rgba(255, 59, 48, 0.15);
+    color: #ff3b30;
+    border-color: rgba(255, 59, 48, 0.3);
+    animation: pulse 1.5s infinite;
+  }
+}
+
+.btn-danger {
+  background: rgba(255, 59, 48, 0.2) !important;
+  color: #ff3b30 !important;
+  border: 1px solid rgba(255, 59, 48, 0.5) !important;
+}
+
+.btn-text.highlight {
+  color: var(--color-accent);
+  font-weight: bold;
+  border: 1px solid var(--color-accent);
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(79, 172, 254, 0.1);
+  transition: all 0.2s;
+  display: inline-block;
+}
+.session-card-row:hover .btn-text.highlight {
+  background: var(--color-accent);
+  color: white;
+}
+
+/* Chat CSS - Premium Glassmorphism */
+.chat-floating-btn {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #00c6ff, #0072ff);
+  box-shadow: 0 8px 32px rgba(0, 114, 255, 0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  z-index: 1000;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  color: white;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+}
+.chat-floating-btn:hover {
+  transform: scale(1.1) rotate(5deg);
+  box-shadow: 0 12px 40px rgba(0, 114, 255, 0.6);
+}
+
+.chat-window {
+  position: fixed;
+  bottom: 110px;
+  right: 30px;
+  width: 380px;
+  height: 600px;
+  background: rgba(28, 28, 30, 0.65); /* More transparent */
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  overflow: hidden;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.chat-header {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 18px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.chat-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: -0.5px;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4caf50;
+  box-shadow: 0 0 10px #4caf50;
+}
+
+.chat-body {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.2) 100%
+  );
+}
+
+.chat-bubble {
+  max-width: 85%;
+  padding: 12px 16px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.9);
+  word-break: break-word;
+  white-space: pre-wrap;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-bubble.ai {
+  background: rgba(50, 50, 50, 0.8);
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.chat-bubble.user {
+  background: linear-gradient(135deg, #0072ff, #00c6ff);
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+  color: white;
+  font-weight: 500;
+}
+
+.chat-footer {
+  padding: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  gap: 10px;
+  background: rgba(30, 30, 32, 0.95);
+}
+.chat-footer input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  padding: 12px 16px;
+  border-radius: 12px;
+  outline: none;
+  transition: all 0.2s;
+  font-size: 14px;
+}
+.chat-footer input:focus {
+  background: rgba(0, 0, 0, 0.5);
+  border-color: #0072ff;
+}
+
+.chat-footer button {
+  background: #0072ff;
+  color: white;
+  border: none;
+  padding: 0 20px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+.chat-footer button:hover:not(:disabled) {
+  background: #0088ff;
+  transform: translateY(-1px);
+}
+.chat-footer button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #333;
+}
+
+/* Processing Indicator Styles */
+.stt-bubble.processing {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  color: #9ba1a6;
+  align-self: center; /* Center if container is flex col */
+  width: 100%;
+  text-align: center;
+}
+
+.typing-dots::after {
+  content: " .";
+  animation: dots 1.5s steps(5, end) infinite;
+}
+
+@keyframes dots {
+  0%,
+  20% {
+    content: " .";
+  }
+  40% {
+    content: " ..";
+  }
+  60% {
+    content: " ...";
+  }
+  80%,
+  100% {
+    content: "";
+  }
+}
+
+/* YouTube Player Container */
+#yt-player-container {
+  width: 100%;
+  aspect-ratio: 16/9;
+}
+#yt-player-container iframe {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+}
+
+/* === 화자 구분 스타일 === */
+.stt-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.speaker-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.speaker-badge.instructor {
+  background: rgba(79, 172, 254, 0.15);
+  color: #4facfe;
+}
+.speaker-badge.student {
+  background: rgba(67, 217, 173, 0.15);
+  color: #43d9ad;
+}
+
+/* 화자별 자막 버블 좌측 보더 */
+.stt-bubble.speaker-instructor {
+  border-left: 3px solid #4facfe;
+}
+.stt-bubble.speaker-student {
+  border-left: 3px solid #43d9ad;
+}
+
+/* 클릭 가능한 타임스탬프 */
+.time.clickable {
+  cursor: pointer;
+  color: #4facfe;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  transition: color 0.2s;
+}
+.time.clickable:hover {
+  color: #80c4ff;
+}
+</style>
+
+<!-- Add debug panel styles -->
+<style scoped>
+.debug-panel {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.8);
+  color: lime;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-family: monospace;
+  z-index: 9999;
+  max-width: 400px;
+}
+
+/* ── Live Session (학습자) ── */
+.live-session-view {
+  padding: 20px 0;
+}
+.live-session-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+  align-items: start;
+}
+.live-main-column {
+  min-width: 0;
+}
+.live-checklist-sidebar {
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 40px);
+}
+@media (max-width: 1024px) {
+  .live-session-grid {
+    grid-template-columns: 1fr;
+  }
+  .live-checklist-sidebar {
+    position: static;
+    max-height: none;
+  }
+}
+.live-info-panel {
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.live-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.live-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.live-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.live-badge.LIVE {
+  background: #fee2e2;
+  color: #991b1b;
+  animation: pulse-live 2s infinite;
+}
+.live-badge.WAITING {
+  background: #fef3c7;
+  color: #92400e;
+}
+.live-badge.ENDED {
+  background: #e5e7eb;
+  color: #6b7280;
+}
+@keyframes pulse-live {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* 실시간 자막 + AI 학습노트 통합 패널 */
+.live-note-panel {
+  padding: 0;
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+.live-note-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ln-tab {
+  flex: 1;
+  padding: 12px 16px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  background: transparent;
+  color: #9ca3af;
+  transition: all 0.2s;
+}
+.ln-tab.active {
+  color: var(--accent, #3b82f6);
+  border-bottom: 2px solid var(--accent, #3b82f6);
+  background: rgba(59, 130, 246, 0.05);
+}
+.ln-tab:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.03);
+}
+.ln-count {
+  font-size: 11px;
+  background: var(--accent, #3b82f6);
+  color: white;
+  border-radius: 10px;
+  padding: 1px 6px;
+  margin-left: 4px;
+}
+.subtitle-scroll {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.subtitle-empty p {
+  color: #9ca3af;
+  font-size: 14px;
+  text-align: center;
+  padding: 40px 0;
+}
+.subtitle-bubble {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.06);
+}
+.subtitle-time {
+  font-size: 11px;
+  color: #6b7280;
+  white-space: nowrap;
+  padding-top: 2px;
+  min-width: 55px;
+}
+.subtitle-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+.live-ai-note-view {
+  padding: 16px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.session-code-small {
+  color: #9ba1a6;
+  font-size: 13px;
+  margin: 0;
+}
+.session-ended-notice {
+  margin-top: 16px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  text-align: center;
+}
+.session-ended-notice p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #d1d5db;
+}
+
+.pulse-floating {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 16px;
+  z-index: 800;
+}
+.pulse-btn {
+  padding: 16px 28px;
+  border-radius: 50px;
+  font-size: 16px;
+  font-weight: 700;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.pulse-btn.understand {
+  background: #f0fdf4;
+  color: #166534;
+  border-color: #22c55e;
+}
+.pulse-btn.understand.active {
+  background: #22c55e;
+  color: white;
+  transform: scale(1.05);
+}
+.pulse-btn.confused {
+  background: #fef2f2;
+  color: #991b1b;
+  border-color: #ef4444;
+}
+.pulse-btn.confused.active {
+  background: #ef4444;
+  color: white;
+  transform: scale(1.05);
+}
+
+.mode-item.live-mode {
+  background: linear-gradient(135deg, #f0fdf4, #ecfdf5) !important;
+  border: 1px solid #22c55e33 !important;
+  h3 {
+    color: #166534 !important;
+  }
+  .desc {
+    color: #15803d !important;
+  }
+}
+
+/* ── Quiz Modal (학습자) ── */
+.quiz-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 900;
+}
+.quiz-modal {
+  background: #0f172a;
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 480px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+  animation: quiz-pop 0.3s ease-out;
+}
+@keyframes quiz-pop {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.quiz-modal h3 {
+  font-size: 22px;
+  margin: 0 0 16px;
+  color: #f8fafc;
+}
+.quiz-question {
+  font-size: 15px;
+  color: #e2e8f0;
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+.quiz-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.quiz-option-btn {
+  padding: 14px 20px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+  text-align: left;
+}
+.quiz-option-btn:hover:not(:disabled) {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+.quiz-option-btn.correct {
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+.quiz-option-btn.wrong {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+.quiz-option-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.quiz-modal.result h3 {
+  font-size: 28px;
+}
+.quiz-explanation {
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.1);
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin: 12px 0;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* Quiz Timer */
+.quiz-timer-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 16px 16px 0 0;
+  margin: -32px -32px 16px -32px;
+  overflow: hidden;
+}
+.timer-fill {
+  height: 100%;
+  background: #3b82f6;
+  transition: width 1s linear;
+}
+.timer-fill.urgent {
+  background: #ef4444;
+}
+.quiz-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.quiz-header-row h3 {
+  margin: 0;
+}
+.quiz-countdown {
+  font-size: 20px;
+  font-weight: 700;
+  color: #3b82f6;
+}
+.quiz-countdown.urgent {
+  color: #ef4444;
+  animation: pulse-warn 0.5s infinite;
+}
+@keyframes pulse-warn {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* A3: 오답 보충 설명 */
+.supplement-box {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 8px;
+  text-align: left;
+}
+.supplement-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fbbf24;
+  margin: 0 0 6px;
+}
+.supplement-text {
+  font-size: 13px;
+  color: #fcd34d;
+  margin: 0;
+  line-height: 1.5;
+}
+.supplement-materials {
+  margin-top: 8px;
+  text-align: left;
+}
+.material-chip {
+  display: inline-block;
+  padding: 4px 8px;
+  margin: 3px 3px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+  border-radius: 6px;
+  font-size: 11px;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* 학습 재설계 반영 안내 */
+.redesign-notice {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: 8px;
+  text-align: left;
+}
+.redesign-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4ade80;
+  margin: 0 0 4px;
+}
+.redesign-desc {
+  font-size: 12px;
+  color: #86efac;
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* B2: 개인 요약 카드 */
+.personal-summary-card {
+  padding: 16px;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border: 1px solid #93c5fd;
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+.personal-summary-card h4 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: #1e40af;
+}
+.summary-message {
+  font-size: 13px;
+  color: #1e3a5f;
+  margin: 0 0 8px;
+  line-height: 1.6;
+}
+.summary-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3b82f6;
+}
+.wrong-concepts {
+  margin-top: 6px;
+}
+.wrong-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 2px;
+  background: #fee2e2;
+  color: #dc2626;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+
+
+
+/* ── Live Note ── */
+.note-loading {
+  text-align: center;
+  padding: 24px;
+}
+.note-loading p {
+  color: #9ca3af;
+  animation: pulse-live 2s infinite;
+}
+.note-content h3 {
+  margin: 0 0 14px;
+  font-size: 18px;
+  color: #e5e7eb;
+}
+.note-stats {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.note-stats span {
+  padding: 5px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+.note-body {
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 14px;
+  line-height: 1.85;
+  max-height: 600px;
+  overflow-y: auto;
+  color: #d1d5db;
+}
+.note-body::-webkit-scrollbar {
+  width: 6px;
+}
+.note-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.note-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+.note-body h1 {
+  font-size: 20px;
+  margin: 20px 0 10px;
+  color: #f9fafb;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 8px;
+}
+.note-body h2 {
+  font-size: 17px;
+  margin: 18px 0 8px;
+  color: #e5e7eb;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 6px;
+}
+.note-body h3 {
+  font-size: 15px;
+  margin: 14px 0 6px;
+  color: #d1d5db;
+}
+.note-body h4 {
+  font-size: 14px;
+  margin: 10px 0 4px;
+  color: #9ca3af;
+}
+.note-body li {
+  margin-left: 16px;
+  margin-bottom: 4px;
+  color: #d1d5db;
+}
+.note-body strong {
+  color: #93c5fd;
+  font-weight: 600;
+}
+.note-body em {
+  color: #a5b4fc;
+}
+.note-body code {
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.note-body pre {
+  background: rgba(0, 0, 0, 0.3) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 14px !important;
+  overflow-x: auto;
+  color: #e5e7eb !important;
+  font-size: 13px !important;
+}
+.note-body blockquote {
+  border-left: 3px solid rgba(59, 130, 246, 0.5) !important;
+  color: #9ca3af !important;
+  padding-left: 12px;
+  margin: 10px 0;
+}
+.note-body hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  margin: 16px 0;
+}
+.note-body table,
+.note-body tr,
+.note-body td {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+.note-body td {
+  padding: 8px 12px !important;
+  color: #d1d5db;
+}
+
+/* ── Q&A Panel (학습자) ── */
+.qa-panel {
+  margin-top: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+}
+.qa-toggle {
+  width: 100%;
+  padding: 12px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.qa-toggle:hover {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.qa-body {
+  padding: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.qa-input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.qa-input {
+  flex: 1;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: white;
+  font-size: 13px;
+}
+.qa-input::placeholder {
+  color: #64748b;
+}
+.qa-send-btn {
+  padding: 10px 18px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.qa-send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.qa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.qa-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.qa-item.answered {
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.qa-vote {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.vote-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 2px;
+}
+.vote-btn:hover {
+  transform: scale(1.2);
+}
+.vote-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f59e0b;
+}
+
+.qa-content {
+  flex: 1;
+}
+.qa-question-text {
+  color: white;
+  font-size: 13px;
+  margin: 0 0 6px;
+  line-height: 1.4;
+}
+.qa-answer {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.qa-answer.instructor {
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+}
+.qa-answer.ai {
+  background: rgba(139, 92, 246, 0.12);
+  color: #c4b5fd;
+}
+.answer-badge {
+  font-size: 10px;
+  font-weight: 600;
+  margin-right: 4px;
+}
+.qa-pending {
+  font-size: 11px;
+  color: #64748b;
+  font-style: italic;
+}
+.qa-empty {
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+  padding: 20px;
+}
+
+/* ── Note Approval + Materials ── */
+.note-pending-approval {
+  text-align: center;
+  padding: 24px;
+  color: #94a3b8;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px dashed rgba(245, 158, 11, 0.3);
+  border-radius: 10px;
+}
+.note-pending-approval p {
+  margin: 4px 0;
+}
+
+.linked-materials {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.linked-materials h4 {
+  color: #94a3b8;
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.linked-material-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+.lm-type {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.lm-link {
+  color: #60a5fa;
+  text-decoration: none;
+  font-size: 13px;
+}
+.lm-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Phase 2-1: Weak Zone Popup ── */
+.weak-zone-popup {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 420px;
+  z-index: 1500;
+  background: rgba(30, 30, 50, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 16px;
+  padding: 16px 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+.wz-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.wz-icon {
+  font-size: 20px;
+}
+.wz-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fbbf24;
+}
+.wz-body {
+  margin-bottom: 12px;
+}
+.wz-ai-text {
+  font-size: 13px;
+  color: #e2e8f0;
+  line-height: 1.6;
+  margin: 0;
+}
+.wz-material {
+  margin-top: 8px;
+}
+.wz-material-link {
+  color: #60a5fa;
+  font-size: 13px;
+  text-decoration: none;
+}
+.wz-material-link:hover {
+  text-decoration: underline;
+}
+.wz-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.wz-btn-ok {
+  padding: 8px 20px;
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.wz-btn-ok:hover {
+  background: rgba(245, 158, 11, 0.3);
+}
+
+.slide-up-enter-active {
+  animation: slideUp 0.3s ease;
+}
+.slide-up-leave-active {
+  animation: slideUp 0.3s ease reverse;
+}
+@keyframes slideUp {
+  from {
+    transform: translateX(-50%) translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ── Phase 2-3: Review Route Card ── */
+.review-route-card {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 12px;
+}
+.review-route-card h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: #60a5fa;
+}
+.rr-est {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 0 0 8px;
+}
+.rr-progress-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  margin-bottom: 12px;
+}
+.rr-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.rr-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rr-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  transition: opacity 0.2s;
+}
+.rr-item.completed {
+  opacity: 0.5;
+}
+.rr-check {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+}
+.rr-item-info {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.rr-item-title {
+  font-size: 13px;
+  color: #e2e8f0;
+}
+.rr-item-time {
+  font-size: 11px;
+  color: #64748b;
+}
+
+/* ── Phase 2-4: Formative Assessment ── */
+.formative-card {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 12px;
+}
+.formative-card h4 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: #a78bfa;
+}
+.fa-question {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.fa-q-text {
+  font-size: 13px;
+  color: #e2e8f0;
+  font-weight: 600;
+  margin: 0 0 8px;
+  line-height: 1.6;
+}
+.fa-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fa-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  font-size: 12px;
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.fa-option:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.1);
+}
+.fa-option.selected {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.15);
+  color: #a78bfa;
+}
+.fa-option input[type="radio"] {
+  accent-color: #6366f1;
+}
+.fa-submit-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fa-submit-btn:hover:not(:disabled) {
+  background: #4f46e5;
+}
+.fa-submit-btn:disabled {
+  opacity: 0.6;
+}
+
+.formative-result-card {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 12px;
+}
+.formative-result-card h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: #a78bfa;
+}
+.fa-score {
+  font-size: 20px;
+  font-weight: 700;
+  color: #e2e8f0;
+  text-align: center;
+  margin: 8px 0;
+}
+.fa-sr-notice {
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  color: #fbbf24;
+  font-size: 12px;
+  margin: 8px 0;
+  text-align: center;
+}
+.fa-results-detail {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fa-result-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.fa-result-item.correct {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+.fa-result-item.wrong {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+}
+.fa-explanation {
+  display: block;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* ── Phase 2-2: Adaptive Content ── */
+.adaptive-content-section {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 12px;
+}
+.adaptive-content-section h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: #34d399;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.level-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border-radius: 6px;
+  font-weight: 700;
+}
+.ac-item {
+  margin-bottom: 8px;
+}
+.ac-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #e2e8f0;
+}
+.ac-item-header:hover {
+  border-color: rgba(16, 185, 129, 0.3);
+}
+.ac-level-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border-radius: 4px;
+  margin-left: auto;
+}
+.ac-na {
+  font-size: 10px;
+  color: #64748b;
+  margin-left: auto;
+}
+.ac-content {
+  padding: 12px;
+  margin-top: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  font-size: 13px;
+  color: #cbd5e1;
+  line-height: 1.7;
+}
+
+/* ── 📊 퀴즈 히스토리 뷰 ── */
+.quiz-history-view {
+  padding: 16px;
+  overflow-y: auto;
+  max-height: 600px;
+}
+.quiz-history-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 요약 카드 */
+.qh-summary-card {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+.qh-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.qh-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+.qh-stat-value.correct-text { color: #34d399; }
+.qh-stat-value.wrong-text { color: #f87171; }
+.qh-stat-label {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+/* 개별 퀴즈 아이템 */
+.qh-item {
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  transition: border-color 0.2s;
+}
+.qh-item.qh-correct { border-left: 3px solid #34d399; }
+.qh-item.qh-wrong { border-left: 3px solid #f87171; }
+.qh-item.qh-unanswered { border-left: 3px solid #64748b; }
+
+.qh-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.qh-num {
+  font-weight: 700;
+  font-size: 13px;
+  color: #94a3b8;
+  min-width: 28px;
+}
+.qh-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.qh-badge.correct { background: rgba(52, 211, 153, 0.15); color: #34d399; }
+.qh-badge.wrong { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+.qh-badge.unanswered { background: rgba(100, 116, 139, 0.15); color: #94a3b8; }
+.qh-ai-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: rgba(79, 172, 254, 0.15);
+  color: #4facfe;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.qh-question {
+  font-size: 13.5px;
+  color: #e2e8f0;
+  line-height: 1.6;
+  margin: 0 0 10px 0;
+}
+
+/* 보기 리스트 */
+.qh-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.qh-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+}
+.qh-option.is-correct-answer {
+  background: rgba(52, 211, 153, 0.08);
+  border-color: rgba(52, 211, 153, 0.2);
+  color: #34d399;
+}
+.qh-option.is-my-wrong {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.2);
+  color: #f87171;
+}
+.opt-icon {
+  font-size: 12px;
+  min-width: 16px;
+  text-align: center;
+}
+
+/* 해설 */
+.qh-explanation {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(79, 172, 254, 0.06);
+  border: 1px solid rgba(79, 172, 254, 0.1);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: #93c5fd;
+  line-height: 1.6;
+}
+</style>

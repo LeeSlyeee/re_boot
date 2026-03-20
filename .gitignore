@@ -1,0 +1,41 @@
+backend/.env
+venv/
+venv_win/
+__pycache__/
+
+# 업로드된 미디어 파일 (녹음 등)
+backend/media/
+
+# 디버그 로그 / 임시 파일
+*.log
+debug_*.txt
+debug_*.log*
+screencapture-*.png
+*_stderr.log
+*_stdout.log
+
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Node
+node_modules*/
+dist/
+# SSH 키
+sshKey/
+sshKey.zip
+
+# PID 파일
+*.pid
+
+# 바이너리 캐시
+*.pyc
+__pycache__/
+
+# 기타
+backend/nul
+android/
+trash/

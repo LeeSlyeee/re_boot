@@ -1,0 +1,1171 @@
+<script setup>
+import { ref, onMounted } from "vue";
+import { useToast } from '../composables/useToast';
+const { showToast } = useToast();
+import { useRouter } from "vue-router";
+import { getPortfolios, generatePortfolio } from "../api/career";
+import api from "../api/axios"; // [New] for direct calls
+import {
+  FileText,
+  Rocket,
+  Loader,
+  Plus,
+  ChevronRight,
+  Briefcase,
+  AlertTriangle,
+  X,
+  CheckCircle,
+  Lock,
+  Mic,
+  Trophy,
+} from "lucide-vue-next";
+
+const router = useRouter();
+const portfolios = ref([]);
+const skillData = ref({ stats: { total: 0, earned: 0, rate: 0 }, categories: [] });
+const loading = ref(false);
+const skillsLoading = ref(false);
+const generating = ref(false);
+const selectedPortfolio = ref(null);
+
+// PortfolioProject State
+const projectsList = ref([]);
+const showProjectModal = ref(false);
+const newProject = ref({ name: '', description: '', tech_stack: '', github_url: '', demo_url: '', role: '' });
+
+// Error Modal State
+const showModal = ref(false);
+const errorMessage = ref("");
+
+// Category Selection Modal
+const showCategoryModal = ref(false);
+const pendingPortfolioType = ref('');
+const categories = [
+  { key: null, label: '전체 스킬', icon: '🌐', desc: '모든 획득 스킬로 생성' },
+  { key: 'PYTHON', label: 'Python', icon: '🐍', desc: 'Python 관련 스킬만' },
+  { key: 'JAVASCRIPT', label: 'JavaScript', icon: '⚡', desc: 'JavaScript 관련 스킬만' },
+  { key: 'FRAMEWORK', label: 'Framework', icon: '🧩', desc: '프레임워크 관련 스킬만' },
+  { key: 'DATABASE', label: 'Database', icon: '🗄️', desc: '데이터베이스 관련 스킬만' },
+  { key: 'DEVOPS', label: 'DevOps', icon: '☁️', desc: 'DevOps 관련 스킬만' },
+  { key: 'HTML_CSS', label: 'HTML/CSS', icon: '🎨', desc: 'HTML/CSS 관련 스킬만' },
+  { key: 'CS_BASIC', label: 'CS 기초', icon: '📐', desc: 'CS 기초 관련 스킬만' },
+];
+
+onMounted(async () => {
+  loading.value = true;
+  skillsLoading.value = true;
+
+  try {
+    // Parallel Fetch
+    const [portfolioRes, skillsRes] = await Promise.all([
+      getPortfolios(),
+      api.get("/career/portfolios/skills/"), // [FIX] Correct Endpoint
+    ]);
+
+    portfolios.value = portfolioRes;
+    if (portfolios.value.length > 0) {
+      selectedPortfolio.value = portfolios.value[0];
+    }
+
+    skillData.value = skillsRes.data;
+  } catch (e) {
+    console.error("Skills Fetch Failed", e);
+    // Only show critical errors, don't fallback to dummy
+    if (e.response?.status !== 404) {
+      showToast(`스킬 데이터 로딩 실패: ${e.message}`, 'error');
+    }
+  } finally {
+    loading.value = false;
+    skillsLoading.value = false;
+  }
+});
+
+const openCategoryModal = (type) => {
+  pendingPortfolioType.value = type;
+  showCategoryModal.value = true;
+};
+
+const handleGenerate = async (category = null) => {
+  showCategoryModal.value = false;
+  generating.value = true;
+  try {
+    const newPortfolio = await generatePortfolio(pendingPortfolioType.value, category);
+    portfolios.value.unshift(newPortfolio);
+    selectedPortfolio.value = newPortfolio;
+  } catch (e) {
+    const serverMsg =
+      e.response?.data?.error ||
+      "학습 데이터가 부족하거나 AI 응답이 지연되고 있습니다.";
+    errorMessage.value = serverMsg;
+    showModal.value = true;
+  } finally {
+    generating.value = false;
+  }
+};
+
+const selectPortfolio = async (p) => {
+  selectedPortfolio.value = p;
+  await fetchProjects(p.id);
+};
+
+const fetchProjects = async (portfolioId) => {
+  try {
+    const { data } = await api.get(`/career/portfolios/${portfolioId}/projects/`);
+    projectsList.value = data;
+  } catch (e) { projectsList.value = []; }
+};
+
+const addProject = async () => {
+  if (!selectedPortfolio.value || !newProject.value.name) return;
+  try {
+    const payload = {
+      ...newProject.value,
+      tech_stack: newProject.value.tech_stack ? newProject.value.tech_stack.split(',').map(s => s.trim()) : [],
+    };
+    await api.post(`/career/portfolios/${selectedPortfolio.value.id}/projects/`, payload);
+    showProjectModal.value = false;
+    newProject.value = { name: '', description: '', tech_stack: '', github_url: '', demo_url: '', role: '' };
+    await fetchProjects(selectedPortfolio.value.id);
+  } catch (e) { showToast('프로젝트 추가 실패', 'error'); }
+};
+
+const deleteProject = async (projectId) => {
+  if (!confirm('이 프로젝트를 삭제하시겠습니까?')) return;
+  try {
+    await api.delete(`/career/portfolios/${selectedPortfolio.value.id}/projects/${projectId}/`);
+    await fetchProjects(selectedPortfolio.value.id);
+  } catch (e) { /* silent */ }
+};
+
+const closeModal = () => {
+  showModal.value = false;
+};
+
+// [NEW] 스킬블록 삭제
+const deleteSkillBlock = async (blockId) => {
+  if (!confirm('이 스킬블록을 삭제하시겠습니까?')) return;
+  try {
+    await api.delete(`/learning/skill-blocks/${blockId}/`);
+    showToast('스킬블록이 삭제되었습니다.', 'success');
+    // 리로드
+    const skillsRes = await api.get("/career/portfolios/skills/");
+    skillData.value = skillsRes.data;
+  } catch(e) {
+    showToast('삭제 실패', 'error');
+  }
+};
+</script>
+
+<template>
+  <div class="portfolio-view">
+    <div class="container">
+      <header class="page-header">
+        <div>
+          <h1 class="text-headline">커리어 포트폴리오</h1>
+          <p class="subtitle">
+            AI가 학습 기록을 분석하여 포트폴리오와 기획서를 자동으로 생성합니다.
+          </p>
+        </div>
+        <div class="header-actions" style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button
+            @click="openCategoryModal('JOB')"
+            :disabled="generating"
+            class="apple-pill-btn accent"
+          >
+            <Briefcase size="14" /> <span>취업 포트폴리오 생성</span>
+          </button>
+          <button
+            @click="openCategoryModal('STARTUP')"
+            :disabled="generating"
+            class="apple-pill-btn accent"
+          >
+            <Rocket size="14" /> <span>창업 MVP 기획서 생성</span>
+          </button>
+          <button
+            @click="router.push('/interview/setup')"
+            class="apple-pill-btn"
+          >
+            <Mic size="14" /> <span>AI 면접 연습</span>
+          </button>
+        </div>
+      </header>
+
+      <div v-if="generating" class="loading-overlay">
+        <Loader class="spin" />
+        <p>AI가 지난 모든 학습 데이터를 분석중입니다... (최대 1분 소요)</p>
+      </div>
+
+      <!-- Error Modal -->
+      <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
+        <div class="modal-content glass-panel">
+          <button class="close-btn" @click="closeModal"><X size="20" /></button>
+          <div class="modal-header">
+            <div class="icon-box danger">
+              <AlertTriangle size="24" />
+            </div>
+            <h2>생성 실패 (Generation Failed)</h2>
+          </div>
+
+          <div class="modal-body">
+            <p class="main-msg">AI 포트폴리오를 생성하지 못했습니다.</p>
+            <p class="sub-msg">{{ errorMessage }}</p>
+
+            <div class="troubleshoot-box">
+              <h3>원인 및 해결 방법</h3>
+              <ul>
+                <li>
+                  <span class="bullet">1</span>
+                  <div>
+                    <strong>학습 데이터 부족</strong>
+                    <p>
+                      최소 1개 이상의 학습 세션(강의 요약)이 필요합니다.<br />'학습하기'
+                      메뉴에서 강의를 듣고 AI 요약을 완료해주세요.
+                    </p>
+                  </div>
+                </li>
+                <li>
+                  <span class="bullet">2</span>
+                  <div>
+                    <strong>OpenAI API 설정 문제</strong>
+                    <p>
+                      서버에 API Key가 설정되지 않았거나 만료되었을 수
+                      있습니다.<br />관리자에게 문의해주세요.
+                    </p>
+                  </div>
+                </li>
+                <li>
+                  <span class="bullet">3</span>
+                  <div>
+                    <strong>일시적인 시스템 오류</strong>
+                    <p>네트워크 상태를 확인하고 잠시 후 다시 시도해주세요.</p>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="closeModal">확인</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skill Blocks Gamification Section -->
+      <section
+        v-if="skillData.stats.total > 0"
+        class="skill-heatmap-section glass-panel"
+      >
+        <!-- 전체 진행률 헤더 -->
+        <div class="section-header">
+          <div class="header-left">
+            <Trophy size="20" class="trophy-icon" />
+            <h3>스킬 블록</h3>
+          </div>
+          <div class="stats-badge">
+            <span class="earned-num">{{ skillData.stats.earned }}</span>
+            <span class="divider">/</span>
+            <span class="total-num">{{ skillData.stats.total }}</span>
+            <span class="unit">블록 획득</span>
+          </div>
+        </div>
+
+        <!-- 프로그레스 바 -->
+        <div class="progress-bar-container">
+          <div class="progress-bar">
+            <div
+              class="progress-fill"
+              :style="{ width: skillData.stats.rate + '%' }"
+            ></div>
+          </div>
+          <span class="progress-label">{{ skillData.stats.rate }}%</span>
+        </div>
+
+        <!-- 카테고리별 블록 -->
+        <div class="skill-categories">
+          <div
+            v-for="cat in skillData.categories"
+            :key="cat.category"
+            class="skill-category"
+          >
+            <div class="category-header">
+              <h4>{{ cat.category }}</h4>
+              <span class="category-progress">{{ cat.earned_count }}/{{ cat.total }}</span>
+            </div>
+            <div class="blocks-grid">
+              <!-- 획득한 블록 -->
+              <div
+                v-for="skill in cat.earned"
+                :key="'e-' + skill.id"
+                class="skill-block earned"
+                :title="`✅ ${skill.week} - ${skill.source}\n획득일: ${skill.date}`"
+              >
+                <span class="block-check"><CheckCircle size="12" /></span>
+                <span class="block-name">{{ skill.name }}</span>
+                <span class="block-delete" @click.stop="deleteSkillBlock(skill.id)" title="삭제">✕</span>
+              </div>
+              <!-- 미획득 블록 (잠금) -->
+              <div
+                v-for="skill in cat.available"
+                :key="'a-' + skill.id"
+                class="skill-block locked"
+                :title="skill.hint"
+              >
+                <span class="block-lock"><Lock size="12" /></span>
+                <span class="block-name">{{ skill.name }}</span>
+                <span class="block-delete" @click.stop="deleteSkillBlock(skill.id)" title="삭제">✕</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 스킬 블록이 아예 없을 때 -->
+      <section
+        v-else-if="!skillsLoading"
+        class="skill-empty-section glass-panel"
+      >
+        <Trophy size="32" class="empty-icon" />
+        <p>수강 중인 강의가 없습니다. 강의에 등록하면 스킬 블록을 획득할 수 있습니다!</p>
+      </section>
+
+      <div class="content-layout">
+        <!-- Sidebar List -->
+        <aside class="sidebar glass-panel">
+          <h3>생성된 문서함</h3>
+          <div class="list-container">
+            <div v-if="portfolios.length === 0" class="empty-list">
+              생성된 문서가 없습니다.
+            </div>
+            <div
+              v-for="p in portfolios"
+              :key="p.id"
+              class="list-item"
+              :class="{ active: selectedPortfolio?.id === p.id }"
+              @click="selectPortfolio(p)"
+            >
+              <div class="icon">
+                <Briefcase v-if="p.portfolio_type === 'JOB'" size="18" />
+                <Rocket v-else size="18" />
+              </div>
+              <div class="item-info">
+                <div class="item-title">{{ p.title }}</div>
+                <div class="item-date">{{ p.created_at }}</div>
+              </div>
+              <ChevronRight size="16" class="arrow" />
+            </div>
+          </div>
+        </aside>
+
+        <!-- Document Viewer -->
+        <main class="viewer glass-panel">
+          <div v-if="selectedPortfolio" class="document-content">
+            <div class="doc-header">
+              <span class="badge" :class="selectedPortfolio.portfolio_type">
+                {{ selectedPortfolio.portfolio_type_display }}
+              </span>
+              <h2>{{ selectedPortfolio.title }}</h2>
+              <div class="doc-meta">
+                생성일: {{ selectedPortfolio.created_at }}
+              </div>
+            </div>
+            <div class="markdown-body">
+              {{ selectedPortfolio.content }}
+            </div>
+
+            <!-- PortfolioProject Section -->
+            <div class="projects-section">
+              <div class="projects-header">
+                <h3>🛠️ 프로젝트 ({{ projectsList.length }})</h3>
+                <button class="add-project-btn" @click="showProjectModal = true">
+                  <Plus :size="14" /> 프로젝트 추가
+                </button>
+              </div>
+              <div v-if="projectsList.length > 0" class="projects-grid">
+                <div v-for="proj in projectsList" :key="proj.id" class="project-card">
+                  <div class="project-top">
+                    <h4>{{ proj.name }}</h4>
+                    <button class="project-delete" @click="deleteProject(proj.id)">✕</button>
+                  </div>
+                  <p class="project-desc" v-if="proj.description">{{ proj.description }}</p>
+                  <div v-if="proj.role" class="project-role">👤 {{ proj.role }}</div>
+                  <div v-if="proj.tech_stack && proj.tech_stack.length" class="project-tags">
+                    <span v-for="t in proj.tech_stack" :key="t" class="tech-tag">{{ t }}</span>
+                  </div>
+                  <div class="project-links">
+                    <a v-if="proj.github_url" :href="proj.github_url" target="_blank" class="proj-link">GitHub →</a>
+                    <a v-if="proj.demo_url" :href="proj.demo_url" target="_blank" class="proj-link demo">Demo →</a>
+                  </div>
+                </div>
+              </div>
+              <p v-else class="no-projects">프로젝트를 추가하여 포트폴리오를 풍성하게 만드세요!</p>
+            </div>
+          </div>
+          <div v-else class="empty-state">
+            <FileText size="48" />
+            <p>왼쪽 목록에서 문서를 선택하거나 새로 생성해주세요.</p>
+          </div>
+        </main>
+      </div>
+
+      <!-- Add Project Modal -->
+      <div v-if="showProjectModal" class="modal-overlay" @click.self="showProjectModal = false">
+        <div class="modal-content glass-panel" style="width:500px">
+          <h2>🛠️ 프로젝트 추가</h2>
+          <div class="project-form">
+            <input v-model="newProject.name" placeholder="프로젝트명 *" />
+            <textarea v-model="newProject.description" placeholder="프로젝트 설명" rows="3"></textarea>
+            <input v-model="newProject.role" placeholder="담당 역할 (예: 프론트엔드 개발)" />
+            <input v-model="newProject.tech_stack" placeholder="기술 스택 (쉼표 구분: React, Django)" />
+            <input v-model="newProject.github_url" placeholder="GitHub URL (선택)" />
+            <input v-model="newProject.demo_url" placeholder="Demo URL (선택)" />
+          </div>
+          <div class="modal-footer" style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn-secondary" @click="showProjectModal = false">취소</button>
+            <button class="btn btn-primary" @click="addProject" :disabled="!newProject.name">추가</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Category Selection Modal -->
+      <div v-if="showCategoryModal" class="modal-overlay" @click.self="showCategoryModal = false">
+        <div class="modal-content glass-panel category-modal">
+          <button class="close-btn" @click="showCategoryModal = false"><X size="20" /></button>
+          <div class="modal-header">
+            <div class="icon-box" style="background:rgba(79,172,254,0.1);color:#4facfe;">
+              <Briefcase v-if="pendingPortfolioType === 'JOB'" size="24" />
+              <Rocket v-else size="24" />
+            </div>
+            <h2>{{ pendingPortfolioType === 'JOB' ? '포트폴리오 분야 선택' : 'MVP 기획서 분야 선택' }}</h2>
+          </div>
+          <p class="category-desc">어떤 분야의 스킬을 기반으로 생성할까요?</p>
+          <div class="category-grid">
+            <div 
+              v-for="cat in categories" 
+              :key="cat.key || 'all'" 
+              class="category-card"
+              @click="handleGenerate(cat.key)"
+            >
+              <span class="cat-icon">{{ cat.icon }}</span>
+              <div class="cat-info">
+                <h4>{{ cat.label }}</h4>
+                <p>{{ cat.desc }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped lang="scss">
+.portfolio-view {
+  padding-top: var(--header-height);
+  min-height: 100vh;
+  background: #000;
+  color: white;
+  padding-bottom: 40px;
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin: 40px 0;
+  h1 {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    color: #9ba1a6;
+  }
+  .action-buttons {
+    display: flex;
+    gap: 12px;
+    button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      &:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+    }
+    .btn-primary {
+      background: var(--color-primary, #4facfe);
+      color: white;
+    }
+    .btn-accent {
+      background: var(--color-accent, #ff6b6b);
+      color: white;
+    }
+  }
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(5px);
+  animation: fadeIn 0.2s ease;
+}
+
+.modal-content {
+  width: 480px;
+  max-width: 90vw;
+  background: #1c1c1e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  padding: 32px;
+  position: relative;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: #9ba1a6;
+  cursor: pointer;
+  &:hover {
+    color: white;
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  h2 {
+    font-size: 20px;
+    font-weight: 600;
+  }
+
+  .icon-box {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 69, 58, 0.1);
+    color: #ff453a;
+  }
+}
+
+.modal-body {
+  .main-msg {
+    font-size: 16px;
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+  .sub-msg {
+    font-size: 14px;
+    color: #ff453a;
+    margin-bottom: 24px;
+  }
+}
+
+.troubleshoot-box {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  padding: 16px;
+
+  h3 {
+    font-size: 13px;
+    color: #9ba1a6;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    letter-spacing: 0.5px;
+  }
+  ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  li {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    font-size: 13px;
+    line-height: 1.5;
+
+    .bullet {
+      width: 18px;
+      height: 18px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: #aaa;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    strong {
+      display: block;
+      color: #eee;
+      margin-bottom: 2px;
+    }
+    p {
+      color: #9ba1a6;
+    }
+  }
+}
+
+.modal-footer {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
+  .btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    &:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Skill Block Gamification */
+.skill-heatmap-section {
+  margin-bottom: 24px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .trophy-icon {
+    color: #fbbf24;
+  }
+
+  h3 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #eee;
+    margin: 0;
+  }
+
+  .stats-badge {
+    display: flex;
+    align-items: baseline;
+    gap: 2px;
+    font-weight: 600;
+    background: rgba(79, 172, 254, 0.1);
+    padding: 6px 14px;
+    border-radius: 20px;
+
+    .earned-num {
+      font-size: 20px;
+      color: #4facfe;
+    }
+    .divider {
+      color: #555;
+      margin: 0 2px;
+    }
+    .total-num {
+      font-size: 14px;
+      color: #9ba1a6;
+    }
+    .unit {
+      font-size: 12px;
+      color: #9ba1a6;
+      margin-left: 6px;
+    }
+  }
+}
+
+.progress-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4facfe, #00f2fe);
+  border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.progress-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #4facfe;
+  min-width: 40px;
+  text-align: right;
+}
+
+.skill-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.skill-category {
+  .category-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  h4 {
+    font-size: 14px;
+    color: #9ba1a6;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .category-progress {
+    font-size: 12px;
+    color: #9ba1a6;
+    font-weight: 500;
+  }
+
+  .blocks-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
+.skill-block {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: default;
+  transition: all 0.2s;
+
+  &.earned {
+    background: rgba(79, 172, 254, 0.1);
+    border: 1px solid rgba(79, 172, 254, 0.2);
+    color: #eee;
+
+    &:hover {
+      background: rgba(79, 172, 254, 0.2);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .block-check {
+      color: #4facfe;
+      display: flex;
+    }
+  }
+
+  &.locked {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+    color: #555;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: #9ba1a6;
+      transform: translateY(-1px);
+    }
+
+    .block-lock {
+      color: #444;
+      display: flex;
+    }
+
+    .block-name {
+      color: #555;
+    }
+  }
+}
+
+.block-delete {
+  display: none;
+  color: #ff5555;
+  font-size: 11px;
+  cursor: pointer;
+  margin-left: auto;
+  padding: 2px;
+  &:hover { color: #ff0000; }
+}
+.skill-block:hover .block-delete {
+  display: inline;
+}
+
+.skill-empty-section {
+  margin-bottom: 24px;
+  padding: 40px;
+  text-align: center;
+  color: #555;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+
+  .empty-icon {
+    color: #333;
+  }
+
+  p {
+    font-size: 14px;
+  }
+}
+
+/* Existing Content Styles */
+.content-layout {
+  display: flex;
+  gap: 24px;
+  height: calc(100vh - 200px);
+}
+
+.sidebar {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  h3 {
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 16px;
+    font-size: 16px;
+    color: #9ba1a6;
+  }
+}
+
+.list-container {
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.02);
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  &.active {
+    background: rgba(79, 172, 254, 0.2);
+    border: 1px solid #4facfe;
+  }
+
+  .icon {
+    color: #9ba1a6;
+  }
+  .item-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .item-title {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .item-date {
+    font-size: 12px;
+    color: #9ba1a6;
+  }
+  .arrow {
+    color: #444;
+  }
+}
+
+.viewer {
+  flex: 1;
+  overflow-y: auto;
+  background: #0d0d0d; // Slightly darker for document contrast
+}
+
+.document-content {
+  padding: 40px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.doc-header {
+  margin-bottom: 40px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 24px;
+  h2 {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 16px 0;
+  }
+  .badge {
+    padding: 4px 12px;
+    border-radius: 100px;
+    font-size: 12px;
+    font-weight: 600;
+    &.JOB {
+      background: rgba(79, 172, 254, 0.2);
+      color: #4facfe;
+    }
+    &.STARTUP {
+      background: rgba(255, 107, 107, 0.2);
+      color: #ff6b6b;
+    }
+  }
+  .doc-meta {
+    color: #9ba1a6;
+    font-size: 14px;
+  }
+}
+
+.markdown-body {
+  white-space: pre-wrap;
+  line-height: 1.8;
+  color: #e0e0e0;
+  font-size: 16px;
+}
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #444;
+  p {
+    margin-top: 16px;
+  }
+}
+
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  gap: 16px;
+  .spin {
+    animation: spin 1s linear infinite;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.glass-panel {
+  background: #1c1c1e;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+/* Project Section */
+.projects-section { margin-top: 40px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 24px; }
+.projects-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.projects-header h3 { font-size: 18px; color: #ddd; margin: 0; }
+.add-project-btn {
+  display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px;
+  background: rgba(79,172,254,0.15); color: #4facfe; border: 1px solid rgba(79,172,254,0.3);
+  cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s;
+  &:hover { background: rgba(79,172,254,0.25); }
+}
+.projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.project-card {
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px; padding: 16px; transition: all 0.2s;
+  &:hover { border-color: rgba(79,172,254,0.3); }
+}
+.project-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.project-top h4 { margin: 0; font-size: 15px; color: #eee; }
+.project-delete { background: none; border: none; color: #555; cursor: pointer; font-size: 14px; &:hover { color: #ff5555; } }
+.project-desc { font-size: 13px; color: #9ba1a6; margin: 0 0 8px; line-height: 1.4; }
+.project-role { font-size: 12px; color: #767676; margin-bottom: 8px; }
+.project-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.tech-tag { font-size: 11px; padding: 2px 8px; background: rgba(79,172,254,0.1); color: #4facfe; border-radius: 4px; }
+.project-links { display: flex; gap: 10px; }
+.proj-link { font-size: 12px; color: #4facfe; text-decoration: none; &:hover { text-decoration: underline; } &.demo { color: #43e97b; } }
+.no-projects { color: #555; font-size: 14px; text-align: center; padding: 20px; }
+
+.project-form {
+  display: flex; flex-direction: column; gap: 10px;
+  input, textarea { width: 100%; padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #eee; font-size: 14px; box-sizing: border-box; }
+  textarea { resize: vertical; }
+}
+.btn-primary { background: #4facfe; color: white; border: none; padding: 8px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; &:disabled { opacity: 0.5; } }
+/* Category Selection Modal */
+.category-modal {
+  width: 560px;
+  max-width: 95vw;
+}
+.category-desc {
+  color: #9ba1a6;
+  font-size: 14px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+.category-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.category-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:first-child {
+    grid-column: 1 / -1;
+    background: rgba(79, 172, 254, 0.06);
+    border-color: rgba(79, 172, 254, 0.15);
+  }
+
+  &:hover {
+    background: rgba(79, 172, 254, 0.1);
+    border-color: rgba(79, 172, 254, 0.3);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+}
+.cat-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+.cat-info {
+  h4 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #eee;
+    margin: 0 0 2px 0;
+  }
+  p {
+    font-size: 12px;
+    color: #777;
+    margin: 0;
+  }
+}
+
+/* Apple SF-style Pill Buttons */
+.apple-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 22px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.18);
+    transform: translateY(-0.5px);
+  }
+  &:active {
+    transform: scale(0.97);
+    background: rgba(255, 255, 255, 0.08);
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+  &.accent {
+    background: linear-gradient(135deg, rgba(79, 172, 254, 0.2), rgba(0, 242, 254, 0.1));
+    border-color: rgba(79, 172, 254, 0.25);
+    color: #4facfe;
+    &:hover {
+      background: linear-gradient(135deg, rgba(79, 172, 254, 0.3), rgba(0, 242, 254, 0.2));
+      border-color: rgba(79, 172, 254, 0.45);
+      box-shadow: 0 0 14px rgba(79, 172, 254, 0.12);
+    }
+  }
+}
+</style>
